@@ -1,0 +1,8 @@
+s01|The quick brown fox jumps over the lazy dog near the riverbank.
+s02|Cohesin is a protein complex that holds sister chromatids together during mitosis.
+s03|On Thursday, February twenty-ninth, the meeting starts at 3:45 p.m. sharp.
+s04|Honestly? I didn't expect that — but I'm thrilled it worked out for you!
+s05|Photosynthesis converts light energy into chemical energy stored in glucose molecules.
+s06|Please read the following numbers slowly: four, eight, fifteen, sixteen, twenty-three, forty-two.
+s07|The archaeologist's hypothesis was, unfortunately, contradicted by the radiocarbon data.
+s08|Welcome back, everyone. Today we'll explore why some ideas spread faster than others, and what that means for how we learn, argue, and change our minds over time.

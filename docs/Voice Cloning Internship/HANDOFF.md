@@ -1,16 +1,19 @@
 # Voice Cloning Project Handoff
 
-Last updated: 2026-10-06
+Last updated: 2026-10-23
 
 ## Current State
 
+- 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Instance still running (22 Oct auto-stop did not apply); stop it when done. See docs/deployment.md.
+- 2026-10-23: Staging voice cs-tengyuliu-v1 trained on the 30 min audiobook; compared (Live Fast/Full) with 8 zero-shot lab models in the "Audiobook Voice Clone Shootout" artifact, plus a 36-clip Dean emotion grid. Generation only; listening/scoring is the next step. Lab default ref: 30secAUDIOBOOK.wav.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
-- 2026-10-05: Staging GPU capacity restored for the Live MC page (`https://d32nzk2gacfhag.cloudfront.net`,
-  CloudFront `E2F49Q71ZUM0G0`): fixed gateway running, ASG min 1 (daily actions keep 1), fixed
-  GPU schedule 00-24, coordinator autoscale. Runs 24/7 (cost); Dev stays stopped. Live MC is committed and
-  pushed on `separate-containers-new`; the remote staging branch has diverged (not fast-forwarded).
+- 2026-10-09: Staging restarted in manual mode: fixed EC2 running; ASG min/desired/max 1.
+  Daily actions postponed to non-recurring January 2099 entries (suspend/delete denied).
+  Staging Lambda schedule disabled and idle-stop 0; coordinator autoscale for ASG discovery.
+  Gateway healthy; inference target still unhealthy after startup polling. Dev was not changed.
+  Shutdown: ASG min/desired/max 0, then stop fixed EC2; see docs/deployment.md.
 - 2026-10-06: Live MC capture/VAD/duplex overhaul, strict turns and capture sliders deployed to staging (`mc` + gateway). All uncommitted.
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected
   cloned-voice snapshot and category to Dev; training, analytics and transcripts stay isolated.
@@ -67,10 +70,7 @@ CONTRADICTION: the lecture badge showed `cs-nathanael-ng` while `client/env/stag
   its own `npm install`, or the Lambda suite fails on a missing `@aws-sdk/client-lambda`.
 - No worker/AMI change needed: the worker's `SYNTHESIS_MAX_QUEUE_DEPTH` is 100, so the coordinator
   ceiling binds. Image `ami-07236b80dcdb93bcb`, launch-template v40.
-- Staging ASG: min 1 / max 192, two slots per GPU. `vcs-staging-daily-stop` now sets MinSize 0 and
-  Desired 0 at 19:00 SGT (a real stop, matching the fixed GPUs); `vcs-staging-daily-start` restores
-  MinSize 1 at 07:00 SGT. Evening testing must start a GPU first; an event overrunning 19:00 needs
-  its own action or a temporary suspension.
+- Staging manual capacity and shutdown controls: see current state above and docs/deployment.md.
 
 ## Queue and Scaling Contract
 

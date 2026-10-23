@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-22 — Unsigned staging TTS; lab playback (repo only, not deployed)
+
+- Staging Live Fast/TTS (`dfzrfr93t2ruf`) showed `Sign in to use the voice assistant`: staging Lambda
+  has no `LIVE_AUTH_DEMO_ONLY`, and the tracked `lambda/.env.deployment.staging` set
+  `LIVE_AUTH_EXEMPT_ORIGINS=` empty, which every deploy merges over runtime. Now lists the live-fast
+  and MC origins (MC also added to `CORS_ORIGIN`); gateway staging env file matches. GI/Faculty stay signed.
+- Zero-shot lab `app.py`: player gets an MP3 copy (~10x smaller than the WAV) to stop stalls and late
+  display over the Gradio tunnel; lossless WAV + JSON are in the download list.
+- Tests: MP3 copy round-trip checked locally (40 s, 24 kHz). `test_lab.py` not run — local Gradio import
+  broken (huggingface_hub mismatch).
+- Deployed same day: staging Lambda env merged (only exempt origins + CORS; `POST /api/live/tts-sentence`
+  from `dfzrfr93t2ruf` now 400, not 401); gateway `.env` merged (backup `.env.bak.tts-exempt`), `/readyz` ok;
+  lab `app.py` installed (backup `app.py.bak.mp3`), service active. No full synthesis or browser playback test.
+
+## 2026-10-16 — Voice-clone model bake-off scorer (local, not run on audio)
+
+- Added `scripts/clone-bench/score_clones.py` + `sentences.txt`: scores any folder of model outputs
+  against reference clips with WavLM-SV SIM, resemblyzer SIM and faster-whisper large-v3 WER; writes
+  `scores.csv` and a per-model summary. Only syntax-checked (`py_compile`); no audio scored yet.
+- Added repo `docs/voice-model-evaluation.md`: verified/unverified benchmark table, ChatGPT comparison,
+  8-model shortlist, hosting plan (6 GB local GPU too small for top models) and test protocol.
+
 ## 2026-09-01 — Atomic distributed GPU admission (local; deployment blocked)
 
 - Replaced stale-snapshot synthesis selection with a short, scope-wide DynamoDB admission lease and
@@ -1987,3 +2009,56 @@
   - Fixed a race where End then immediate Start reused the previous session's capture settings.
   - Tests: client 519/519, gateway 184/184; Chrome on staging verified slider values reach getUserMedia and
     session.init (Max/1.0s and Off/0.5s), OpenAI accepts noise reduction off, mid-session notice shows.
+
+
+## 2026-10-08
+
+- Shut down staging inference capacity: ASG and both recurring actions min/desired/max 0;
+  coordinator routing-only; enabled fixed Staging GPU 00-00 schedule (Dev already closed).
+- Updated repo deployment map and architecture plus vault deployment/handoff/bug state.
+- Checks: AWS schedule/Lambda read-backs; instance controller tests 17/17.
+  ASG worker termination still draining at the initial check; no application code changed.
+- Final follow-up: last ASG worker reached EC2 `shutting-down`; ASG remains 0/0/0.
+  Termination completion is not yet observed. Fixed GPUs remain stopped.
+
+## Zero-shot lab - 2026-10-22
+
+- Seoul ap-northeast-2a: i-093e8b2081168aff3, g6e.2xlarge, one L40S, 8 vCPU, 64 GiB RAM, 350 GiB gp3. Dev/Staging unchanged.
+- Public URL: https://d11833a346b73cedf4.gradio.live/ . Login: repo-local .tmp/zero-shot/access.json; do not commit credentials. The old f9a287074a9fc61eb4 link is obsolete.
+- Eight models generated valid audio: LongCat, dots.tts, VoxCPM2, Qwen3-TTS, FireRedTTS3, IndexTTS2.5, untrained GPT-SoVITS v2Pro and v5dev. Raon is blocked by a published vocabulary/checkpoint mismatch (5559 versus 5555 tokens); no speculative token remapping applied.
+- Independent ffprobe/soundfile and CPU Whisper checks passed for the eight outputs. Ten input-validation tests passed. Authenticated public Qwen API returned 4.88 seconds of audio in 30.731 seconds; unauthenticated config access returned 401. Speaker similarity, browser microphone interaction and broad language coverage remain unverified.
+- Remote root /opt/zero-shot-lab; systemd zero-shot-lab.service runs as ubuntu and starts on boot. Logs: logs/ui.log; evidence: smoke/verification-results.json and smoke/public-api.json. Each request loads one model and releases GPU memory on exit.
+- Scheduled shutdown: 2026-10-22 22:20 SGT. EC2 stop retains billable EBS. Temporary Gradio URL can change on service restart and lasts up to one week. Stop earlier using AWS EC2 stop-instances for this instance in ap-northeast-2.
+- Code added: scripts/clone-bench/catalog.py, install_lab.py, run_model.py, app.py, smoke_lab.py, verify_lab.py, test_lab.py and start_lab.sh. Updated repo docs/voice-model-evaluation.md with compatibility evidence.
+
+
+## 2026-10-23 - LongCat text dropping
+
+- Cause: LongCat caps reference + generated audio at max_wav_duration 60 s; the 30 s Dean reference left 30 s for ~40 s of text, so output clamped at 29.95 s and words were dropped. Confirmed from lab run 2da4caa0 log.
+- scripts/clone-bench/run_model.py: LongCat now synthesizes sentence chunks (<=220 chars) and joins them with 0.25 s gaps. Chunker checked locally to keep every word; not yet deployed or GPU-tested (remote write blocked). Lab instance left stopped.
+- Deployed 2026-10-23 to lab i-093e8b2081168aff3 (old file kept as app/run_model.py.bak-nochunk). Re-run with the same 30 s Dean reference: 4 chunks, 43.6 s, Whisper medium.en hears every sentence (old take lost sentence 1). New issue: each chunk opens with "year"/"this year" because the reference transcript ends mid-sentence; use references that end on a full sentence.
+
+## 2026-10-23 - Fish Audio added; FireRedTTS3 babble fixed
+
+- Added Fish Audio Drama 3 (FP8, ~41 GB, flagship) and S2-Pro to the lab (catalog `fishd3`/`fishs2`, shared env `fish`, Python 3.12, upstream uv.lock installed with --no-deps minus pyaudio). Files: scripts/clone-bench/catalog.py, install_lab.py, run_model.py, smoke_lab.py.
+- install_lab.py: root re-installs now work on ubuntu-owned repos (lab gitconfig with safe.directory; HOME override for setuptools-scm builds).
+- FireRed cause: 30 s Dean reference ends mid-phrase; output babbled (Whisper WER 63%). Same text with 19.4 s ref 24%, 9.0 s ref 2%. app.py now rejects FireRed references >12 s; test added.
+- Tests: test_lab 11/11 on the box; smoke audio for fishs2 and fishd3; Dean paragraph Whisper small.en WER: S2-Pro 0%, Drama 3 4% (dropped "While some"), FireRed 9 s ref 2%. Speaker similarity not measured.
+- Artifact "Dean GI Bleed Clone Test" updated: added Fish S2-Pro, Drama 3, fixed FireRed; removed old FireRed and old LongCat takes.
+- Lab UI restarted; public URL now https://6eda55f6ef0ae0fc3f.gradio.live/ .
+
+## 2026-10-23 - Emotion controls in the zero-shot lab
+
+- Only IndexTTS 2.5, VoxCPM2, Fish S2-Pro and Fish Drama 3 can steer emotion on a cloned voice (repo scan: Qwen3 Base clone has no instruct, FireRed emotion is voice-design only, dots needs separate dots.tts.edit, others none).
+- app.py: Emotion panel (8 IndexTTS emotions + intensity 0-1 + free description; emotion reference clip for IndexTTS) shown only for those models. run_model.py: IndexTTS emo_vector (upstream bias/0.8 cap) / use_emo_text (QwenEmotion) / emo_audio_prompt; VoxCPM2 "(very angry)" prefix in reference-only mode; Fish "[very angry]" before each sentence. catalog.py: `emotion` kind + emotion_phrase.
+- Tests: test_lab 15/15 on box. 12 GPU takes (calm 9 s Dean ref, neutral sentence), judged by emotion2vec+ large (envs/judge): IndexTTS sad -> sad 0.96; IndexTTS angry -> fearful (F0 151->239 Hz); IndexTTS "furious, shouting" -> happy; VoxCPM2 angry raised F0 but judged neutral; Fish S2/Drama 3 tags barely changed delivery (neutral). Whisper: no tags spoken. Listening not done.
+- Lab UI restarted; URL now https://7fffb005241e2a5673.gradio.live/ .
+
+## 2026-10-23 - Audiobook clone comparison, in-house audiobook voice, Dean emotion grid
+
+- Default lab reference is now 30secAUDIOBOOK.wav + 30secTRANSCRIPT.txt (30.0 s, ends on a full sentence). FireRed gets the first 7.2 s (two sentences). All 8 working zero-shot models generated the GI paragraph, no emotion, seed 1234 (108-525 s per run incl. load).
+- Staging training finished for profile cs-tengyuliu-v1 (v2ProPlus, 30minAUDIOBOOK.wav, 350 clips, SoVITS 20 / GPT 25 epochs). Live Fast (32.9 s) and Live Full (33.9 s) of the same paragraph generated from the staging Text to Speech page; WAVs saved beside the other outputs in the Voices test folder.
+- Emotion grid: Dean 30 s lecture ref, IndexTTS 2.5 / VoxCPM2 / Fish S2-Pro / Drama 3 x (none + 8 emotions) at intensity 0.6, 36/36 generated.
+- Artifacts: "Audiobook Voice Clone Shootout" (8 zero-shot + 2 in-house) and "Dean Emotion Grid". Only generation success checked; no Whisper, speaker-similarity or listening scores yet.
+- Lab API gotcha: /clone validates language against the session's dropdown choices, so API clients must call /model_info for the model first (else "Auto is not in the list of choices"). Needs gradio_client >= 2 (server Gradio 6.30).
+- Staging TTS page: typing long text key-by-key froze the tab (dictionary list re-renders); one 403 on first voice select, succeeded on retry. Not investigated further.

@@ -115,7 +115,6 @@
   - Inference activity state for idle-stop logic.
 
 ### Live Gateway (`live-gateway/`)
-
 - `src/index.js`
   - Express + WebSocket host on port `3002`.
 - `src/routes/liveChat.js`
@@ -126,9 +125,7 @@
   - Session prompt/session event mapping.
 - `src/services/textPreprocessor.js`
   - Assistant text cleanup before cloned TTS.
-
 ## Deployment / Infra Files
-
 - `CLOUD_FRONTEND_FLOW_README(Outdated).md`
   - Historical browser -> CloudFront -> Lambda/ALB flow notes; no longer the current source of truth.
 - `docs/complete_ai_handoff(Outdated).md`
@@ -161,13 +158,12 @@
   - Staging ASG provisioning plus its recurring 07:00/19:00 schedule. NOT a scale-to-zero: both live
     actions set `MinSize=1, MaxSize=192` and leave desired unchanged, so staging keeps one g6.xlarge
     running 24/7 (`offHoursMinCapacity: 1`). Verified live 2026-08-31.
+- `docs/voice-model-evaluation.md` / `scripts/clone-bench/` — Oct 2026 TTS model shortlist, hosting plan, SIM+WER scorer.
 - `docs/staging-architecture.md`
   - Authoritative live staging/dev resource map, rollout state, tests, and permissions.
 - `docs/dev-environment-duplication-guide.md`
   - Current dev/staging boundary summary; the former duplication proposal is superseded.
-
 ## Good First Reads By Task
-
 - Training flow issue:
   - `client/src/pages/TrainingPage.jsx`
   - `lambda/training/index.js`
@@ -200,3 +196,4 @@
   - `gpu-worker/src/services/pipeline.js`
   - `gpu-worker/scripts/score_clips.py`
 - Deployment / routing issue: `docs/lambda-serverless-gpu-worker-guide.md`
+- Zero-shot lab: scripts/clone-bench/app.py, catalog.py, install_lab.py, run_model.py, start_lab.sh; smoke_lab.py, verify_lab.py and test_lab.py verify compatibility.

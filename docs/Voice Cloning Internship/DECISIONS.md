@@ -274,8 +274,9 @@
 
 These live in runtime configuration and will not appear in any branch diff:
 
-- Staging live-gateway `.env` and staging Lambda env carry `LIVE_AUTH_EXEMPT_ORIGINS`
-  (`https://d3k2rz0hqm8nxi.cloudfront.net,https://faculty.lkcmedicine.org`). Dev has neither.
+- Staging live-gateway `.env` and staging Lambda env exempt only the staff tools from sign-in
+  (`LIVE_AUTH_EXEMPT_ORIGINS`: live-fast `dfzrfr93t2ruf`, MC `d32nzk2gacfhag`); GI and Faculty stay signed.
+  Kept in the tracked staging env files so deploys do not wipe it. Dev uses `LIVE_AUTH_DEMO_ONLY` instead.
 - Both prefixes hold the published lecture category; staging faculty owns it and Dev receives the
   publish-time mirror. Other application state remains environment-specific.
 - Staging ASG instances run `warm-staging-deanvoice.sh` from a systemd drop-in

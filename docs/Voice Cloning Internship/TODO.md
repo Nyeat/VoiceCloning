@@ -1,5 +1,7 @@
 # Active TODO
 
+- [ ] Model bake-off: ten models (incl. Fish Drama 3, S2-Pro) deployed and smoke-tested on one Seoul L40S. Audiobook comparison (8 zero-shot + in-house Live Fast/Full) and Dean emotion grid are generated (2026-10-23): run Whisper WER + speaker similarity and blind-listen them, then record 3-5 more target speakers before ranking. Raon needs an authoritative vocabulary/checkpoint fix. See repo docs/voice-model-evaluation.md.
+
 - [ ] Live MC: read-aloud test with a real human voice (names, long sentence with pauses, short "yes")
   and compare transcript bubbles word for word; tune noise/pause defaults from it.
 

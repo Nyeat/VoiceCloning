@@ -2,6 +2,33 @@
 
 ## Current Shape
 
+### Staging manual operation (2026-10-09)
+
+- User requested staging on now and daily start/stop disabled. Fixed EC2
+  `i-0f0da8be59367f7a8` started; `vcs-staging-gpu-inference` min/desired/max = 1.
+  This is one inference GPU, with no overflow beyond one; previous maximum was 192.
+- SuspendProcesses and DeleteScheduledAction were denied. Both actions were instead
+  changed to non-recurring entries: daily-stop 2099-01-02 11:00 UTC, daily-start
+  2099-01-02 23:00 UTC, each min/desired/max 0. They do not run daily now.
+- Staging main Lambda: GPU_SCHEDULE_ENABLED=false, GPU_IDLE_STOP_MINUTES=0.
+  GPU_INFERENCE_ASG_NAME remains unset, so the fixed instance and ASG are independent.
+- Staging coordinator MODEL_COORDINATOR_MODE=autoscale restores ASG discovery;
+  routing-only had no configured instance IDs. The ASG maximum limits capacity to one.
+- Gateway healthy; inference target remained unhealthy across 40 startup health polls. Worker logs
+  showed local /tts HTTP 200, but transcription verification timed out and the inference service
+  remained in start-post. Public speech readiness is unverified. No Dev changes.
+
+To shut staging GPU compute down (account 329599637774, region ap-northeast-2):
+1. Set ASG minimum, desired AND maximum to 0. This terminates inference workers;
+   do not stop an ASG member directly, since the group can replace it.
+2. Stop fixed EC2 `i-0f0da8be59367f7a8` separately. Active work is interrupted.
+3. Verify ASG has zero instances and fixed EC2 is stopped. Keep Lambda schedule
+   disabled, idle-stop 0, and the deferred actions unchanged. No hour edits needed.
+
+Historical cause: 2026-10-06 19:00 SGT daily-stop and 2026-10-07 07:00 daily-start
+restored min 1/max 192 and launched GPUs after manual zeroing. Minimum 1 is a floor,
+not a request to reduce a fleet to one; traffic is not required for scheduled starts.
+Reapplying provisioning/daily-schedule scripts can restore automatic operation.
 ### Autoscaling decision boundary (2026-09-01)
 
 - Atomic fleet admission is implemented locally at commit `7b297dc` but is not deployed. The
@@ -565,3 +592,13 @@ Historical only:
   2026-10-06; never re-add it, the two race for :3002). Not a git checkout.
 - Update: compare md5 of LF-normalized repo files first, back up, write via SSM, `node --check`,
   `systemctl restart voice-live-gateway`. A restart drops open live sockets (MC reconnects).
+
+## Zero-shot lab - 2026-10-22
+
+- Seoul ap-northeast-2a: i-093e8b2081168aff3, g6e.2xlarge, one L40S, 8 vCPU, 64 GiB RAM, 350 GiB gp3. Dev/Staging unchanged.
+- Public URL: https://7fffb005241e2a5673.gradio.live/ (since 2026-10-23 emotion-controls restart; earlier links obsolete). Emotion judge env: envs/judge (funasr emotion2vec+ large, faster-whisper). Login: repo-local .tmp/zero-shot/access.json; do not commit credentials. The old f9a287074a9fc61eb4 link is obsolete.
+- Eight models generated valid audio: LongCat, dots.tts, VoxCPM2, Qwen3-TTS, FireRedTTS3, IndexTTS2.5, untrained GPT-SoVITS v2Pro and v5dev. Raon is blocked by a published vocabulary/checkpoint mismatch (5559 versus 5555 tokens); no speculative token remapping applied.
+- Independent ffprobe/soundfile and CPU Whisper checks passed for the eight outputs. Ten input-validation tests passed. Authenticated public Qwen API returned 4.88 seconds of audio in 30.731 seconds; unauthenticated config access returned 401. Speaker similarity, browser microphone interaction and broad language coverage remain unverified.
+- Remote root /opt/zero-shot-lab; systemd zero-shot-lab.service runs as ubuntu and starts on boot. Logs: logs/ui.log; evidence: smoke/verification-results.json and smoke/public-api.json. Each request loads one model and releases GPU memory on exit.
+- 2026-10-23: Fish Audio Drama 3 (models/fishd3, FP8 experts on L40S SM89) and S2-Pro (models/fishs2) installed in envs/fish; both verified. Instance found running on 23 Oct.
+- Scheduled shutdown: 2026-10-22 22:20 SGT (did not stop the instance). EC2 stop retains billable EBS. Temporary Gradio URL can change on service restart and lasts up to one week. Stop earlier using AWS EC2 stop-instances for this instance in ap-northeast-2.
