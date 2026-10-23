@@ -4,8 +4,8 @@ Last updated: 2026-10-23
 
 ## Current State
 
-- 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Instance still running (22 Oct auto-stop did not apply); stop it when done. See docs/deployment.md.
-- 2026-10-23: Staging voice cs-tengyuliu-v1 trained on the 30 min audiobook; compared (Live Fast/Full) with 8 zero-shot lab models in the "Audiobook Voice Clone Shootout" artifact, plus a 36-clip Dean emotion grid. Generation only; listening/scoring is the next step. Lab default ref: 30secAUDIOBOOK.wav.
+- 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Lab instance stopped 2026-10-23. See docs/deployment.md.
+- 2026-10-23: Staging voice cs-tengyuliu-v1 trained on the 30 min audiobook; compared (Live Fast/Full) with 8 zero-shot lab models in the "Audiobook Voice Clone Shootout" artifact, plus a 36-clip Dean emotion grid. Generation only; listening/scoring is the next step. Lab default ref: 30secAUDIOBOOK.wav. Staging shut down 2026-10-23 (ASG min/desired 0, fixed EC2 stopped) except ASG instance i-08099a515c0b2b98b, held by scale-in protection; remove it to finish.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).

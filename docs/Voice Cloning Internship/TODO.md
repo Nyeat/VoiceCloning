@@ -14,8 +14,8 @@
 - [ ] Reconcile `origin/codex/staging-multi-user-scaling` (2 commits not on local branches) with
   `separate-containers-new` before re-syncing Dev/Staging pointers; it was not force-pushed.
 
-- [ ] Decide when to shut staging GPU capacity down again after Live MC testing (runs 24/7 now;
-  reverse steps in docs/deployment.md).
+- [ ] Finish staging shutdown: remove scale-in protection from ASG instance i-08099a515c0b2b98b so
+  desired 0 terminates it (ASG min/desired already 0, fixed EC2 stopped 2026-10-23).
 
 - [ ] Ask an administrator for `cloudtrail:LookupEvents` (or a CloudTrail Lake query) to attribute the
   staging ASG instance stops recorded in BUGS.md. Until then the churn cannot be traced: the Lambda
