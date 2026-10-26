@@ -1,5 +1,20 @@
 # Bugs
 
+- Open (found 2026-10-26): the staging TTS page can save another voice's reference clips onto a new voice.
+  cs-tengyuliu-v1 (audiobook) stores DeanVoice's primary + 5 aux refs; it was created 27 s after deanvoice-v1
+  was re-saved on 2026-10-23. Output matched Dean (resemblyzer 0.81) better than the narrator (0.73).
+  Likely path: client/src/pages/LivePage.jsx keeps refAudioPath/aux from the previous voice when the new
+  voice's clip scores are not ready, then persists them. Same carry-over seen 2026-10-26: the first request
+  for cs-tengyu-liu_2 sent the old profile's voice_model.revision. Repair: re-point cs-tengyuliu-v1 at its own clips;
+  guard saves so ref paths must sit under training/datasets/<expName>/. cs-tengyuliu-v1 data repaired 2026-10-26 (S3 backup *.bak-deanrefs-20261026); page bug still open.
+- Open (2026-10-26): Live Full duration check (`longTextInference.js`, 15 chars/s, reject <65%) rejects
+  fast speakers; cs-tengyu-liu_2 reads ~22 chars/s and a complete 7.70 s take missed the 7.8 s cutoff.
+  Derive expected pace per voice from its training clips. Retried 2026-10-26: 18/18 failed, sentence always 6.8-7.7 s vs 7.8 s minimum.
+
+- Fixed 2026-10-08: daily-start and daily-stop both restored ASG minimum 1, undoing
+  manual zeroing. Both actions and ASG now have min/desired/max 0; coordinator
+  scale-out and browser-triggered fixed GPU starts disabled.
+
 - Fixed and deployed 2026-10-06 (staging MC): spoken turns hung on "Listening..." because the
   client noise gate (RMS 0.02) dropped normal-volume speech and cut the trailing silence OpenAI's VAD
   needs; any live socket drop also ended the session. MC is now ungated, eager, and reconnects.

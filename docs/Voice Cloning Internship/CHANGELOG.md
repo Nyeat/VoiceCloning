@@ -2063,3 +2063,21 @@
 - Lab API gotcha: /clone validates language against the session's dropdown choices, so API clients must call /model_info for the model first (else "Auto is not in the list of choices"). Needs gradio_client >= 2 (server Gradio 6.30).
 - Staging TTS page: typing long text key-by-key froze the tab (dictionary list re-renders); one 403 on first voice select, succeeded on retry. Not investigated further.
 - Shutdown (17:5x-18:1x SGT): staging ASG vcs-staging-gpu-inference set min 0 / desired 0 (max 1); fixed staging i-0f0da8be59367f7a8 and lab i-093e8b2081168aff3 stopped (verified). ASG instance i-08099a515c0b2b98b still running: it is ProtectedFromScaleIn, so the scale-in activity was Cancelled. Removing protection was blocked in-session; run set-instance-protection --no-protected-from-scale-in to let it terminate.
+
+## 2026-10-26 - Singapore voice clone comparison; audiobook voice diagnosis
+
+- Data: 30.2 min of Tong Yee (Singaporean educator): TEDxSingapore talk + opening of "A Throne with No Name" lecture. Whisper medium.en segments with resemblyzer sim < 0.7, intro music, applause and audience lines removed. Reference: 27.9 s from the talk (6:25-6:53), sentence-aligned; FireRed gets an 11.7 s cut. Files in Downloads/Voices/singapore tong yee.
+- Staging training cs-tengyu-liu_2 (v2ProPlus, defaults, denoise on; dataset uploaded via training-library presign/confirm). Profile cs-tengyu-liu_2-v1 verified to use only its own clips. Live Fast: 26.7 s, resemblyzer 0.897 vs training set, WER 4%. Live Full: 3 attempts all rejected (ASR coverage misses on 2 sentences + pace check).
+- Zero-shot lab: 8 models via run_model.py over SSM (sg-run/batch.py), seed 1234, no emotion. Voice match vs training set 0.88-0.94, WER 0-3%. SSM kills background children on command timeout; relaunch long jobs with systemd-run.
+- Audiobook diagnosis: cs-tengyuliu-v1 stores DeanVoice reference clips; its outputs score 0.81 vs Dean, 0.73 vs narrator; training audio itself is consistent (0.97-0.99). Not repaired yet.
+- Emotion grid prosody (vs each model's neutral take): IndexTTS angry +30% F0, +4.5 dB; melancholic -16% F0, -3.9 dB; sad -26% pace. VoxCPM2 and Fish S2-Pro shift F0 <= 6%. fishs2_calm take is truncated (6.1 s).
+- Artifact: "Singapore Voice Clone Shootout" (8 zero-shot + in-house Live Fast, scored, with diagnosis).
+- Shutdown 2026-10-26: ASG 0/0/0 (scale-in protection removed from i-097694acad7f12d48, terminating), fixed i-0f0da8be59367f7a8 and lab i-093e8b2081168aff3 stopping/stopped. No repo code changed.
+
+## 2026-10-26 (later) - Audiobook voice repaired; Singapore Live Full retried
+
+- Data repair, no code change: S3 voice-profiles/cs-tengyuliu-v1.json and voice-profile-configs/cs-tengyuliu-v1/default.json repointed from DeanVoice refs to the 6 narrator clips the TTS page auto-select picked (primary 30minAUDIOBOOK.wav_0029411520_0029528000.wav). Originals kept as *.bak-deanrefs-20261026. The page alone could not fix it: the saved profile overrode its own auto-select.
+- Audiobook regenerated (request bodies checked, 0 Dean refs): Live Fast 32.0 s, resemblyzer 0.940 vs training set, WER 3%, vs Dean 0.626; Live Full 31.5 s, 0.970, WER 1%, passed first attempt (was 0.724 / Dean 0.808).
+- Singapore cs-tengyu-liu_2 Live Full: 15 more automated attempts, 18/18 failed. "Depending on the location..." (180 chars, min 7.8 s) always 6.8-7.7 s; deterministic under the 15 chars/s check, not chance.
+- Staging quirk: first request after a voice switch can show "GPU not started" while the worker swaps models; retry works. Chrome blocks repeated automatic downloads; pulled the Live Full WAV through a presigned S3 PUT instead.
+- Artifact "Singapore Voice Clone Shootout" v2 adds the repaired audiobook takes and the 18-attempt result. GPUs shut down again (ASG 0/0/0, fixed EC2 stopping).

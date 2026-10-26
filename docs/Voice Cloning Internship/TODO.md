@@ -1,6 +1,6 @@
 # Active TODO
 
-- [ ] Model bake-off: ten models (incl. Fish Drama 3, S2-Pro) deployed and smoke-tested on one Seoul L40S. Audiobook comparison (8 zero-shot + in-house Live Fast/Full) and Dean emotion grid are generated (2026-10-23): run Whisper WER + speaker similarity and blind-listen them, then record 3-5 more target speakers before ranking. Raon needs an authoritative vocabulary/checkpoint fix. See repo docs/voice-model-evaluation.md.
+- [ ] Model bake-off: ten models (incl. Fish Drama 3, S2-Pro) deployed and smoke-tested on one Seoul L40S. Audiobook and Singapore (Tong Yee) comparisons are generated and scored with Whisper WER + resemblyzer (2026-10-26); blind-listen them, re-run the audiobook in-house voice after its reference repair, then add 2-3 more target speakers before ranking. Raon needs an authoritative vocabulary/checkpoint fix. See repo docs/voice-model-evaluation.md.
 
 - [ ] Live MC: read-aloud test with a real human voice (names, long sentence with pauses, short "yes")
   and compare transcript bubbles word for word; tune noise/pause defaults from it.
@@ -14,8 +14,10 @@
 - [ ] Reconcile `origin/codex/staging-multi-user-scaling` (2 commits not on local branches) with
   `separate-containers-new` before re-syncing Dev/Staging pointers; it was not force-pushed.
 
-- [ ] Finish staging shutdown: remove scale-in protection from ASG instance i-08099a515c0b2b98b so
-  desired 0 terminates it (ASG min/desired already 0, fixed EC2 stopped 2026-10-23).
+- [ ] Fix the TTS-page reference carry-over (BUGS.md 2026-10-26) after the system review; cs-tengyuliu-v1 data
+  already repaired and regenerated.
+
+- [ ] Live Full: per-voice expected pace instead of fixed 15 chars/s; retest cs-tengyu-liu_2 (BUGS.md 2026-10-26).
 
 - [ ] Ask an administrator for `cloudtrail:LookupEvents` (or a CloudTrail Lake query) to attribute the
   staging ASG instance stops recorded in BUGS.md. Until then the churn cannot be traced: the Lambda

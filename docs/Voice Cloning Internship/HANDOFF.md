@@ -1,11 +1,11 @@
 # Voice Cloning Project Handoff
 
-Last updated: 2026-10-23
+Last updated: 2026-10-26
 
 ## Current State
 
 - 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Lab instance stopped 2026-10-23. See docs/deployment.md.
-- 2026-10-23: Staging voice cs-tengyuliu-v1 trained on the 30 min audiobook; compared (Live Fast/Full) with 8 zero-shot lab models in the "Audiobook Voice Clone Shootout" artifact, plus a 36-clip Dean emotion grid. Generation only; listening/scoring is the next step. Lab default ref: 30secAUDIOBOOK.wav. Staging shut down 2026-10-23 (ASG min/desired 0, fixed EC2 stopped) except ASG instance i-08099a515c0b2b98b, held by scale-in protection; remove it to finish.
+- 2026-10-26: Singapore run. Staging voice cs-tengyu-liu_2 trained on 30 min of Tong Yee (TEDxSingapore + lecture); Live Fast OK (voice match 0.90, WER 4%), Live Full rejected every take (dropped words + 15 chars/s pace check). 8 zero-shot models scored in "Singapore Voice Clone Shootout". Audiobook voice cs-tengyuliu-v1 had Dean's reference clips; profile repaired in S3, now 0.94 Live Fast / 0.97 Live Full (Live Full passes). Singapore Live Full failed 18/18 on the pace check. All GPUs shut down 2026-10-26 (ASG 0/0/0, protection removed, fixed EC2 + lab stopped).
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
