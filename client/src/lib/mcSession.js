@@ -39,6 +39,15 @@ export function sameCaptureSettings(a, b) {
   return x.noiseLevel === y.noiseLevel && x.pauseMs === y.pauseMs;
 }
 
+// The operator's saved instructions, kept in this browser so a reload or the
+// next visit starts from them instead of the bundled default. Anything that is
+// not a non-empty string within the textarea limit reads as the default.
+export const MC_INSTRUCTIONS_MAX = 12000;
+
+export function normalizeSavedInstructions(value) {
+  return typeof value === 'string' && value.trim() && value.length <= MC_INSTRUCTIONS_MAX ? value : MC_SYSTEM_PROMPT;
+}
+
 // session.init extras for the gateway.
 export function mcSessionOptions(settings = MC_DEFAULT_CAPTURE) {
   const { noiseLevel, pauseMs } = normalizeCaptureSettings(settings);

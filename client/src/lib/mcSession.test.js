@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { shouldSendLiveMicAudio, shouldTriggerLiveBargeIn, createLiveSynthesisSnapshot, buildLiveSentenceParams } from '../hooks/liveConversation.js';
-import { mcMicConstraints, mcSessionOptions, mcTranscriptEntries, normalizeCaptureSettings, sameCaptureSettings, mcSessionStatus } from './mcSession.js';
+import { MC_INSTRUCTIONS_MAX, MC_SYSTEM_PROMPT, mcMicConstraints, mcSessionOptions, mcTranscriptEntries, normalizeCaptureSettings, normalizeSavedInstructions, sameCaptureSettings, mcSessionStatus } from './mcSession.js';
 
 test('turn mode keeps the mic available but sends audio only on the human turn', () => {
   for (const phase of ['idle', 'connecting', 'thinking', 'speaking', 'stopping']) {
@@ -72,4 +72,11 @@ test('MC capture sliders map to measured VAD and noise settings', () => {
   assert.deepEqual(normalizeCaptureSettings({ noiseLevel: 9, pauseMs: 9999 }), { noiseLevel: 2, pauseMs: 700 });
   assert.deepEqual(normalizeCaptureSettings({ noiseLevel: '3', pauseMs: 840 }), { noiseLevel: 3, pauseMs: 800 });
   assert.equal(sameCaptureSettings({ noiseLevel: 2, pauseMs: 700 }, {}), true);
+});
+
+test('saved MC instructions load as written and fall back to the default when unusable', () => {
+  assert.equal(normalizeSavedInstructions('Tonight is the alumni gala.'), 'Tonight is the alumni gala.');
+  for (const value of [null, undefined, '', '   ', 42, { prompt: 'x' }, 'x'.repeat(MC_INSTRUCTIONS_MAX + 1)]) {
+    assert.equal(normalizeSavedInstructions(value), MC_SYSTEM_PROMPT);
+  }
 });

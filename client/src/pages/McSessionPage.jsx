@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLiveSpeech } from '../hooks/useLiveSpeech.js';
-import { MC_SYSTEM_PROMPT, NOISE_LEVELS, PAUSE_RANGE, mcMicConstraints, mcSessionOptions, mcSessionStatus, mcTranscriptEntries, normalizeCaptureSettings, sameCaptureSettings } from '../lib/mcSession.js';
+import { MC_INSTRUCTIONS_MAX, MC_SYSTEM_PROMPT, NOISE_LEVELS, PAUSE_RANGE, mcMicConstraints, mcSessionOptions, mcSessionStatus, mcTranscriptEntries, normalizeCaptureSettings, normalizeSavedInstructions, sameCaptureSettings } from '../lib/mcSession.js';
 import { nextAudioErrorAction } from '../hooks/liveConversation.js';
 import ntuLogo from '../assets/ntu-logo.png';
 import { Maximize2, Mic, MicOff, Minimize2, Phone, PhoneOff } from 'lucide-react';
 
 const REFERENCE_PARAMS = {};
 const CAPTURE_STORAGE_KEY = 'mc-capture-settings-v2';
+const INSTRUCTIONS_STORAGE_KEY = 'mc-instructions-v1';
 const CONSOLE_TABS = [['transcript', 'Transcript'], ['capture', 'Voice capture'], ['instructions', 'Instructions']];
 
 function loadCaptureSettings() {
@@ -17,8 +18,28 @@ function loadCaptureSettings() {
   }
 }
 
+function loadSavedInstructions() {
+  try {
+    return normalizeSavedInstructions(window.localStorage.getItem(INSTRUCTIONS_STORAGE_KEY));
+  } catch {
+    return MC_SYSTEM_PROMPT;
+  }
+}
+
 export default function McSessionPage() {
-  const [instructions, setInstructions] = useState(MC_SYSTEM_PROMPT);
+  const [savedInstructions, setSavedInstructions] = useState(loadSavedInstructions);
+  const [instructions, setInstructions] = useState(savedInstructions);
+  const [saveError, setSaveError] = useState('');
+  const instructionsUnsaved = instructions !== savedInstructions;
+  function saveInstructions() {
+    try {
+      window.localStorage.setItem(INSTRUCTIONS_STORAGE_KEY, instructions);
+      setSavedInstructions(instructions);
+      setSaveError('');
+    } catch {
+      setSaveError('This browser blocked saving. The text still applies to sessions in this tab.');
+    }
+  }
   const [listeningMode, setListeningMode] = useState('turns');
   const [captureSettings, setCaptureSettings] = useState(loadCaptureSettings);
   function updateCaptureSettings(change) {
@@ -282,8 +303,14 @@ export default function McSessionPage() {
           </div>}
           {consoleTab === 'instructions' && <div id="mc-panel-instructions" role="tabpanel" aria-labelledby="mc-tab-instructions" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
             <label htmlFor="mc-instructions" className="block text-sm text-slate-600">Guide your AI co-host</label>
-            <textarea id="mc-instructions" rows={10} maxLength={12000} value={instructions} disabled={active} onChange={(event) => setInstructions(event.target.value)} className="mt-2 min-h-[10rem] w-full flex-1 resize-y rounded-xl border border-slate-300 bg-white p-4 text-sm leading-6 focus:outline-[#a6192e] disabled:bg-slate-50 xl:resize-none" />
-            <p className="mt-2 shrink-0 text-xs text-slate-500">{active ? 'End the session to edit. Changes apply to the next session.' : 'Changes stay in this tab. Add event details here before starting.'}</p>
+            <textarea id="mc-instructions" rows={10} maxLength={MC_INSTRUCTIONS_MAX} value={instructions} disabled={active} onChange={(event) => setInstructions(event.target.value)} className="mt-2 min-h-[10rem] w-full flex-1 resize-y rounded-xl border border-slate-300 bg-white p-4 text-sm leading-6 focus:outline-[#a6192e] disabled:bg-slate-50 xl:resize-none" />
+            <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
+              <button type="button" onClick={saveInstructions} disabled={active || !instructionsUnsaved || !instructions.trim()} className="rounded-full bg-[#a6192e] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#861426] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a6192e] disabled:cursor-not-allowed disabled:opacity-50">Save</button>
+              <button type="button" onClick={() => setInstructions(MC_SYSTEM_PROMPT)} disabled={active || instructions === MC_SYSTEM_PROMPT} className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a6192e] disabled:cursor-not-allowed disabled:opacity-50">Restore default</button>
+              <span role="status" className="text-xs text-slate-500">{instructionsUnsaved ? 'Unsaved changes' : 'Saved in this browser'}</span>
+            </div>
+            {saveError && <p role="alert" className="mt-2 shrink-0 text-xs text-red-600">{saveError}</p>}
+            <p className="mt-2 shrink-0 text-xs text-slate-500">{active ? 'End the session to edit. Changes apply to the next session.' : 'The next session uses this text. Save keeps it for future visits in this browser.'}</p>
           </div>}
           </div>
         </aside>
