@@ -17,6 +17,7 @@ import {
   applyFullInferenceQualityPreset,
   fullInferenceQualityOptions,
   analyzeAudioQuality,
+  estimateReferenceCharsPerSec,
   buildAttemptVariants,
   scoreAudioCandidate,
   hasActiveInferenceSession,
@@ -331,7 +332,9 @@ async function synthesizeLiveFastChunk(baseParams, {
       // on that basis — treat quality as "no opinion" and let verification decide.
       let analysis;
       try {
-        analysis = analyzeAudioQuality(audioBuffer, chunkText);
+        analysis = analyzeAudioQuality(audioBuffer, chunkText, {
+          charsPerSec: estimateReferenceCharsPerSec(baseParams.ref_audio_path, baseParams.prompt_text),
+        });
       } catch {
         // Can't analyze this buffer — treat it as acceptable (not silent) so scoring is
         // driven by word-coverage verification rather than a false "silent audio" penalty.

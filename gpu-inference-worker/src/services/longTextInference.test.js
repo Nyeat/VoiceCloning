@@ -1,8 +1,12 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   splitTextIntoChunks,
   analyzeAudioQuality,
+  estimateReferenceCharsPerSec,
   applyFullInferenceQualityPreset,
   fullInferenceQualityOptions,
   buildAttemptVariants,
@@ -1048,4 +1052,24 @@ test('even a late retry take stays voice-faithful (natural params, just a new se
   assert.equal(params.text_split_method, first.text_split_method);
   // repetition_penalty stays pinned at the base across every take (no relaxation).
   assert.equal(params.repetition_penalty, first.repetition_penalty);
+});
+
+test('a fast voice pace relaxes the too-short floor but never tightens it', () => {
+  // 180 chars read by a ~22 chars/s speaker in 7.3s is a complete take (2026-10-26
+  // cs-tengyu-liu_2): the fixed 15 chars/s rule wanted >= 7.8s and rejected it.
+  const text = 'x'.repeat(180);
+  assert.match(analyzeAudioQuality(makeNoiseWav(7.3), text).reason || '', /too short/i);
+  assert.doesNotMatch(analyzeAudioQuality(makeNoiseWav(7.3), text, { charsPerSec: 21 }).reason || '', /too short/i);
+  // A slow measured pace must not make the short check stricter.
+  assert.doesNotMatch(analyzeAudioQuality(makeNoiseWav(8.0), text, { charsPerSec: 9 }).reason || '', /too short/i);
+});
+
+test('reference pace is measured from the clip and prompt text', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ref-pace-'));
+  const refPath = path.join(dir, 'ref.wav');
+  fs.writeFileSync(refPath, makeNoiseWav(4.0));
+  const pace = estimateReferenceCharsPerSec(refPath, 'y'.repeat(80));
+  assert.ok(Math.abs(pace - 20) < 0.01, `pace ${pace}`);
+  assert.equal(estimateReferenceCharsPerSec(path.join(dir, 'missing.wav'), 'y'.repeat(80)), null);
+  assert.equal(estimateReferenceCharsPerSec(refPath, 'short'), null);
 });
