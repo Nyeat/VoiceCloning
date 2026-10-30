@@ -332,3 +332,15 @@ export function shouldAutoApplyBestReferenceSet({
       && lastAppliedSourceKey !== selectedSourceKey
   );
 }
+
+// Reference clips belong to the voice's own dataset (training/datasets/<expName>/).
+// Returns any path that sits under ANOTHER voice's dataset, i.e. a reference carried
+// over from the previously open voice. Paths outside training/datasets are left alone.
+export function findForeignReferencePaths(paths, expName) {
+  const source = String(expName || '').trim();
+  if (!source) return [];
+  const ownPrefix = `training/datasets/${source}/`;
+  return (Array.isArray(paths) ? paths : [paths])
+    .map((path) => String(path || '').trim())
+    .filter((path) => path.includes('training/datasets/') && !path.includes(ownPrefix));
+}

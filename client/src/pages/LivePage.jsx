@@ -55,6 +55,7 @@ import { ChatTextInput } from '@/components/ChatTextInput.jsx';
 import { MicLevelMeter } from '@/components/MicLevelMeter';
 import {
   chooseBestReferenceSet,
+  findForeignReferencePaths,
   describeReferenceCandidate,
   shouldAutoApplyBestReferenceSet,
 } from '@/lib/referenceSelection';
@@ -991,6 +992,18 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     }
   }
 
+  // Training metadata for the SELECTED voice only. The active profile can still be the
+  // previous voice, so its metadata is used only when it names the same dataset.
+  function selectedVoiceTrainingMetadata() {
+    const sameSource = (metadata) => (
+      metadata && Object.keys(metadata).length > 0
+      && (!metadata.expName || !selectedExpName || metadata.expName === selectedExpName)
+    );
+    if (sameSource(trainingRunMetadata)) return trainingRunMetadata;
+    const activeTraining = activeVoiceProfile?.metadata?.training;
+    return sameSource(activeTraining) ? activeTraining : null;
+  }
+
   async function loadTrainingRunMetadata(expName = selectedExpName) {
     if (!expName) {
       setTrainingRunMetadata(null);
@@ -1019,7 +1032,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       configName: resolvedConfigName,
       rank: voiceConfigs.length + 1,
       selected: true,
-      trainingMetadata: trainingRunMetadata || activeVoiceProfile?.metadata?.training || {},
+      trainingMetadata: selectedVoiceTrainingMetadata() || {},
       inferenceMetadata: {
         ...currentLiveFastMetadata,
         configName: resolvedConfigName,
@@ -1099,7 +1112,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
         max_chunk_words: defaults.max_chunk_words ?? DEFAULT_LIVE_FAST_SETTINGS.maxChunkWords,
         max_sentences_per_chunk: defaults.max_sentences_per_chunk ?? DEFAULT_LIVE_FAST_SETTINGS.maxSentencesPerChunk,
       },
-      trainingMetadata: config.trainingMetadata || trainingRunMetadata || activeVoiceProfile?.metadata?.training,
+      trainingMetadata: config.trainingMetadata || selectedVoiceTrainingMetadata() || undefined,
       referenceMetadata: reference,
       liveFastMetadata: inference,
     };
@@ -1521,10 +1534,20 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     setLoadingModel(false);
   }
 
+  // Refuse to persist references that belong to another voice's dataset (BUGS.md
+  // 2026-10-26: a new voice was saved with the previous voice's clips).
+  function assertReferencesBelongToSelectedVoice(primaryPath, auxPaths = []) {
+    const foreign = findForeignReferencePaths([primaryPath, ...auxPaths], selectedExpName);
+    if (foreign.length > 0) {
+      throw new Error(`Reference clips belong to another voice (${fallbackName(foreign[0])}); reselect references for ${selectedProfile?.displayName || selectedExpName}.`);
+    }
+  }
+
   async function persistSelectedVoiceProfile() {
     if (!selectedProfile || !selectedGPT || !selectedSoVITS || !refAudioPath) {
       throw new Error('Voice profile is not ready to save yet.');
     }
+    assertReferencesBelongToSelectedVoice(refAudioPath, auxRefAudios.map((item) => item.path));
 
     const storageMode = await getStorageMode();
     const payload = buildVoiceProfilePayload({
@@ -1547,7 +1570,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
         max_chunk_words: liveFastMaxChunkWords,
         max_sentences_per_chunk: liveFastMaxSentences,
       },
-      trainingMetadata: activeVoiceProfile?.metadata?.training,
+      trainingMetadata: selectedVoiceTrainingMetadata() || undefined,
       referenceMetadata: currentReferenceMetadata,
       liveFastMetadata: currentLiveFastMetadata,
       storageMode,
@@ -1580,6 +1603,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       return { displayName: summary.displayName || payload.displayName, voiceProfileId: summary.voiceProfileId || payload.voiceProfileId };
     }
 
+    assertReferencesBelongToSelectedVoice(refAudioPath, auxRefAudios.map((item) => item.path));
     const payload = {
       ...buildCurrentConfigPayload({
         configId: rankOneConfig.configId,
@@ -1631,6 +1655,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     setModelError('');
     setVoiceConfigError('');
     try {
+      assertReferencesBelongToSelectedVoice(refAudioPath, auxRefAudios.map((item) => item.path));
       const payload = {
         ...buildCurrentConfigPayload({
           configId,
@@ -1733,7 +1758,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       rank: liveFullConfigs.length + 1,
       language: liveLanguage,
       settings: liveFullSettings,
-      trainingMetadata: trainingRunMetadata || activeVoiceProfile?.metadata?.training || {},
+      trainingMetadata: selectedVoiceTrainingMetadata() || {},
       referenceMetadata: {
         source: 'liveFastRankOne',
         liveFastConfigId: rankOneConfig?.configId || '',
@@ -3721,6 +3746,20 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     return () => { ignore = true; window.clearInterval(interval); };
   }, [selectedExpName, loadedTrainingAudioSourceKey, loadingTrainingAudio, referenceSelectionReady, canRestoreActiveVoiceProfile, voiceConfigs.length]);
 
+  // A new voice must never inherit the previous voice's clips: drop them as soon as the
+  // dataset changes, then let the saved config / profile restore / best pick refill them.
+  useEffect(() => {
+    clearReferenceSelection();
+    setLiveFullRefAudioPath('');
+    setLiveFullPromptText('');
+    setLiveFullAuxRefAudios([]);
+    restoredActiveVoiceProfileKeyRef.current = '';
+    autoReferenceKeyRef.current = '';
+    autoDefaultConfigKeyRef.current = '';
+    autoLoadedLiveFastConfigProfileRef.current = '';
+    liveFullDefaultKeyRef.current = '';
+  }, [selectedExpName]);
+
   useEffect(() => {
     restoredActiveVoiceProfileKeyRef.current = '';
     autoReferenceKeyRef.current = '';
@@ -3732,7 +3771,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
 
   useEffect(() => {
     loadVoiceConfigs(selectedVoiceProfileId);
-  }, [selectedVoiceProfileId]);
+  }, [selectedVoiceProfileId, selectedExpName]);
 
   useEffect(() => {
     liveFullDefaultKeyRef.current = '';

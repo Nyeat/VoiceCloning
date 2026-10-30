@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chooseBestReferenceSet,
+  findForeignReferencePaths,
   describeReferenceCandidate,
   shouldAutoApplyBestReferenceSet,
 } from './referenceSelection.js';
@@ -241,4 +242,15 @@ test('auxiliary selection favors transcript coverage over a near-duplicate secon
 
   assert.equal(result.primary.filename, 'primary_0_160000.wav');
   assert.deepEqual(result.aux.map((file) => file.filename), ['diverse_960000_1120000.wav']);
+});
+
+test('references from another voice dataset are reported as foreign', () => {
+  const own = 'training/datasets/cs-tengyu-liu_2/denoised/a.wav';
+  const dean = 'training/datasets/deanvoice/denoised/b.wav';
+  assert.deepEqual(findForeignReferencePaths([own, dean, ''], 'cs-tengyu-liu_2'), [dean]);
+  assert.deepEqual(findForeignReferencePaths([`echolect-staging/${own}`], 'cs-tengyu-liu_2'), []);
+  // A shared-prefix voice name is still another voice.
+  assert.deepEqual(findForeignReferencePaths(['training/datasets/cs-tengyu-liu_20/x.wav'], 'cs-tengyu-liu_2').length, 1);
+  assert.deepEqual(findForeignReferencePaths([dean], ''), []);
+  assert.deepEqual(findForeignReferencePaths(['uploads/custom.wav'], 'cs-tengyu-liu_2'), []);
 });

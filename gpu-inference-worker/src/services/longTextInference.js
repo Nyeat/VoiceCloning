@@ -1181,7 +1181,29 @@ export function normalizeWavChunksForPreview(buffers) {
   });
 }
 
-export function analyzeAudioQuality(buffer, expectedText = '') {
+// Speaking pace of the voice's own reference clip (prompt_text chars / clip seconds).
+// Lets the duration check follow fast or slow speakers instead of a fixed 15 chars/s.
+// Returns null when the clip is unreadable or the measurement is implausible.
+const referencePaceCache = new Map();
+export function estimateReferenceCharsPerSec(refAudioPath, promptText) {
+  const text = String(promptText || '').trim();
+  if (!refAudioPath || text.length < 10) return null;
+  const key = `${refAudioPath}|${text}`;
+  if (referencePaceCache.has(key)) return referencePaceCache.get(key);
+  let pace = null;
+  try {
+    const wav = parseWav(fs.readFileSync(refAudioPath));
+    const durationSec = Math.floor(wav.dataChunk.length / wav.blockAlign) / wav.sampleRate;
+    const measured = durationSec > 1 ? text.length / durationSec : null;
+    pace = measured && measured >= 6 && measured <= 35 ? measured : null;
+  } catch {
+    pace = null;
+  }
+  referencePaceCache.set(key, pace);
+  return pace;
+}
+
+export function analyzeAudioQuality(buffer, expectedText = '', { charsPerSec = null } = {}) {
   const wav = parseWav(buffer);
   const bytes = wav.dataChunk;
   const bytesPerSample = Math.max(1, wav.bitsPerSample / 8);
@@ -1201,6 +1223,11 @@ export function analyzeAudioQuality(buffer, expectedText = '') {
   const MAX_DURATION_FRACTION = 1.9;
   const MAX_DURATION_FLOOR_SEC = 1.5;
   const expectedDurationSec = Math.max(0.3, Math.min(20, expectedText.length / NATURAL_CHARS_PER_SEC));
+  // A measured voice pace may only RELAX each bound: a fast speaker lowers the
+  // too-short floor, a slow speaker raises the too-long ceiling. Never stricter.
+  const voicePace = Number.isFinite(charsPerSec) && charsPerSec > 0 ? charsPerSec : NATURAL_CHARS_PER_SEC;
+  const shortExpectedSec = Math.max(0.3, Math.min(20, expectedText.length / Math.max(NATURAL_CHARS_PER_SEC, voicePace)));
+  const longExpectedSec = Math.max(0.3, Math.min(20, expectedText.length / Math.min(NATURAL_CHARS_PER_SEC, voicePace)));
 
   let sampleCount = 0;
   let absPeak = 0;
@@ -1316,10 +1343,10 @@ export function analyzeAudioQuality(buffer, expectedText = '') {
   }
 
   let reason = null;
-  if (durationSec < expectedDurationSec * REQUIRED_DURATION_FRACTION) {
-    reason = `Audio too short for its text — likely dropped words (${durationSec.toFixed(2)}s vs ~${expectedDurationSec.toFixed(1)}s expected)`;
-  } else if (durationSec > MAX_DURATION_FLOOR_SEC && durationSec > expectedDurationSec * MAX_DURATION_FRACTION) {
-    reason = `Audio too long for its text — likely repeated words (${durationSec.toFixed(2)}s vs ~${expectedDurationSec.toFixed(1)}s expected)`;
+  if (durationSec < shortExpectedSec * REQUIRED_DURATION_FRACTION) {
+    reason = `Audio too short for its text — likely dropped words (${durationSec.toFixed(2)}s vs ~${shortExpectedSec.toFixed(1)}s expected)`;
+  } else if (durationSec > MAX_DURATION_FLOOR_SEC && durationSec > longExpectedSec * MAX_DURATION_FRACTION) {
+    reason = `Audio too long for its text — likely repeated words (${durationSec.toFixed(2)}s vs ~${longExpectedSec.toFixed(1)}s expected)`;
   } else if (rms < 0.003 && absPeak < 0.003) {
     reason = 'Generated audio is effectively silent';
   } else if (zeroishRatio > 0.995) {
@@ -1546,7 +1573,9 @@ async function synthesizeChunkWithRetry(chunkText, baseParams, options = {}) {
     const params = buildAttemptVariants({ ...baseParams, text: paddedText }, attempt);
     try {
       const audioBuffer = await inferenceServer.synthesize(params, { timeoutMs: 180000 });
-      const analysis = analyzeAudioQuality(audioBuffer, chunkText);
+      const analysis = analyzeAudioQuality(audioBuffer, chunkText, {
+        charsPerSec: estimateReferenceCharsPerSec(baseParams.ref_audio_path, baseParams.prompt_text),
+      });
 
       // Only spend ASR on takes whose audio already looks usable; a silent or
       // clipped take is rejected by analysis alone and needs no transcript.
