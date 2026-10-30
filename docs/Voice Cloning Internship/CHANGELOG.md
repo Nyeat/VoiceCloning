@@ -2081,3 +2081,25 @@
 - Singapore cs-tengyu-liu_2 Live Full: 15 more automated attempts, 18/18 failed. "Depending on the location..." (180 chars, min 7.8 s) always 6.8-7.7 s; deterministic under the 15 chars/s check, not chance.
 - Staging quirk: first request after a voice switch can show "GPU not started" while the worker swaps models; retry works. Chrome blocks repeated automatic downloads; pulled the Live Full WAV through a presigned S3 PUT instead.
 - Artifact "Singapore Voice Clone Shootout" v2 adds the repaired audiobook takes and the 18-attempt result. GPUs shut down again (ASG 0/0/0, fixed EC2 stopping).
+
+## 2026-10-30 - Audiobook shootout scored
+
+- Scored all audiobook takes locally (CPU; resemblyzer vs 20x10 s windows of 30minAUDIOBOOK.wav and vs the 30 s ref; faster-whisper large-v3 WER). Training-set match / WER: LongCat 0.965 / 5%, VoxCPM2 0.928 / 2%, FireRed 0.909 / 2%, IndexTTS 0.903 / 12% (dropped a clause), Fish S2-Pro 0.879 / 0%, Drama 3 0.879 / 19% (skipped a sentence), dots 0.873 / 0%, Qwen3 0.746 / 0% (off-voice); in-house Live Fast 0.928 / 3%, Live Full 0.970 / 1%.
+- Artifact "Audiobook Voice Clone Shootout" v4: Singapore-style scored table, repaired in-house takes only, Dean-reference section removed. No repo code changed.
+
+## 2026-10-30 (later) - Live Full pace + ref carry-over fixed; Singapore v3 generated
+
+- Code (commit e3ab580, pushed to separate-containers-new): `gpu-inference-worker/src/services/longTextInference.js` adds `estimateReferenceCharsPerSec` and `analyzeAudioQuality(..., { charsPerSec })` (voice pace only relaxes the short/long bounds); used in Full chunk retries and `routes/inference.js` Live Fast. `client/src/pages/LivePage.jsx` clears refs and auto-save keys on `selectedExpName` change, guards profile/config saves with `findForeignReferencePaths` (`client/src/lib/referenceSelection.js`), and takes training metadata only from the selected voice.
+- Tests: worker 261/261; client 520/521 (only failure: giPublicAccess gateway env test vs the uncommitted live-gateway/.env.livegateway.deployment.staging edit); client vite build OK.
+- Deploy: staging live-fast + training clients via deploy-client.ps1. Worker: patch applied as root via SSM on ASG GPU i-0662ffb9c29823c71 (ASG health EC2 during restart, restored to ELB, target healthy). Not in AMI/launch template; staging branch not updated.
+- Generated on the staging TTS page with cs-tengyu-liu_3 (request bodies checked: weights and all 6 refs from its own dataset). Live Fast 26.8 s, resemblyzer 0.891 vs training set / 0.806 vs 28 s clip, WER 9% (inserted "But"); Live Full 26.5 s, 0.896 / 0.811, WER 5%, all 4 chunks best-effort on strict ASR. Same local scorer gives the old v2 Live Fast 0.907 / 0.832 / 6%.
+- Artifact "Singapore Voice Clone Shootout" v6: v3 Live Fast + Live Full rows, in-house reference-clip players. Staging left running (ASG 1/1/1, fixed EC2 on).
+
+## 2026-10-30 (evening) - Staging AMI, AMI cleanup, cleaned Singapore training audio
+
+- Staging branch `codex/staging-multi-user-scaling` gets e3ab580 cherry-picked as 32f6011 (pushed). Box not fast-forwarded: its checkout is 30234eb and the branch tip carries untested worker changes (inferenceServer.js).
+- AMI `ami-0642b66fa3ae46b4f` (create-image --no-reboot from i-0662ffb9c29823c71, 30234eb + e3ab580 patch); launch template lt-07728350a25e691a4 v41 = v40 with only ImageId changed, set default. Fresh-GPU boot not tested.
+- Deregistered 23 unused AMIs; kept ami-0642b66fa3ae46b4f, ami-07236b80dcdb93bcb (v40 rollback), ami-06338e47a2f1bae6a (fixed staging base). Snapshot deletion denied (UnauthorizedOperation), list in TODO.
+- Training audio: local Demucs htdemucs vocals stem of 30minSINGAPORE_TongYee.wav, 80 Hz high-pass, energy split, dropped <0.8 s fragments and 53 regions with resemblyzer < 0.72 vs speaker centroid, loudness evened. Library files SINGAPORE_TongYee_clean.wav (pauses 0.35 s, 23.5 min) and SINGAPORE_TongYee_clean_v5.wav (pauses kept up to 1.2 s, 26.3 min). Scripts stayed in the session scratchpad, not the repo.
+- cs-tengyu-liu_4 (clean, squeezed pauses, skip denoise): Live Fast 0.915 / 0.844 / WER 9% with dropped phrases; Live Full failed 3/3 (dropped words, then 6.3 s vs 10.5 s expected). cs-tengyu-liu_5 (natural pauses, skip denoise): 318 clips, median clip SNR 55 -> 78 dB vs _3; Live Fast 30.6 s 0.948 / 0.941 / WER 6%; Live Full 31.3 s 0.947 / 0.928 / WER 2%, all 4 chunks best-effort. Request bodies checked: weights and all refs from each voice's own dataset.
+- Shootout artifact v7: v5 rows only for in-house, v5 reference clips, full original and cleaned training audio, before/after sample; v2/v3 in-house audio removed.

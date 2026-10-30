@@ -1,5 +1,9 @@
 # Active TODO
 
+- [ ] Boot one fresh staging GPU from LT v41 (`ami-0642b66fa3ae46b4f`) and confirm the reference-pace check and a public WAV; then look at why every Live Full chunk still ships best-effort on strict ASR (cs-tengyu-liu_5: clipped short words, "gee eye").
+
+- [ ] Ask an administrator to delete 23 orphaned snapshots of AMIs deregistered 2026-10-30 (this role lacks ec2:DeleteSnapshot): snap-0033266cb4284b077 snap-01705fe56e5820cfb snap-019f3b254fe5cca77 snap-02325155ee8b9bac9 snap-0269523316a8f28e1 snap-0284c31e29b9a811c snap-03294c2113d36f9e4 snap-0340c7ba971a2ede0 snap-03d6503d31f330f51 snap-03db3732dab6cf943 snap-049b7193518fa02d5 snap-05689108d35bdb3c8 snap-05804d36233bae64b snap-05cd6c0e0122baba3 snap-0720c257d4f6cbacb snap-07d4f07c2a95dc071 snap-07e032a2802f68b42 snap-09cf487a09a2c82f3 snap-09e8ce11759096db6 snap-0b12245cada7a5d60 snap-0e37f8fcaf1d039b3 snap-0f20340f7a02e3f89 snap-0f87846585a15e652.
+
 - [ ] Model bake-off: ten models (incl. Fish Drama 3, S2-Pro) deployed and smoke-tested on one Seoul L40S. Audiobook and Singapore (Tong Yee) comparisons are generated and scored with Whisper WER + resemblyzer (2026-10-26); blind-listen them, re-run the audiobook in-house voice after its reference repair, then add 2-3 more target speakers before ranking. Raon needs an authoritative vocabulary/checkpoint fix. See repo docs/voice-model-evaluation.md.
 
 - [ ] Live MC: read-aloud test with a real human voice (names, long sentence with pauses, short "yes")
@@ -14,10 +18,7 @@
 - [ ] Reconcile `origin/codex/staging-multi-user-scaling` (2 commits not on local branches) with
   `separate-containers-new` before re-syncing Dev/Staging pointers; it was not force-pushed.
 
-- [ ] Fix the TTS-page reference carry-over (BUGS.md 2026-10-26) after the system review; cs-tengyuliu-v1 data
-  already repaired and regenerated.
 
-- [ ] Live Full: per-voice expected pace instead of fixed 15 chars/s; retest cs-tengyu-liu_2 (BUGS.md 2026-10-26).
 
 - [ ] Ask an administrator for `cloudtrail:LookupEvents` (or a CloudTrail Lake query) to attribute the
   staging ASG instance stops recorded in BUGS.md. Until then the churn cannot be traced: the Lambda

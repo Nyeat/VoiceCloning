@@ -2,6 +2,8 @@
 
 ## Current Shape
 
+- 2026-10-30: staging inference default is LT v41 / `ami-0642b66fa3ae46b4f` (30234eb + e3ab580 worker patch); v40 / `ami-07236b80dcdb93bcb` is the rollback. 23 older AMIs deregistered; their snapshots await an administrator (TODO).
+
 ### Staging manual operation (2026-10-09)
 
 - User requested staging on now and daily start/stop disabled. Fixed EC2
