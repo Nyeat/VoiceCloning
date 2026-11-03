@@ -38,3 +38,10 @@ test('a warm voice switch hints a short retry; only a cold boot uses the boot es
   assert.equal(capacityRetryAfterSeconds({ booting: false }), REASSIGN_RETRY_SECONDS);
   assert.ok(capacityRetryAfterSeconds({ booting: true }) >= REASSIGN_RETRY_SECONDS);
 });
+
+test('a full queue only promises more GPUs when one is really being added', async () => {
+  const { queueFullMessage } = await import('./index.js');
+  assert.match(queueFullMessage({ atMaximum: true, started: false }), /every GPU is in use/u);
+  assert.match(queueFullMessage({ started: true }), /More GPU capacity is preparing/u);
+  assert.doesNotMatch(queueFullMessage({ started: false }), /preparing/u);
+});

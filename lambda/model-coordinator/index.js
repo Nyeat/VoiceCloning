@@ -765,6 +765,16 @@ function capacityResponse({
   };
 }
 
+// Only promise more capacity when a GPU is actually being added.
+export function queueFullMessage(capacityAction = {}) {
+  if (capacityAction?.atMaximum) {
+    return 'This voice is busy and every GPU is in use. Your request will retry automatically.';
+  }
+  return capacityAction?.started
+    ? 'This voice is busy and its waiting list is full. More GPU capacity is preparing; your request will retry automatically.'
+    : 'This voice is busy and its waiting list is full. Your request will retry automatically.';
+}
+
 // A warm GPU switches voices in seconds; only a cold boot needs the boot estimate.
 export const REASSIGN_RETRY_SECONDS = 5;
 export function capacityRetryAfterSeconds({ booting = false } = {}) {
@@ -1115,7 +1125,7 @@ async function synthesize(event) {
       code: capacityAction?.simulated ? 'DEV_CAPACITY_SIMULATED' : 'MODEL_QUEUE_FULL',
       error: capacityAction?.simulated
         ? 'Dev capacity simulation: every fixed GPU for this voice is busy with a full waiting list. Staging would prepare another GPU; retry shortly.'
-        : 'This voice is busy and its waiting list is full. More GPU capacity is preparing; your request will retry automatically.',
+        : queueFullMessage(capacityAction),
       retryAfterSeconds: 5,
       scaleStarted: capacityAction?.started === true,
       retryable: true,
@@ -1147,6 +1157,8 @@ async function synthesize(event) {
           code: capacityAction?.simulated ? 'DEV_CAPACITY_SIMULATED' : 'MODEL_QUEUE_TIMEOUT',
           error: capacityAction?.simulated
             ? 'Dev routing simulation: this fixed GPU is busy. Staging would retry this request against the growing fleet.'
+            : capacityAction?.atMaximum
+            ? 'This voice is heavily loaded and every GPU is in use. Your request will retry automatically.'
             : 'This voice is heavily loaded. Your queue wait expired while more GPU capacity was preparing; this request will retry automatically.',
           retryAfterSeconds: capacityAction?.simulated ? 5 : 2,
           scaleStarted: capacityAction?.started === true,
