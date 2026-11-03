@@ -23,6 +23,10 @@ export async function runSynthesisWithRetry(run, {
   transientAttempts = 3,
   capacityRetryIntervalMs = CAPACITY_RETRY_INTERVAL_MS,
   capacityRetryMaxMs = CAPACITY_RETRY_MAX_MS,
+  // The backend's retryAfterSeconds is a worst case (a cold boot). An
+  // interactive caller can poll sooner, because a voice switch on a warm GPU
+  // usually finishes in seconds.
+  maxCapacityWaitMs = Infinity,
 } = {}) {
   let transientAttempt = 0;
   let capacityWaitStartedAt = null;
@@ -38,7 +42,8 @@ export async function runSynthesisWithRetry(run, {
         if (now() - capacityWaitStartedAt < capacityRetryMaxMs) {
           onCapacityWait(err);
           const hintedRetryMs = Number(err?.retryAfterSeconds || 0) * 1_000;
-          await wait(hintedRetryMs > 0 ? Math.max(1_000, hintedRetryMs) : capacityRetryIntervalMs);
+          const capacityWaitMs = hintedRetryMs > 0 ? Math.max(1_000, hintedRetryMs) : capacityRetryIntervalMs;
+          await wait(Math.min(capacityWaitMs, maxCapacityWaitMs));
           if (isCancelled()) throw err;
           continue;
         }

@@ -76,3 +76,15 @@ test('stopping the conversation cancels a capacity retry', async () => {
 
   assert.equal(calls, 1);
 });
+
+test('an interactive caller polls a capacity switch sooner than the worst-case hint', async () => {
+  const waits = [];
+  let calls = 0;
+  const result = await runSynthesisWithRetry(async () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error('switching'), { code: 'MODEL_CAPACITY_STARTING', retryAfterSeconds: 60 });
+    return 'wav';
+  }, { wait: async (ms) => { waits.push(ms); }, maxCapacityWaitMs: 5_000 });
+  assert.equal(result, 'wav');
+  assert.deepEqual(waits, [5_000]);
+});

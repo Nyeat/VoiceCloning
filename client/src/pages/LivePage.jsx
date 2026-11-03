@@ -87,11 +87,13 @@ import {
   sameLoadedWeights,
   shouldHoldReadyDuringTransientStatus,
   shouldLoadSelectedProfile,
+  canonicalWeightName,
 } from '@/lib/modelLoading';
 import { formatActiveVoiceProfileSummary } from '@/lib/activeVoiceProfile';
 import { getStorageMode } from '@/lib/runtimeConfig';
 import { useGpuStatus } from '@/lib/gpuStatus.jsx';
 import { isTransientBackendError, sanitizeBackendError } from '@/lib/backendErrors';
+import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
 import { voiceCapacityNotice } from '@/lib/voiceCapacity';
 import FloatingNotice from '@/components/FloatingNotice';
 import {
@@ -296,6 +298,16 @@ function ChatBubble({ message, selected, selectedPart, onPlay, audioRef }) {
       )}
     </div>
   );
+}
+
+// A voice switch or queue-full answer is temporary: wait for it (polling every
+// 5 s, at most 3 minutes) instead of failing the first click with "please wait".
+function synthesizeSentenceWhenReady(params, { onCapacityWait } = {}) {
+  return runSynthesisWithRetry(() => synthesizeSentence(params), {
+    onCapacityWait,
+    maxCapacityWaitMs: 5_000,
+    capacityRetryMaxMs: 3 * 60 * 1000,
+  });
 }
 
 export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
@@ -2150,7 +2162,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     setModelError('');
     setVoiceConfigError('');
     try {
-      const result = await synthesizeSentence(params);
+      const result = await synthesizeSentenceWhenReady(params);
       const url = URL.createObjectURL(result.blob);
       setConfigSampleUrls((current) => {
         if (current[config.configId]) URL.revokeObjectURL(current[config.configId]);
@@ -2289,7 +2301,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
         for (let index = 0; index < phrases.length; index += 1) {
           const phrase = phrases[index];
           setTtsFastProgress({ total: phrases.length, current: index + 1, text: phrase });
-          const result = await synthesizeSentence({ ...liveFastParams, text: phrase });
+          const result = await synthesizeSentenceWhenReady({ ...liveFastParams, text: phrase }, {
+            onCapacityWait: () => setTtsFastProgress({ total: phrases.length, current: index + 1, text: 'Preparing the voice on the GPU…' }),
+          });
+          setTtsFastProgress({ total: phrases.length, current: index + 1, text: phrase });
           clips.push(result.blob);
         }
         const blob = clips.length > 1 ? await concatWavBlobs(clips, { pauseMs: 120 }) : clips[0];
@@ -3027,7 +3042,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     setPronunciationMessage(`Testing ${word} with Live Fast sentence TTS...`);
     try {
       const text = buildPronunciationTestText({ word });
-      const result = await synthesizeSentence({
+      const result = await synthesizeSentenceWhenReady({
         text,
         voiceProfileId: selectedVoiceProfileId,
         text_lang: liveLanguage,
@@ -3572,18 +3587,20 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     // site swapping the shared model is no longer something this user has to act
     // on — telling them to "reload yours to continue" would be plainly wrong.
     if (selectedVoicePinsOwnWeights) return;
-    const sig = `${loadedGPTPath}::${loadedSoVITSPath}`;
+    // Compare canonical weight names: the worker reports its local cache path
+    // (…/model_cache/<name>-<hash>.ckpt), never the S3 key this page selected.
+    const sig = `${canonicalWeightName(loadedGPTPath)}::${canonicalWeightName(loadedSoVITSPath)}`;
     const prev = observedLoadedSigRef.current;
     observedLoadedSigRef.current = sig;
     if (prev === null) return;            // first observation — establish a baseline
     if (sig === prev) return;
     if (!loadedGPTPath && !loadedSoVITSPath) return; // full unload (e.g. GPU restart)
     if (loadingModel) return;             // our own in-flight load
-    if (loadedGPTPath === selectedGPT && loadedSoVITSPath === selectedSoVITS) return; // our load landed
+    if (sameLoadedWeights(selectedGPT, loadedGPTPath) && sameLoadedWeights(selectedSoVITS, loadedSoVITSPath)) return; // our load landed
     // Only a change AWAY from our own loaded voice was caused by someone else.
     // A boot-warmed voice being replaced by this page's own selection, or a
     // status reply from a different fleet worker, is not.
-    if (prev !== `${selectedGPT}::${selectedSoVITS}`) return;
+    if (prev !== `${canonicalWeightName(selectedGPT)}::${canonicalWeightName(selectedSoVITS)}`) return;
     setGpuNotice({
       tone: 'info',
       title: 'Shared voice model changed',

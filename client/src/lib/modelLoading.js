@@ -11,7 +11,7 @@
 // re-issuing the load forever. Tolerate that one digest suffix on either side.
 const CACHE_DIGEST_SUFFIX = /-[0-9a-f]{12}$/u;
 
-function canonicalWeightName(value) {
+export function canonicalWeightName(value) {
   const base = String(value || '').trim().split(/[\\/]/).pop() || '';
   const dot = base.lastIndexOf('.');
   const stem = dot > 0 ? base.slice(0, dot) : base;

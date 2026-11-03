@@ -26,10 +26,11 @@ $gatewayEnvKeys = @(
   'TRANSCRIPT_TABLE_REGION',
   'TRANSCRIPT_TTL_DAYS',
   'TRANSCRIPT_STORE_SYNTHETIC',
-  'TRANSCRIPT_STORE_ASSISTANT'
+  'TRANSCRIPT_STORE_ASSISTANT',
+  'LIVE_AUTH_EXEMPT_ORIGINS'
 )
 if ($Env -eq 'staging') {
-  $gatewayEnvKeys += @('FACULTY_ENTRA_ALLOWED_EMAIL_DOMAINS', 'LIVE_AUTH_EXEMPT_ORIGINS', 'LECTURER_TABLE_NAME')
+  $gatewayEnvKeys += @('FACULTY_ENTRA_ALLOWED_EMAIL_DOMAINS', 'LECTURER_TABLE_NAME')
 }
 $gatewayEnvSetup = "node scripts/merge-env-file.mjs $gatewayEnvTemplate live-gateway/.env $($gatewayEnvKeys -join ' ');"
 $remote = "set -e; cd /home/ubuntu/VoiceCloning; git -c safe.directory=/home/ubuntu/VoiceCloning fetch origin; git -c safe.directory=/home/ubuntu/VoiceCloning checkout $($cfg.branch); git -c safe.directory=/home/ubuntu/VoiceCloning pull --ff-only; npm --prefix gpu-worker ci --omit=dev; npm --prefix gpu-inference-worker ci --omit=dev; npm --prefix live-gateway ci --omit=dev; $gatewayEnvSetup $relaySetup sudo systemctl restart gpu-worker gpu-inference-worker voice-live-gateway; for attempt in `$(seq 1 40); do curl -sf localhost:3001/healthz >/dev/null && curl -sf localhost:3003/healthz >/dev/null && curl -sf localhost:3002/readyz >/dev/null && break; sleep 3; done; curl -sf localhost:3001/healthz; curl -sf localhost:3003/healthz; curl -sf localhost:3002/readyz"
