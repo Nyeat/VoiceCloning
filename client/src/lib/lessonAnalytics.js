@@ -369,6 +369,12 @@ export function createSeekGestureTracker({
   };
 }
 
+async function sha256Hex(text) {
+  if (!globalThis.crypto?.subtle) return '';
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function createLessonAnalyticsClient({
   lessonSlug,
   fetchImpl = globalThis.fetch,
@@ -409,10 +415,14 @@ export function createLessonAnalyticsClient({
     try {
       const token = getAuthToken ? await getAuthToken() : '';
       if (getAuthToken && !token) throw new Error('Analytics token is unavailable.');
+      const payloadHash = await sha256Hex(body);
       const response = await fetchImpl(ANALYTICS_ENDPOINT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // CloudFront signs the Lambda origin request (OAC); a POST body must
+          // carry its own SHA-256 or the Function URL rejects it.
+          ...(payloadHash ? { 'x-amz-content-sha256': payloadHash } : {}),
           ...(token ? { 'X-VCS-Entra-Token': token } : {}),
         },
         body,

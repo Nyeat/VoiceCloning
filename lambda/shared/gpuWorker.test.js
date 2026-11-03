@@ -44,3 +44,26 @@ test('capacity retry marks only retry attempts for worker priority', async () =>
     else process.env.INFERENCE_WORKER_URL = previousUrl;
   }
 });
+
+test('worker calls carry the ALB origin-verify header only when configured', async () => {
+  const { originVerifyHeaders } = await import('./gpuWorker.js');
+  assert.deepEqual(originVerifyHeaders({}), {});
+  assert.deepEqual(originVerifyHeaders({ ALB_ORIGIN_VERIFY_VALUE: 'abc' }), { 'X-VCS-Origin-Verify': 'abc' });
+});
+
+test('a worker call that outlives its deadline fails as a 504 instead of hanging', async () => {
+  const { workerFetch } = await import('./gpuWorker.js');
+  const neverAnswers = (_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(new Error('aborted')));
+  });
+  await assert.rejects(
+    workerFetch('http://alb.example/inference/x', {}, { fetchImpl: neverAnswers, timeoutMs: 20 }),
+    (error) => error.statusCode === 504 && error.code === 'WORKER_TIMEOUT' && !error.message.includes('alb.example'),
+  );
+});
+
+test('the deadline is clamped below the CloudFront origin timeout', async () => {
+  const { workerDeadlineMs } = await import('./gpuWorker.js');
+  assert.equal(workerDeadlineMs({}), 55_000);
+  assert.equal(workerDeadlineMs({ WORKER_REQUEST_DEADLINE_MS: '120000' }), 58_000);
+});

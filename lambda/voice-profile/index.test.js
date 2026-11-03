@@ -895,3 +895,16 @@ test('ensure refuses an unauthenticated caller', async () => {
   });
   assert.equal((await handler(ensureEvent({ voiceName: 'cs-nathanael-ng' }))).statusCode, 401);
 });
+
+test('the public active-profile route never reveals the owner email', async () => {
+  const { withoutOwnerIdentity } = await import('./index.js');
+  const profile = {
+    voiceProfileId: 'v-1', displayName: 'V', ownerEmail: 'a@b.sg',
+    metadata: { training: { ownerEmail: 'a@b.sg', expName: 'v' } },
+  };
+  const stripped = withoutOwnerIdentity(profile);
+  assert.equal('ownerEmail' in stripped, false);
+  assert.equal('ownerEmail' in stripped.metadata.training, false);
+  assert.equal(stripped.metadata.training.expName, 'v');
+  assert.equal(profile.ownerEmail, 'a@b.sg');
+});

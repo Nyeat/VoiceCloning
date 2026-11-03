@@ -22,6 +22,8 @@ export function useSSE() {
   const [steps, setSteps] = useState(createDefaultSteps);
   const [pipelineStatus, setPipelineStatus] = useState('idle'); // idle | waiting | running | complete | error | stopped
   const [error, setError] = useState(null);
+  // True while the progress stream is down (GPU stopped, booting, or network).
+  const [connectionLost, setConnectionLost] = useState(false);
   const esRef = useRef(null);
 
   const hydrate = useCallback((initialState = {}) => {
@@ -36,6 +38,7 @@ export function useSSE() {
     setSteps(Array.isArray(initialSteps) && initialSteps.length > 0 ? initialSteps : createDefaultSteps());
     setPipelineStatus(initialStatus);
     setError(initialError);
+    setConnectionLost(false);
   }, []);
 
   const connect = useCallback((sessionId, initialState = {}) => {
@@ -47,6 +50,9 @@ export function useSSE() {
     hydrate({ ...initialState, initialStatus: initialState.initialStatus || 'running' });
 
     esRef.current = connectSSE(sessionId, {
+      onConnectionChange({ state }) {
+        setConnectionLost(state === 'lost');
+      },
       onLog(data) {
         setLogs(prev => [...prev, data]);
       },
@@ -90,7 +96,7 @@ export function useSSE() {
     return () => disconnect();
   }, [disconnect]);
 
-  return { logs, steps, pipelineStatus, error, connect, disconnect, hydrate, reset };
+  return { logs, steps, pipelineStatus, error, connectionLost, connect, disconnect, hydrate, reset };
 }
 
 export { STEP_NAMES };

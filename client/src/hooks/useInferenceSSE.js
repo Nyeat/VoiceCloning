@@ -8,6 +8,8 @@ export function useInferenceSSE() {
   const [chunks, setChunks] = useState([]);
   const [currentChunkText, setCurrentChunkText] = useState('');
   const [error, setError] = useState(null);
+  // True while the progress stream is down (GPU stopped, booting, or network).
+  const [connectionLost, setConnectionLost] = useState(false);
   const esRef = useRef(null);
 
   const hydrate = useCallback((initialState = {}) => {
@@ -26,6 +28,7 @@ export function useInferenceSSE() {
     setChunks(initialChunks);
     setCurrentChunkText(initialCurrentChunkText);
     setError(initialError);
+    setConnectionLost(false);
   }, []);
 
   const connect = useCallback((sessionId, initialState = {}) => {
@@ -44,6 +47,9 @@ export function useInferenceSSE() {
     });
 
     esRef.current = connectInferenceSSE(sessionId, {
+      onConnectionChange({ state }) {
+        setConnectionLost(state === 'lost');
+      },
       onStart(data) {
         setStatus('generating');
         setTotalChunks(data.totalChunks || 0);
@@ -102,6 +108,7 @@ export function useInferenceSSE() {
     chunks,
     currentChunkText,
     error,
+    connectionLost,
     connect,
     disconnect,
     hydrate,

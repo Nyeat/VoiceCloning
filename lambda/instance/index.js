@@ -10,6 +10,7 @@ import {
   UpdateAutoScalingGroupCommand,
 } from '@aws-sdk/client-auto-scaling';
 import { ok, err, preflight } from '../shared/cors.js';
+import { originVerifyHeaders } from '../shared/gpuWorker.js';
 
 function instanceId() {
   return (process.env.GPU_INSTANCE_ID || '').trim();
@@ -161,7 +162,7 @@ async function checkWorkerReady() {
   try {
     const response = await fetch(
       `${baseUrl}${target === 'inference' ? '/models' : '/healthz'}`,
-      { signal: controller.signal },
+      { signal: controller.signal, headers: originVerifyHeaders() },
     );
     return response.ok;
   } catch {
@@ -224,7 +225,7 @@ async function fetchActivityStatus(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2500);
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: controller.signal, headers: originVerifyHeaders() });
     if (!response.ok) {
       throw new Error(`Worker activity status returned ${response.status}`);
     }

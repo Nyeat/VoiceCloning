@@ -224,6 +224,17 @@ function getHeaderValue(headers, headerName) {
   return '';
 }
 
+export function withoutOwnerIdentity(profile) {
+  if (!profile || typeof profile !== 'object') return profile;
+  const { ownerEmail: _ownerEmail, ...rest } = profile;
+  const training = rest.metadata?.training;
+  if (training && typeof training === 'object' && 'ownerEmail' in training) {
+    const { ownerEmail: _trainingOwner, ...trainingRest } = training;
+    return { ...rest, metadata: { ...rest.metadata, training: trainingRest } };
+  }
+  return rest;
+}
+
 function wantsFullActiveProfile(event) {
   const query = event?.queryStringParameters || {};
   const full = String(query.full || query.include || '').trim().toLowerCase();
@@ -266,8 +277,12 @@ export function createHandler({
         if (!activeProfile) {
           return err(404, 'No active voice profile has been saved', event);
         }
+        // This route is public (staff tools read it unsigned), so it must never
+        // reveal who owns the voice. Ownership is served only by the signed-in
+        // /mine route.
+        const { ownerEmail: _ownerEmail, ...publicSummary } = buildVoiceProfileSummary(activeProfile);
         return ok(
-          wantsFullActiveProfile(event) ? activeProfile : buildVoiceProfileSummary(activeProfile),
+          wantsFullActiveProfile(event) ? withoutOwnerIdentity(activeProfile) : publicSummary,
           {},
           event,
         );

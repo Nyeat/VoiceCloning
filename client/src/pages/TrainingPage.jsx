@@ -65,7 +65,7 @@ export default function TrainingPage() {
   const [replacingLibraryId, setReplacingLibraryId] = useState('');
   const [deletingLibraryId, setDeletingLibraryId] = useState('');
 
-  const { pipelineStatus, error, connect, disconnect, hydrate, reset } = useSSE();
+  const { pipelineStatus, error, connectionLost, connect, disconnect, hydrate, reset } = useSSE();
   const restoredSessionRef = useRef(null);
   const noticeTimeoutRef = useRef(null);
   const previousStatusRef = useRef(null);
@@ -715,6 +715,13 @@ export default function TrainingPage() {
             <span className="text-slate-400">({runningExpName})</span>
           ) : null}
         </span>
+
+        {connectionLost && isRunning && (
+          <span role="status" className="flex items-center gap-1.5 text-sm text-amber-700">
+            <AlertCircle size={14} />
+            Lost contact with the GPU progress stream. Reconnecting — the GPU may have stopped or still be starting. Your job has not been cancelled.
+          </span>
+        )}
 
         {(error || uploadError) && (
           <span className="flex items-center gap-1.5 text-sm text-red-600">

@@ -1,63 +1,47 @@
 import { resolveWorkerPath } from '@/lib/runtimeConfig';
+import { openResilientStream } from '@/lib/resilientStream';
 
-export function connectSSE(sessionId, { onLog, onStepStart, onStepComplete, onComplete, onError }) {
-  const es = new EventSource(resolveWorkerPath(`/train/progress/${sessionId}`));
+export { openResilientStream };
 
-  es.addEventListener('log', (e) => {
-    onLog?.(JSON.parse(e.data));
-  });
-
-  es.addEventListener('step-start', (e) => {
-    onStepStart?.(JSON.parse(e.data));
-  });
-
-  es.addEventListener('step-complete', (e) => {
-    onStepComplete?.(JSON.parse(e.data));
-  });
-
-  es.addEventListener('pipeline-complete', (e) => {
-    onComplete?.(JSON.parse(e.data));
-    es.close();
-  });
-
-  // Custom 'pipeline-error' event from our server (not the built-in connection error)
-  es.addEventListener('error', (e) => {
-    if (e.data) {
-      onError?.(JSON.parse(e.data));
-      es.close();
-    }
-    // If no e.data, this is a connection drop — let EventSource auto-reconnect
-  });
-
-  return es;
+function parse(event) {
+  try {
+    return JSON.parse(event.data);
+  } catch {
+    return {};
+  }
 }
 
-export function connectInferenceSSE(sessionId, { onStart, onChunkStart, onChunkComplete, onComplete, onError }) {
-  const es = new EventSource(resolveWorkerPath(`/inference/progress/${sessionId}`));
+export function connectSSE(sessionId, { onLog, onStepStart, onStepComplete, onComplete, onError, onConnectionChange }) {
+  return openResilientStream(resolveWorkerPath(`/train/progress/${sessionId}`), {
+    log: (e) => onLog?.(parse(e)),
+    'step-start': (e) => onStepStart?.(parse(e)),
+    'step-complete': (e) => onStepComplete?.(parse(e)),
+    'pipeline-complete': (e, stream) => {
+      onComplete?.(parse(e));
+      stream.close();
+    },
+    // Custom 'pipeline-error' event from our server (not a connection error).
+    error: (e, stream) => {
+      if (!e.data) return;
+      onError?.(parse(e));
+      stream.close();
+    },
+  }, { onConnectionChange });
+}
 
-  es.addEventListener('inference-start', (e) => {
-    onStart?.(JSON.parse(e.data));
-  });
-
-  es.addEventListener('chunk-start', (e) => {
-    onChunkStart?.(JSON.parse(e.data));
-  });
-
-  es.addEventListener('chunk-complete', (e) => {
-    onChunkComplete?.(JSON.parse(e.data));
-  });
-
-  es.addEventListener('inference-complete', (e) => {
-    onComplete?.(JSON.parse(e.data));
-    es.close();
-  });
-
-  es.addEventListener('error', (e) => {
-    if (e.data) {
-      onError?.(JSON.parse(e.data));
-      es.close();
-    }
-  });
-
-  return es;
+export function connectInferenceSSE(sessionId, { onStart, onChunkStart, onChunkComplete, onComplete, onError, onConnectionChange }) {
+  return openResilientStream(resolveWorkerPath(`/inference/progress/${sessionId}`), {
+    'inference-start': (e) => onStart?.(parse(e)),
+    'chunk-start': (e) => onChunkStart?.(parse(e)),
+    'chunk-complete': (e) => onChunkComplete?.(parse(e)),
+    'inference-complete': (e, stream) => {
+      onComplete?.(parse(e));
+      stream.close();
+    },
+    error: (e, stream) => {
+      if (!e.data) return;
+      onError?.(parse(e));
+      stream.close();
+    },
+  }, { onConnectionChange });
 }

@@ -16,7 +16,8 @@
     "build:chatbot": "vite build --mode chatbot --outDir dist-chatbot",
     "build:gi": "vite build --mode gi --outDir dist-gi",
     "build:mc": "vite build --mode mc --outDir dist-mc",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test \"src/**/*.test.js\" \"src/**/*.test.mjs\""
   },
   "dependencies": {
     "@azure/msal-browser": "^5.17.1",

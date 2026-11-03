@@ -2263,6 +2263,12 @@ useEffect(() => {
                 Generate Speech
               </Button>
 
+              {inference.connectionLost && (inference.status === 'waiting' || inference.status === 'generating') && (
+                <span role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+                  Lost contact with the GPU progress stream. Reconnecting — the GPU may have stopped or still be starting. Your job has not been cancelled.
+                </span>
+              )}
+
               {inferError && (
                 <span className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-2 text-sm text-destructive">
                   {inferError}

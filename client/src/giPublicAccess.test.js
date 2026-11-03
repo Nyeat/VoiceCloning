@@ -366,9 +366,24 @@ test("GI keeps the deployed D25 login presentation while faculty uses its own la
   assert.match(appSource, /<LoginPage[\s\S]*?variant="faculty"[\s\S]*?title="Faculty Voice Assistant"/);
 });
 
+// Only the staff tools (Live Fast/TTS and Live MC) synthesise unsigned. Faculty
+// and GI lectures must never appear in the exemption, and the gateway and Lambda
+// lists must stay identical so one build never gets only half a conversation.
+const STAFF_EXEMPT_ORIGINS = ['https://dfzrfr93t2ruf.cloudfront.net', 'https://d32nzk2gacfhag.cloudfront.net'];
+function exemptOrigins(source) {
+  const match = source.match(/^LIVE_AUTH_EXEMPT_ORIGINS=(.*)$/m);
+  assert.ok(match, 'LIVE_AUTH_EXEMPT_ORIGINS must be set explicitly');
+  return match[1].trim().split(',').map((origin) => origin.trim()).filter(Boolean).sort();
+}
+
 test("faculty has no backend auth exemption and uses a lecturer table", () => {
-  assert.match(stagingGatewayEnv, /^LIVE_AUTH_EXEMPT_ORIGINS=$/m);
-  assert.match(stagingLambdaEnv, /^LIVE_AUTH_EXEMPT_ORIGINS=$/m);
+  for (const source of [stagingGatewayEnv, stagingLambdaEnv]) {
+    const exempt = exemptOrigins(source);
+    assert.deepEqual(exempt, [...STAFF_EXEMPT_ORIGINS].sort());
+    for (const signedSite of ['faculty.lkcmedicine.org', 'd3k2rz0hqm8nxi', 'lectures.lkcmedicine.org', 'd25sg72wp8oj5g']) {
+      assert.equal(exempt.some((origin) => origin.includes(signedSite)), false, `${signedSite} must stay signed`);
+    }
+  }
   assert.match(stagingGatewayEnv, /^LECTURER_TABLE_NAME=vcs-staging-lecturers$/m);
   for (const source of [stagingGatewayEnv, stagingLambdaEnv]) {
     assert.match(

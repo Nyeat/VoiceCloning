@@ -4554,6 +4554,9 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
               }
               className="mt-4 min-h-[220px] rounded-xl border-slate-200 bg-white text-sm leading-6 shadow-none"
             />
+            {ttsInference.connectionLost && (ttsInference.status === 'waiting' || ttsInference.status === 'generating') && (
+              <p role="status" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">Lost contact with the GPU progress stream. Reconnecting — the GPU may have stopped or still be starting. Your job has not been cancelled.</p>
+            )}
             {ttsError && (
               <p className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">{ttsError}</p>
             )}
