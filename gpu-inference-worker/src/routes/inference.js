@@ -95,6 +95,7 @@ async function acquireSynthesisLease(req, res) {
       coordinatorState.assign({
         modelKey: residencyKey,
         voiceProfileId: readVoiceModelSnapshot(req.body).voiceProfileId,
+        source: 'synthesis',
       });
     }
     return lease;

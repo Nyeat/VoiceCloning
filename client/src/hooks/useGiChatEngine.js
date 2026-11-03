@@ -157,14 +157,20 @@ export function useGiChatEngine({
     if (!requestedVoiceProfileId || usesStandardVoice) return undefined;
     let cancelled = false;
     let timer = null;
+    let checks = 0;
+    // A voice switch on a warm GPU takes seconds, a cold boot minutes: check
+    // every 5 s for the first minute, then every 15 s. A voice that is merely
+    // busy (capacityTight) is already usable and keeps the slow cadence.
+    const nextDelayMs = (state) => (state !== 'READY' && checks <= 12 ? 5_000 : 15_000);
     const check = async () => {
+      checks += 1;
       try {
         const response = await prepareVoiceCapacity(requestedVoiceProfileId);
         if (cancelled) return;
         const next = normalizeVoiceCapacity(response?.data || {});
         setVoiceCapacity(next);
         if (next.state !== 'READY' || next.capacityTight) {
-          timer = window.setTimeout(check, 15_000);
+          timer = window.setTimeout(check, nextDelayMs(next.state));
         }
       } catch {
         if (!cancelled) {

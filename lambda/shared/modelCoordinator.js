@@ -1,5 +1,5 @@
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
-import { inferencePost, inferencePostBinary } from './gpuWorker.js';
+import { inferencePost, inferencePostBinary, workerDeadlineMs } from './gpuWorker.js';
 
 const client = new LambdaClient({ region: process.env.AWS_REGION || 'ap-northeast-2' });
 
@@ -7,14 +7,30 @@ function functionName() {
   return String(process.env.MODEL_COORDINATOR_FUNCTION_NAME || '').trim();
 }
 
-async function invokeCoordinator(payload, { lambdaClient = client } = {}) {
+// The browser's CloudFront request gives up at 60 s, so the coordinator call
+// must end (with a retryable answer) before that rather than outlive it.
+export async function invokeCoordinator(payload, { lambdaClient = client, timeoutMs = workerDeadlineMs() } = {}) {
   const name = functionName();
   if (!name) return null;
-  const response = await lambdaClient.send(new InvokeCommand({
-    FunctionName: name,
-    InvocationType: 'RequestResponse',
-    Payload: Buffer.from(JSON.stringify(payload)),
-  }));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await lambdaClient.send(new InvokeCommand({
+      FunctionName: name,
+      InvocationType: 'RequestResponse',
+      Payload: Buffer.from(JSON.stringify(payload)),
+    }), { abortSignal: controller.signal });
+  } catch (error) {
+    if (!controller.signal.aborted) throw error;
+    const timeout = new Error('The voice GPU is busy and did not answer in time. Your request will retry shortly.');
+    timeout.statusCode = 503;
+    timeout.code = 'MODEL_QUEUE_TIMEOUT';
+    timeout.retryAfterSeconds = 2;
+    throw timeout;
+  } finally {
+    clearTimeout(timer);
+  }
   const raw = Buffer.from(response.Payload || []).toString('utf8');
   let result;
   try { result = raw ? JSON.parse(raw) : {}; } catch { result = { statusCode: 500, error: raw || 'Invalid coordinator response' }; }

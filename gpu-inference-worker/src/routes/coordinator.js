@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { activityState } from '../services/activityState.js';
-import { coordinatorState } from '../services/coordinatorState.js';
+import { coordinatorState, registrationConflicts } from '../services/coordinatorState.js';
 import { inferenceServer } from '../services/inferenceServer.js';
 import { modelResidencyKey, readVoiceModelSnapshot, ensureRequestVoiceModel } from '../services/requestVoiceModel.js';
 import { warmReferenceAudioPaths } from '../services/refAudioCache.js';
@@ -49,7 +49,9 @@ router.post('/coordinator/register', (req, res) => {
   if (!before.ready || before.active > 0 || before.queued > 0) {
     return res.status(409).json({ error: 'Worker is not idle and ready for residency registration', status: before });
   }
-  if (before.modelKey && before.modelKey !== requestedKey) {
+  // A boot pre-warm residency is provisional: the boot warm script loads the
+  // pinned voice afterwards and must be able to register it.
+  if (registrationConflicts(before, requestedKey)) {
     return res.status(409).json({ error: 'Worker already has a different registered model', status: before });
   }
   const model = readVoiceModelSnapshot(payload);

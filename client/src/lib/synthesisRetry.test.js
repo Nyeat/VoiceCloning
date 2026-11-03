@@ -88,3 +88,14 @@ test('an interactive caller polls a capacity switch sooner than the worst-case h
   assert.equal(result, 'wav');
   assert.deepEqual(waits, [5_000]);
 });
+
+test('by default a capacity wait never sleeps longer than one regular poll', async () => {
+  const waits = [];
+  let calls = 0;
+  await runSynthesisWithRetry(async () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error('booting'), { code: 'MODEL_CAPACITY_STARTING', retryAfterSeconds: 600 });
+    return 'wav';
+  }, { wait: async (ms) => { waits.push(ms); } });
+  assert.deepEqual(waits, [CAPACITY_RETRY_INTERVAL_MS]);
+});

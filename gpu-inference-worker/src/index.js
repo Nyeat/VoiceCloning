@@ -19,7 +19,8 @@ import {
 import { warmOnBoot, readActiveProfileWarmPayload } from './services/bootWarm.js';
 import { warmReferenceAudioPaths } from './services/refAudioCache.js';
 import { getObject } from './services/s3Storage.js';
-import { ensureRequestVoiceModel } from './services/requestVoiceModel.js';
+import { ensureRequestVoiceModel, modelResidencyKey, readVoiceModelSnapshot } from './services/requestVoiceModel.js';
+import { coordinatorState } from './services/coordinatorState.js';
 
 clearStartupRefAudioCache({ log: console.log });
 clearStartupModelCache({ log: console.log });
@@ -87,6 +88,16 @@ const server = app.listen(WORKER_PORT, WORKER_HOST, () => {
       warmReferences: (payload) => warmReferenceAudioPaths(payload),
       loadVoiceModel: (payload) => ensureRequestVoiceModel(payload),
       runSynth: handleLiveTtsRequest,
+      onWarmed: (payload) => {
+        const modelKey = modelResidencyKey(payload);
+        if (modelKey) {
+          coordinatorState.assign({
+            modelKey,
+            voiceProfileId: readVoiceModelSnapshot(payload).voiceProfileId,
+            source: 'boot',
+          });
+        }
+      },
       log: console.log,
     }).catch((err) => console.warn(`[boot-warm] unexpected: ${err.message}`));
   }

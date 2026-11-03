@@ -392,6 +392,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
   const observedLoadedSigRef = useRef(null);
   const [selectedPersonKey, setSelectedPersonKey] = useState('');
   const [loadedGPTPath, setLoadedGPTPath] = useState('');
+  const preparingPollCountRef = useRef(0);
   const [loadedSoVITSPath, setLoadedSoVITSPath] = useState('');
   const [modelSelectionOnly, setModelSelectionOnly] = useState(false);
   const [serverReady, setServerReady] = useState(false);
@@ -1442,6 +1443,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
   }
 
   async function loadSelectedModel(attempt = 0, requestVersion = null) {
+    if (requestVersion == null) preparingPollCountRef.current = 0;
     // Rank #1 is the source of truth for references. Never race model warming
     // against the config request, because that can fall back to stale profile refs.
     if (
@@ -1477,9 +1479,14 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
           title: coordinatorCapacity.simulated ? 'Dev capacity simulation' : 'Preparing voice capacity',
           message: coordinatorCapacity.message || voiceCapacityNotice(coordinatorCapacity),
         });
-        window.setTimeout(() => loadSelectedModel(attempt, activeRequestVersion), 15_000);
+        // A switch on a warm GPU finishes in seconds; a cold boot takes minutes.
+        // Check quickly at first, then back off.
+        preparingPollCountRef.current += 1;
+        const pollMs = preparingPollCountRef.current <= 12 ? 5_000 : 15_000;
+        window.setTimeout(() => loadSelectedModel(attempt, activeRequestVersion), pollMs);
         return;
       }
+      preparingPollCountRef.current = 0;
       const coordinatorState = String(coordinatorCapacity?.state || '').toUpperCase();
       if (coordinatorCapacity?.simulated || ['SIMULATED', 'ON_DEMAND'].includes(coordinatorState)) {
         setGpuNotice({

@@ -32,3 +32,9 @@ test('releasing the admission lease addresses owner through a placeholder', asyn
   assert.equal(input.ConditionExpression, '#owner = :owner');
   assert.deepEqual(input.ExpressionAttributeNames, { '#owner': 'owner' });
 });
+
+test('a warm voice switch hints a short retry; only a cold boot uses the boot estimate', async () => {
+  const { capacityRetryAfterSeconds, REASSIGN_RETRY_SECONDS } = await import('./index.js');
+  assert.equal(capacityRetryAfterSeconds({ booting: false }), REASSIGN_RETRY_SECONDS);
+  assert.ok(capacityRetryAfterSeconds({ booting: true }) >= REASSIGN_RETRY_SECONDS);
+});

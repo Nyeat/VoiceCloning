@@ -765,6 +765,12 @@ function capacityResponse({
   };
 }
 
+// A warm GPU switches voices in seconds; only a cold boot needs the boot estimate.
+export const REASSIGN_RETRY_SECONDS = 5;
+export function capacityRetryAfterSeconds({ booting = false } = {}) {
+  return booting ? bootEstimateSeconds : REASSIGN_RETRY_SECONDS;
+}
+
 export function capacityStartingMessage({ booting = false } = {}) {
   return booting
     ? 'A new GPU is starting and loading this voice. Please wait a moment.'
@@ -1086,7 +1092,7 @@ async function synthesize(event) {
         startupResponse = {
           statusCode: 503, code: 'MODEL_CAPACITY_STARTING',
           error: capacityStartingMessage({ booting: Boolean(pending) }),
-          retryAfterSeconds: bootEstimateSeconds, scaleStarted: false,
+          retryAfterSeconds: capacityRetryAfterSeconds({ booting: Boolean(pending) }), scaleStarted: false,
           reassignmentStarted: scheduled.started,
           voiceProfileId: clean(model.voiceProfileId), modelKey,
         };
@@ -1164,7 +1170,7 @@ async function synthesize(event) {
       statusCode: 503,
       code: 'MODEL_CAPACITY_STARTING',
       error: capacityStartingMessage({ booting: Boolean(pending) }),
-      retryAfterSeconds: bootEstimateSeconds,
+      retryAfterSeconds: capacityRetryAfterSeconds({ booting: Boolean(pending) }),
       scaleStarted: false,
       reassignmentStarted: false,
       voiceProfileId: clean(model.voiceProfileId),

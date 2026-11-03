@@ -61,3 +61,19 @@ test('warmOnBoot skips cleanly when there is no payload and no active profile', 
   });
   assert.equal(warmed, false);
 });
+
+test('a successful boot warm records the warmed weights as residency; a failed one does not', async () => {
+  const payload = { voice_model: { voiceProfileId: 'dean-v1', gptRef: 'g.ckpt', sovitsRef: 's.pth' }, ref_audio_path: 'r.wav' };
+  const warmed = [];
+  const deps = {
+    readPayload: () => payload,
+    startServer: async () => ({ ready: true }),
+    warmReferences: async (p) => ({ ref_audio_path: p.ref_audio_path, aux_ref_audio_paths: [] }),
+    loadVoiceModel: async () => {},
+    onWarmed: (p) => warmed.push(p.voice_model.voiceProfileId),
+  };
+  assert.equal(await warmOnBoot({ ...deps, runSynth: async () => {} }), true);
+  assert.deepEqual(warmed, ['dean-v1']);
+  assert.equal(await warmOnBoot({ ...deps, runSynth: async () => { throw new Error('cuda'); } }), false);
+  assert.deepEqual(warmed, ['dean-v1']);
+});

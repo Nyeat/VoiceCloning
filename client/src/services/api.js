@@ -7,6 +7,7 @@ import {
 import { isGpuOfflineResponse, synthesisResponseError } from '../lib/synthesisResponse.js';
 import { API_BASE_URL, resolveApiPath, getStorageMode, isS3Mode } from '@/lib/runtimeConfig';
 import { APP_MODE_CONFIG } from '@/lib/appMode';
+import { isWafBlockResponse, oversizedRequestError, OVERSIZED_REQUEST_MESSAGE } from '@/lib/requestSizeGuard';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -110,11 +111,25 @@ api.interceptors.request.use(async (config) => {
   }
 
   const body = serializeJsonBody(config.data);
+  const tooLarge = oversizedRequestError(body, APP_MODE_CONFIG.mode);
+  if (tooLarge) throw tooLarge;
   config.data = body;
   config.transformRequest = [(data) => data];
   setHeader(config.headers, 'Content-Type', 'application/json');
   setHeader(config.headers, 'x-amz-content-sha256', await sha256Hex(body));
   return config;
+});
+
+// Anything the size guard missed (e.g. a multipart body) still gets a readable
+// message instead of CloudFront's HTML 403 page.
+api.interceptors.response.use(undefined, (error) => {
+  const response = error?.response;
+  const sentBytes = typeof error?.config?.data === 'string' ? error.config.data.length : 0;
+  if (response && sentBytes > 4_000 && isWafBlockResponse(response.status, response.headers?.['content-type'])) {
+    error.message = OVERSIZED_REQUEST_MESSAGE;
+    response.data = { error: OVERSIZED_REQUEST_MESSAGE, code: 'REQUEST_BLOCKED' };
+  }
+  return Promise.reject(error);
 });
 
 // Initialize storage mode on first import (non-blocking)

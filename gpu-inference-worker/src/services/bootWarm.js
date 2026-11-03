@@ -99,6 +99,7 @@ export async function warmOnBoot({
   warmReferences,     // (payload) => Promise<{ ref_audio_path, aux_ref_audio_paths }>
   loadVoiceModel = null, // (payload) => Promise<...> — load this profile's weight pair
   runSynth,           // (body) => Promise<...> — the tiny throwaway synth (handleLiveTtsRequest)
+  onWarmed = null,    // (payload) => void — record the warmed weights as this worker's residency
   log = () => {},
 } = {}) {
   let payload = readPayload();
@@ -139,6 +140,9 @@ export async function warmOnBoot({
       prompt_lang: payload.prompt_lang || 'en',
       prompt_text: payload.prompt_text || '',
     });
+    // Without this the coordinator sees a worker with no model, answers the first
+    // request with "switching" and reloads weights that are already resident.
+    if (onWarmed && payload.voice_model) onWarmed(payload);
     log(`[boot-warm] GPU path pre-warmed from ${source}${payload.voiceProfileId ? ` (${payload.voiceProfileId})` : ''}`);
     return true;
   } catch (err) {

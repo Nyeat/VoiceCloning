@@ -26,7 +26,9 @@ export async function runSynthesisWithRetry(run, {
   // The backend's retryAfterSeconds is a worst case (a cold boot). An
   // interactive caller can poll sooner, because a voice switch on a warm GPU
   // usually finishes in seconds.
-  maxCapacityWaitMs = Infinity,
+  // Never sleep longer than one regular poll: staging's cold-boot hint is 600 s,
+  // which left a chat reply silent for ten minutes behind a 10 s voice switch.
+  maxCapacityWaitMs = CAPACITY_RETRY_INTERVAL_MS,
 } = {}) {
   let transientAttempt = 0;
   let capacityWaitStartedAt = null;
