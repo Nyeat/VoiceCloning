@@ -63,17 +63,40 @@ export async function readActiveProfileWarmPayload({ getObject, log = () => {} }
 // must never break the live warm request that triggered it.
 export function recordWarmPayload(payload, { statePath = WARM_STATE_PATH, fsModule = fs } = {}) {
   try {
-    const { ref_audio_path, aux_ref_audio_paths = [], text_lang = 'en', warm_text } = payload || {};
+    const {
+      ref_audio_path, aux_ref_audio_paths = [], text_lang = 'en', warm_text,
+      prompt_text, prompt_lang, voice_model, voiceProfileId,
+    } = payload || {};
     if (!ref_audio_path) return false;
     fsModule.mkdirSync(path.dirname(statePath), { recursive: true });
+    // voice_model is what lets a boot reload the exact weight pair and claim it
+    // as residency; without it the boot warm heats whatever the server loaded.
     fsModule.writeFileSync(
       statePath,
-      JSON.stringify({ ref_audio_path, aux_ref_audio_paths, text_lang, warm_text }),
+      JSON.stringify({
+        ref_audio_path, aux_ref_audio_paths, text_lang, warm_text, prompt_text, prompt_lang,
+        ...(voice_model && typeof voice_model === 'object' ? { voice_model } : {}),
+        ...(voiceProfileId ? { voiceProfileId } : {}),
+      }),
     );
     return true;
   } catch {
     return false;
   }
+}
+
+let lastRememberedVoiceKey = '';
+
+// Remember the voice this worker now holds, so a restart reloads exactly it.
+// Written only when the resident weight pair changes, not on every request.
+export function rememberResidentVoice(payload, options = {}) {
+  const model = payload?.voice_model;
+  if (!model || typeof model !== 'object' || !payload?.ref_audio_path) return false;
+  const key = [String(model.gptRef || '').trim(), String(model.sovitsRef || '').trim()].join('|');
+  if (key === '|' || key === lastRememberedVoiceKey) return false;
+  const written = recordWarmPayload(payload, options);
+  if (written) lastRememberedVoiceKey = key;
+  return written;
 }
 
 export function readWarmPayload({ statePath = WARM_STATE_PATH, fsModule = fs } = {}) {

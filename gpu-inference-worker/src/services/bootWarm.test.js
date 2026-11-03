@@ -77,3 +77,22 @@ test('a successful boot warm records the warmed weights as residency; a failed o
   assert.equal(await warmOnBoot({ ...deps, runSynth: async () => { throw new Error('cuda'); } }), false);
   assert.deepEqual(warmed, ['dean-v1']);
 });
+
+test('the resident voice is remembered with its weights, once per weight pair', async () => {
+  const { rememberResidentVoice, readWarmPayload } = await import('./bootWarm.js');
+  const files = new Map();
+  const fsModule = {
+    mkdirSync: () => {},
+    writeFileSync: (p, d) => files.set(p, d),
+    existsSync: (p) => files.has(p),
+    readFileSync: (p) => files.get(p),
+  };
+  const body = { ref_audio_path: 'r.wav', voice_model: { voiceProfileId: 'v1', gptRef: 'g1.ckpt', sovitsRef: 's1.pth' }, prompt_text: 'hi', text: 'ignored' };
+  assert.equal(rememberResidentVoice(body, { statePath: '/w.json', fsModule }), true);
+  assert.equal(rememberResidentVoice(body, { statePath: '/w.json', fsModule }), false);
+  const saved = readWarmPayload({ statePath: '/w.json', fsModule });
+  assert.deepEqual(saved.voice_model, body.voice_model);
+  assert.equal(saved.prompt_text, 'hi');
+  assert.equal('text' in saved, false);
+  assert.equal(rememberResidentVoice({ ref_audio_path: 'r.wav' }, { statePath: '/w.json', fsModule }), false);
+});

@@ -7,6 +7,7 @@ import { warmReferenceAudioPaths } from '../services/refAudioCache.js';
 import { synthesisScheduler } from '../services/synthesisScheduler.js';
 import { hasActiveInferenceSession } from '../services/longTextInference.js';
 import { handleLiveTtsRequest } from './inference.js';
+import { rememberResidentVoice } from '../services/bootWarm.js';
 
 const router = Router();
 
@@ -100,6 +101,7 @@ router.post('/coordinator/assign', async (req, res) => {
     });
     const model = readVoiceModelSnapshot(payload);
     coordinatorState.assign({ modelKey: requestedKey, voiceProfileId: model.voiceProfileId });
+    rememberResidentVoice({ ...payload, ref_audio_path: warmed.ref_audio_path, aux_ref_audio_paths: warmed.aux_ref_audio_paths });
     activityState.mark();
     return res.json({ assigned: true, warmed: true, status: statusPayload() });
   } catch (error) {

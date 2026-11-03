@@ -54,6 +54,7 @@ import {
   voiceModelKey,
 } from '../services/requestVoiceModel.js';
 import { coordinatorState } from '../services/coordinatorState.js';
+import { rememberResidentVoice } from '../services/bootWarm.js';
 
 const router = Router();
 export function synthesisBusy() {
@@ -97,6 +98,7 @@ async function acquireSynthesisLease(req, res) {
         voiceProfileId: readVoiceModelSnapshot(req.body).voiceProfileId,
         source: 'synthesis',
       });
+      rememberResidentVoice(req.body);
     }
     return lease;
   } catch (error) {
