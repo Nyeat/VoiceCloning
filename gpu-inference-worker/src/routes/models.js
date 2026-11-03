@@ -122,7 +122,7 @@ router.post('/ref-audio/warm', async (req, res) => {
         synthWarmed = true;
         // Persist this payload so a bare service restart can replay the warm at boot
         // (see WARM_ON_BOOT). Only record once we know it produced a real synth.
-        recordWarmPayload(req.body);
+        recordWarmPayload(req.body, { preserveResidentVoice: true });
       }
     } catch (warmErr) {
       console.warn(`[ref-audio/warm] generation pre-warm failed: ${warmErr.message}`);

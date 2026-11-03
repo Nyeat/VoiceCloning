@@ -61,8 +61,18 @@ export async function readActiveProfileWarmPayload({ getObject, log = () => {} }
 
 // Persist the fields warmOnBoot needs to replay a warm. Best-effort: a write failure
 // must never break the live warm request that triggered it.
-export function recordWarmPayload(payload, { statePath = WARM_STATE_PATH, fsModule = fs } = {}) {
+export function recordWarmPayload(payload, {
+  statePath = WARM_STATE_PATH,
+  fsModule = fs,
+  // A reference-only warm (the legacy /ref-audio/warm route) must not erase a
+  // record that names the resident weights, or the next boot cannot reclaim them.
+  preserveResidentVoice = false,
+} = {}) {
   try {
+    if (preserveResidentVoice && !payload?.voice_model) {
+      const existing = readWarmPayload({ statePath, fsModule });
+      if (existing?.voice_model) return false;
+    }
     const {
       ref_audio_path, aux_ref_audio_paths = [], text_lang = 'en', warm_text,
       prompt_text, prompt_lang, voice_model, voiceProfileId,
