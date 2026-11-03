@@ -3605,7 +3605,14 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     // afterwards would load one voice onto the shared GPU just to replace it.
     if (canEditInstructions) {
       if (myVoicesLoading) return;
-      const ownVoice = myVoices.find((voice) => voice.isMine !== false);
+      // The list is alphabetical for the picker; the default should be the
+      // lecturer's most recently used voice, not whichever name sorts first.
+      const ownVoices = myVoices.filter((voice) => voice.isMine !== false);
+      const lastUsedAt = (voice) => Date.parse(voice.activatedAt || voice.updatedAt || '') || 0;
+      const ownVoice = ownVoices.reduce(
+        (best, voice) => (best === null || lastUsedAt(voice) > lastUsedAt(best) ? voice : best),
+        null,
+      );
       const ownMatch = ownVoice
         ? availableProfiles.find((p) => p.key === normalizeVoiceKey(ownVoice.displayName))
         : null;

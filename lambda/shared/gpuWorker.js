@@ -215,8 +215,24 @@ export async function inferencePost(routePath, body = {}, extraHeaders = {}) {
   return data;
 }
 
+// The staging ALB Target Optimizer caps concurrent requests per GPU, and a
+// status/model poll counts against that cap like a synthesis does. A poll that
+// lands while both slots are busy gets a bare 503, which the UI used to show as
+// "voice engine unavailable" for a few seconds. GETs are idempotent, so retry
+// them briefly before reporting the worker down.
+export async function fetchIdempotentWithRetry(url, { routePath, fetchImpl = fetch, waitImpl = wait, delaysMs = [250, 600] } = {}) {
+  let response = await workerFetch(url, {}, { routePath, fetchImpl });
+  for (const delayMs of delaysMs) {
+    if (response.status !== 503) return response;
+    await response.arrayBuffer().catch(() => {});
+    await waitImpl(delayMs);
+    response = await workerFetch(url, {}, { routePath, fetchImpl });
+  }
+  return response;
+}
+
 export async function inferenceGet(routePath) {
-  const response = await workerFetch(`${inferenceBaseUrl()}${routePath}`, {}, { routePath });
+  const response = await fetchIdempotentWithRetry(`${inferenceBaseUrl()}${routePath}`, { routePath });
   const data = await parseResponse(response);
   if (!response.ok) {
     throw upstreamError(data.error || data.message || `Inference Worker GET ${routePath} failed (${response.status})`, response.status);

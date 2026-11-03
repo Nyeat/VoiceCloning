@@ -67,3 +67,22 @@ test('the deadline is clamped below the CloudFront origin timeout', async () => 
   assert.equal(workerDeadlineMs({}), 55_000);
   assert.equal(workerDeadlineMs({ WORKER_REQUEST_DEADLINE_MS: '120000' }), 58_000);
 });
+
+test('idempotent worker GETs ride out a brief Target Optimizer 503', async () => {
+  const { fetchIdempotentWithRetry } = await import('./gpuWorker.js');
+  const statuses = [503, 503, 200];
+  const calls = [];
+  const fetchImpl = async (url) => { calls.push(url); return { status: statuses.shift(), arrayBuffer: async () => new ArrayBuffer(0) }; };
+  const response = await fetchIdempotentWithRetry('http://alb/inference/status', { fetchImpl, waitImpl: async () => {} });
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 3);
+});
+
+test('a worker that stays at 503 is reported after the bounded retries', async () => {
+  const { fetchIdempotentWithRetry } = await import('./gpuWorker.js');
+  let calls = 0;
+  const fetchImpl = async () => { calls += 1; return { status: 503, arrayBuffer: async () => new ArrayBuffer(0) }; };
+  const response = await fetchIdempotentWithRetry('http://alb/models', { fetchImpl, waitImpl: async () => {} });
+  assert.equal(response.status, 503);
+  assert.equal(calls, 3);
+});

@@ -309,19 +309,27 @@ export function createHandler({
         // profiles only add reference audio and settings on top. Reading only
         // the profiles would hide every voice that has been trained but never
         // opened in the TTS page — which is every freshly trained voice.
-        const trainedNames = await listVoiceNames();
-        const profilesByName = new Map();
-        const objects = await listProfileObjects();
-        for (const object of objects || []) {
-          const key = String(object?.key || '');
-          if (!key.endsWith('.json') || key === ACTIVE_PROFILE_KEY) continue;
-          let profile;
-          try {
-            profile = await parseStoredProfile(readObject, key);
-          } catch {
-            // One unreadable record must not hide every other voice.
-            continue;
+        const [trainedNames, objects] = await Promise.all([listVoiceNames(), listProfileObjects()]);
+        const profileKeys = (objects || [])
+          .map((object) => String(object?.key || ''))
+          .filter((key) => key.endsWith('.json') && key !== ACTIVE_PROFILE_KEY);
+        // Read the saved profiles in parallel (bounded). Reading them one after
+        // another made the faculty voice picker wait ~6.5 s on every load.
+        const profiles = new Array(profileKeys.length).fill(null);
+        let nextIndex = 0;
+        await Promise.all(Array.from({ length: Math.min(16, profileKeys.length) }, async () => {
+          while (nextIndex < profileKeys.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            try {
+              profiles[index] = await parseStoredProfile(readObject, profileKeys[index]);
+            } catch {
+              // One unreadable record must not hide every other voice.
+            }
           }
+        }));
+        const profilesByName = new Map();
+        for (const profile of profiles) {
           const name = String(profile?.displayName || '').trim();
           if (name) profilesByName.set(name, profile);
         }
