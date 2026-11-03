@@ -32,7 +32,7 @@ if ($Env -eq 'staging') {
   $gatewayEnvKeys += @('FACULTY_ENTRA_ALLOWED_EMAIL_DOMAINS', 'LIVE_AUTH_EXEMPT_ORIGINS', 'LECTURER_TABLE_NAME')
 }
 $gatewayEnvSetup = "node scripts/merge-env-file.mjs $gatewayEnvTemplate live-gateway/.env $($gatewayEnvKeys -join ' ');"
-$remote = "set -e; cd /home/ubuntu/VoiceCloning; git -c safe.directory=/home/ubuntu/VoiceCloning fetch origin; git -c safe.directory=/home/ubuntu/VoiceCloning checkout $($cfg.branch); git -c safe.directory=/home/ubuntu/VoiceCloning pull --ff-only; npm --prefix gpu-worker ci --omit=dev; npm --prefix gpu-inference-worker ci --omit=dev; npm --prefix live-gateway ci --omit=dev; $gatewayEnvSetup $relaySetup sudo systemctl restart gpu-worker gpu-inference-worker voice-live-gateway; sleep 8; curl -sf localhost:3001/healthz; curl -sf localhost:3003/healthz; curl -sf localhost:3002/readyz"
+$remote = "set -e; cd /home/ubuntu/VoiceCloning; git -c safe.directory=/home/ubuntu/VoiceCloning fetch origin; git -c safe.directory=/home/ubuntu/VoiceCloning checkout $($cfg.branch); git -c safe.directory=/home/ubuntu/VoiceCloning pull --ff-only; npm --prefix gpu-worker ci --omit=dev; npm --prefix gpu-inference-worker ci --omit=dev; npm --prefix live-gateway ci --omit=dev; $gatewayEnvSetup $relaySetup sudo systemctl restart gpu-worker gpu-inference-worker voice-live-gateway; for attempt in `$(seq 1 40); do curl -sf localhost:3001/healthz >/dev/null && curl -sf localhost:3003/healthz >/dev/null && curl -sf localhost:3002/readyz >/dev/null && break; sleep 3; done; curl -sf localhost:3001/healthz; curl -sf localhost:3003/healthz; curl -sf localhost:3002/readyz"
 
 if ($DryRun) { Write-Host "[dry-run] $($cfg.workerAccess) to $($cfg.instanceId): $remote"; exit 0 }
 
@@ -40,8 +40,13 @@ if ($cfg.workerAccess -eq 'ssm') {
   $cmdId = aws ssm send-command --region $cfg.region --instance-ids $cfg.instanceId --document-name AWS-RunShellScript --parameters "commands=['$remote']" --query "Command.CommandId" --output text
   if ($LASTEXITCODE -ne 0) { throw "ssm send-command failed" }
   Write-Host "SSM command $cmdId sent; waiting..."
-  aws ssm wait command-executed --region $cfg.region --command-id $cmdId --instance-id $cfg.instanceId
-  $invocation = aws ssm get-command-invocation --region $cfg.region --command-id $cmdId --instance-id $cfg.instanceId --output json | ConvertFrom-Json
+  # `aws ssm wait command-executed` gives up after ~100 s, while npm ci plus a
+  # cold worker restart regularly takes longer; poll until a terminal status.
+  $deadline = (Get-Date).AddMinutes(15)
+  do {
+    Start-Sleep -Seconds 10
+    $invocation = aws ssm get-command-invocation --region $cfg.region --command-id $cmdId --instance-id $cfg.instanceId --output json | ConvertFrom-Json
+  } while ($invocation.Status -in @('Pending', 'InProgress', 'Delayed') -and (Get-Date) -lt $deadline)
   [pscustomobject]@{
     Status = $invocation.Status
     Out = $invocation.StandardOutputContent

@@ -93,7 +93,8 @@ test('fleet admission lease retries a conditional loser and releases only its ow
   const release = calls.find((command) => command instanceof DeleteCommand);
   assert.equal(release.input.Key.id, lease.id);
   assert.equal(release.input.ExpressionAttributeValues[':owner'], lease.owner);
-  assert.equal(release.input.ConditionExpression, 'owner = :owner');
+  assert.equal(release.input.ConditionExpression, '#owner = :owner');
+  assert.deepEqual(release.input.ExpressionAttributeNames, { '#owner': 'owner' });
 });
 
 test('capacity copy distinguishes an autoscale boot from an idle-worker switch', () => {

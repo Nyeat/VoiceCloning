@@ -3580,6 +3580,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     if (!loadedGPTPath && !loadedSoVITSPath) return; // full unload (e.g. GPU restart)
     if (loadingModel) return;             // our own in-flight load
     if (loadedGPTPath === selectedGPT && loadedSoVITSPath === selectedSoVITS) return; // our load landed
+    // Only a change AWAY from our own loaded voice was caused by someone else.
+    // A boot-warmed voice being replaced by this page's own selection, or a
+    // status reply from a different fleet worker, is not.
+    if (prev !== `${selectedGPT}::${selectedSoVITS}`) return;
     setGpuNotice({
       tone: 'info',
       title: 'Shared voice model changed',

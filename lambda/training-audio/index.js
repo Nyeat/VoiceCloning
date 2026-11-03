@@ -84,7 +84,13 @@ export const handler = async (event) => {
       }
 
       const clipMetrics = await loadClipQualityMetrics(expName);
-      const files = wavFiles.map((filename) => {
+      // Presigning is a local signature (no network), so return every clip's
+      // playable URL here. Clients used to ask for each URL separately: one
+      // Lambda call per clip on every page load (229 for one voice).
+      const urls = await Promise.all(wavFiles.map((filename) => (
+        generatePresignedGetUrl(`${denoisedPrefix}${filename}`).catch(() => '')
+      )));
+      const files = wavFiles.map((filename, index) => {
         const info = transcriptMap.get(filename) || {};
         const qualityMetrics = clipMetrics.get(filename);
         return {
@@ -95,9 +101,10 @@ export const handler = async (event) => {
           lang: info.lang || '',
           qualityScore: qualityMetrics?.score,
           qualityMetrics,
+          ...(urls[index] ? { url: urls[index] } : {}),
         };
       });
-      return ok({ expName, files });
+      return ok({ expName, files, urlExpiresInSeconds: 3600 });
     }
 
     return err(404, 'Not found');

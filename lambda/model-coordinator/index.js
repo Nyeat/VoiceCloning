@@ -637,7 +637,11 @@ export async function releaseAdmissionLease(lease, {
   await documentClient.send(new DeleteCommand({
     TableName: coordinatorTable,
     Key: { id: lease.id },
-    ConditionExpression: 'owner = :owner',
+    // `owner` is a DynamoDB reserved word: it must go through an attribute name
+    // placeholder or every release fails validation (and the lease is held
+    // until it expires, stalling all admissions).
+    ConditionExpression: '#owner = :owner',
+    ExpressionAttributeNames: { '#owner': 'owner' },
     ExpressionAttributeValues: { ':owner': lease.owner },
   })).catch((error) => {
     if (error.name !== 'ConditionalCheckFailedException') throw error;

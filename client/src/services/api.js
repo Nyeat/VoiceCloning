@@ -660,11 +660,33 @@ export function startInstance() {
 
 // Training audio browser
 
-export function getTrainingAudioFiles(expName) {
-  return api.get(`/training-audio/${encodeURIComponent(expName)}`);
+// Clip URLs handed out by the list call, reused until shortly before they expire.
+const trainingAudioUrlCache = new Map();
+const TRAINING_AUDIO_URL_SAFETY_MS = 10 * 60 * 1000;
+
+function trainingAudioCacheKey(expName, filename) {
+  return `${expName}
+${filename}`;
+}
+
+export async function getTrainingAudioFiles(expName) {
+  const response = await api.get(`/training-audio/${encodeURIComponent(expName)}`);
+  const lifetimeMs = Number(response?.data?.urlExpiresInSeconds || 0) * 1000;
+  if (lifetimeMs > TRAINING_AUDIO_URL_SAFETY_MS && Array.isArray(response?.data?.files)) {
+    const expiresAt = Date.now() + lifetimeMs - TRAINING_AUDIO_URL_SAFETY_MS;
+    for (const file of response.data.files) {
+      if (file?.filename && file?.url) {
+        trainingAudioUrlCache.set(trainingAudioCacheKey(expName, file.filename), { url: file.url, expiresAt });
+      }
+    }
+  }
+  return response;
 }
 
 export async function getTrainingAudioUrl(expName, filename) {
+  const cached = trainingAudioUrlCache.get(trainingAudioCacheKey(expName, filename));
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
+
   await getStorageMode();
 
   if (isS3Mode()) {
