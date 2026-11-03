@@ -2128,3 +2128,23 @@
   CloudFront: staging Live Fast TTS/Full/chat, lectures signed chat+voice, faculty sign-in, MC, training page;
   dev TTS/Full, GI chat+voice. Not tested: training run, real microphone, burst/scale tests, 6ab95ad (undeployed).
 
+## 2026-11-03 (later) - Coordinator, switching and warming robustness
+
+- Worker: boot pre-warm records its weights as provisional residency (`source: boot`, replaceable by the boot
+  warm script's registration); coordinator assigns and weight-switching synthesis persist the resident voice
+  with S3 reference keys (the old record had no `voice_model`, and a reference-only warm overwrote it).
+  Proven on dev: restart -> residency reclaimed in 25 s -> first request 200 in 2.4 s (was 2-3 "switching" 503s).
+- Coordinator: warm switch hints 5 s (was 600 s boot estimate on staging); queue-full text only promises GPUs
+  when one is added; worker deadline 50 s (env files). Main Lambda aborts coordinator calls at 55 s
+  (MODEL_QUEUE_TIMEOUT, retryable).
+- Client: capacity waits capped at 15 s for every caller (chat could sleep 10 min); voice preparation polls
+  5 s for the first minute (TTS/Faculty and lectures); automatic profile syncs pass `makeActive:false` so
+  opening a page (Faculty especially) no longer changes the backend-wide default voice; Training/Live Fast
+  refuse request bodies over the 8 KB WAF limit with a "shorten or split" message.
+- Ops: dev Live chat fixed (gateway exemption deployed); staging default voice restored to cs-tengyu-liu_5-v1
+  after a Faculty visit had switched it; deploy.config.json records LT v41 and manual capacity.
+- Tests: Lambda 348, coordinator 60, client 530, inference 268, training 23, gateway 184 pass. Browser via
+  CloudFront: dev TTS/chat/restart proof; staging TTS switch (~10 s, auto-retry, no error), 5-way burst on one
+  2-slot GPU (route/route/queue/queue/queue-full, all 200 by 12 s, no scale at max 1), lecture Dean reply 6 s,
+  Faculty no longer moves the default. Not tested: scale-out beyond one GPU (max held at 1), microphone, training.
+

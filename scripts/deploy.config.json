@@ -12,25 +12,15 @@
     "workerAccess": "ssm",
     "autoscaling": {
       "targetGroupName": "vcs-stg-opt-3103",
-      "sourceAmiId": "ami-0cf96ffb91690b17c",
+      "sourceAmiId": "ami-0642b66fa3ae46b4f",
       "launchTemplateName": "vcs-staging-gpu-inference",
       "launchTemplateId": "lt-07728350a25e691a4",
-      "launchTemplateVersion": 39,
+      "launchTemplateVersion": 41,
       "autoScalingGroupName": "vcs-staging-gpu-inference",
       "serviceLinkedRoleReady": true,
       "created": true,
       "desiredCapacity": 0,
-      "maxCapacity": 0,
-      "operationalShutdown": {
-        "date": "2026-10-08",
-        "minCapacity": 0,
-        "dailyScheduledMinDesiredMax": 0,
-        "coordinatorMode": "routing-only",
-        "fixedGpuScheduleEnabled": true,
-        "fixedGpuScheduleStartHour": 0,
-        "fixedGpuScheduleEndHour": 0,
-        "previousMaxCapacity": 192
-      },
+      "maxCapacity": 1,
       "eventPreWarmCapacity": 50,
       "scheduledActionsCreated": true,
       "eventPreWarmAt": "2026-08-04T13:30:00+08:00",
@@ -42,7 +32,11 @@
       "offHoursMinCapacity": 0,
       "fixedInstanceStateCouplingEnabled": false,
       "currentInstanceId": null,
-      "listenerCutover": true
+      "listenerCutover": true,
+      "manualCapacity": {
+        "note": "2026-11-03: coordinator autoscale; capacity set by hand. Off = ASG 0/0/1 + fixed GPU stopped; on = ASG 1/1/1 + fixed GPU running.",
+        "verifiedAt": "2026-11-03"
+      }
     },
     "distributions": {
       "training": "EC2SYT1OKGW9Q",

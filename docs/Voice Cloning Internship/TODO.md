@@ -1,21 +1,12 @@
 # Active TODO
 
-- [ ] Deploy commit 6ab95ad (blocked 2026-11-03 by expired SSO creds): `deploy-worker.ps1 -Env dev` (dev gateway
-  `LIVE_AUTH_EXEMPT_ORIGINS`, fixes dev staff chat "sign-in failed (missing)") and live-fast/chatbot clients on
-  dev plus live-fast/chatbot/chatbot-text/mc on staging (TTS waits out voice switches; no false shared-voice notice).
-- [ ] Admin (role lacks `wafv2:UpdateWebACL`): on ACLs `CreatedByCloudFront-2dd08c01` and `-17f1c03d` set
+- [ ] Optional, admin only (role lacks `wafv2:UpdateWebACL`; the client now refuses >8 KB bodies with "shorten or split", so not required): on ACLs `CreatedByCloudFront-2dd08c01` and `-17f1c03d` set
   CommonRuleSet `SizeRestrictions_BODY` to Count (it blocked 19 real Live Fast requests in 30 days: long text
   returns a bare 403) and add per-IP rate rules: 100/5 min on non-GET GPU control/write routes, 600/5 min on
   unsigned `/api/live/tts-sentence` + `/api/inference`. Then attach an ACL to lectures, faculty and MC.
 - [ ] Admin (role lacks `elasticloadbalancing:ModifyListener`): set both ALB listener default actions to fixed
   403 and delete catch-all rule 49000; rotate `ALB_ORIGIN_VERIFY_VALUE` (CloudFront ALB origin header + Lambda env
   together) if it is ever exposed.
-- [ ] Dev routing-only coordinator: the first synthesis after the page loads a voice through `/models/select`
-  answers `MODEL_CAPACITY_STARTING` ("switching") 1-3 times although the weights are loaded; register residency
-  on page-side loads or treat reported weights as resident. Clients now auto-retry, so it costs seconds, not a click.
-- [ ] Browser-test one training start/stop on dev (needs an NTU email entered and creates a voice); confirm the
-  9-step SSE and the new "Lost contact" notice by stopping the dev GPU mid-run.
-- [ ] Update the on-box git remotes to `https://github.com/Nyeat/VoiceCloning.git` (repo moved; redirects still work).
 
 - [ ] LT v41 boot verified 2026-11-03 (healthy, public TTS/Full WAVs). Still: why every Live Full chunk ships best-effort on strict ASR (cs-tengyu-liu_5: clipped short words, "gee eye").
 
