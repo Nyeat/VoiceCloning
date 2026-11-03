@@ -526,6 +526,18 @@ export function createHandler({
           Buffer.from(JSON.stringify(record), 'utf-8'),
           'application/json',
         );
+        // Pages sync a voice's saved settings automatically whenever they load
+        // it. Those syncs must not also change the backend-wide default voice:
+        // otherwise whoever opened any page last (Faculty included) silently
+        // changes the voice every other staff user gets.
+        if (body.makeActive === false) {
+          try {
+            await warmReferenceAudio(record);
+          } catch (warmError) {
+            console.warn(`[voice-profile] ref-audio warm failed for ${record.voiceProfileId}: ${warmError.message}`);
+          }
+          return ok({ ...buildVoiceProfileSummary(record), madeActive: false }, {}, event);
+        }
         await writeObject(
           ACTIVE_PROFILE_KEY,
           Buffer.from(JSON.stringify(activeRecord), 'utf-8'),

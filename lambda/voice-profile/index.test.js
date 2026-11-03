@@ -908,3 +908,31 @@ test('the public active-profile route never reveals the owner email', async () =
   assert.equal(stripped.metadata.training.expName, 'v');
   assert.equal(profile.ownerEmail, 'a@b.sg');
 });
+
+test('an automatic profile sync saves the voice without changing the default voice', async () => {
+  const uploads = [];
+  const handler = createHandler({
+    readObject: async () => { throw new Error('not used'); },
+    writeObject: async (key) => { uploads.push(key); },
+    warmReferenceAudio: async () => {},
+    now: () => '2026-11-03T10:00:00.000Z',
+  });
+  const response = await handler(createEvent({
+    method: 'POST',
+    path: '/api/voice-profile/activate',
+    body: {
+      voiceProfileId: 'michael-tan-v1',
+      displayName: 'Michael Tan',
+      gptKey: 'models/user-models/gpt/michael-tan.ckpt',
+      sovitsKey: 'models/user-models/sovits/michael-tan.pth',
+      ref_audio_path: 'training/datasets/michael-tan/reference.wav',
+      prompt_text: 'Reference transcript',
+      prompt_lang: 'en',
+      text_lang: 'en',
+      makeActive: false,
+    },
+  }));
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(uploads, ['voice-profiles/michael-tan-v1.json']);
+  assert.equal(JSON.parse(response.body).madeActive, false);
+});

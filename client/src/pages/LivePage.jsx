@@ -300,6 +300,13 @@ function ChatBubble({ message, selected, selectedPart, onPlay, audioRef }) {
   );
 }
 
+// Page-load syncs that re-save a voice's settings without user intent.
+const AUTOMATIC_PROFILE_SYNC_CONTEXTS = new Set([
+  'startup rank #1 config',
+  'model-load rank #1 config',
+  'gpu-ready rank #1 config',
+]);
+
 // A voice switch or queue-full answer is temporary: wait for it (polling every
 // 5 s, at most 3 minutes) instead of failing the first click with "please wait".
 function synthesizeSentenceWhenReady(params, { onCapacityWait } = {}) {
@@ -1131,7 +1138,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     };
   }
 
-  async function syncConfigToVoiceProfile(config) {
+  async function syncConfigToVoiceProfile(config, { makeActive = true } = {}) {
     const configPayload = buildConfigVoiceProfilePayload(config);
     if (!configPayload) return;
     const storageMode = await getStorageMode();
@@ -1139,7 +1146,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       ...configPayload,
       storageMode,
     });
-    const response = await activateVoiceProfile(payload);
+    const response = await activateVoiceProfile({ ...payload, makeActive });
     const summary = response.data || {};
     setActiveVoiceProfile(summary.voiceProfileId ? {
       ...payload,
@@ -1157,7 +1164,11 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
   async function syncRankOneConfigToVoiceProfile(config, { required = false, context = 'rank #1 config' } = {}) {
     if (!config) return false;
     try {
-      await syncConfigToVoiceProfile(config);
+      // Loading a page re-saves the voice's settings, but must not change the
+      // backend-wide default voice other staff get; only an explicit edit does.
+      // Faculty is a lecturer tool and never changes the staff default.
+      const makeActive = !AUTOMATIC_PROFILE_SYNC_CONTEXTS.has(context) && !canEditInstructions;
+      await syncConfigToVoiceProfile(config, { makeActive });
       setVoiceConfigError('');
       return true;
     } catch (err) {
@@ -1595,7 +1606,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       storageMode,
     });
 
-    const response = await activateVoiceProfile(payload);
+    const response = await activateVoiceProfile({ ...payload, makeActive: !canEditInstructions });
     const summary = response.data || {};
     setActiveVoiceProfile(summary.voiceProfileId ? {
       ...payload,
