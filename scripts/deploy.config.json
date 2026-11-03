@@ -19,8 +19,18 @@
       "autoScalingGroupName": "vcs-staging-gpu-inference",
       "serviceLinkedRoleReady": true,
       "created": true,
-      "desiredCapacity": 1,
-      "maxCapacity": 192,
+      "desiredCapacity": 0,
+      "maxCapacity": 0,
+      "operationalShutdown": {
+        "date": "2026-10-08",
+        "minCapacity": 0,
+        "dailyScheduledMinDesiredMax": 0,
+        "coordinatorMode": "routing-only",
+        "fixedGpuScheduleEnabled": true,
+        "fixedGpuScheduleStartHour": 0,
+        "fixedGpuScheduleEndHour": 0,
+        "previousMaxCapacity": 192
+      },
       "eventPreWarmCapacity": 50,
       "scheduledActionsCreated": true,
       "eventPreWarmAt": "2026-08-04T13:30:00+08:00",
@@ -29,9 +39,9 @@
       "dailyStartCron": "0 7 * * *",
       "dailyStopCron": "0 19 * * *",
       "dailyScheduleTimeZone": "Asia/Singapore",
-      "offHoursMinCapacity": 1,
+      "offHoursMinCapacity": 0,
       "fixedInstanceStateCouplingEnabled": false,
-      "currentInstanceId": "i-0c92f3224029284ee",
+      "currentInstanceId": null,
       "listenerCutover": true
     },
     "distributions": {
