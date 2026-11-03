@@ -106,3 +106,12 @@ test('a reference-only warm cannot erase the resident voice record', async () =>
   assert.equal(readWarmPayload({ statePath: '/w', fsModule }).ref_audio_path, 'a.wav');
   assert.equal(recordWarmPayload({ ref_audio_path: 'b.wav' }, { statePath: '/w2', fsModule, preserveResidentVoice: true }), true);
 });
+
+test('a payload holding local cache paths is never remembered', async () => {
+  const { rememberResidentVoice } = await import('./bootWarm.js');
+  const files = new Map();
+  const fsModule = { mkdirSync: () => {}, writeFileSync: (p, d) => files.set(p, d), existsSync: (p) => files.has(p), readFileSync: (p) => files.get(p) };
+  const local = { ref_audio_path: '/opt/gpt-sovits/worker_temp/ref_audio_cache/x.wav', voice_model: { gptRef: 'gL', sovitsRef: 'sL' } };
+  assert.equal(rememberResidentVoice(local, { statePath: '/w', fsModule }), false);
+  assert.equal(files.size, 0);
+});

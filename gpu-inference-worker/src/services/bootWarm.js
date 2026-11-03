@@ -102,6 +102,9 @@ let lastRememberedVoiceKey = '';
 export function rememberResidentVoice(payload, options = {}) {
   const model = payload?.voice_model;
   if (!model || typeof model !== 'object' || !payload?.ref_audio_path) return false;
+  // Only durable S3 keys survive a restart; a local cache path would be gone.
+  const refs = [payload.ref_audio_path, ...(payload.aux_ref_audio_paths || [])].map(String);
+  if (refs.some((ref) => path.isAbsolute(ref) || /^[A-Za-z]:[\/]/u.test(ref))) return false;
   const key = [String(model.gptRef || '').trim(), String(model.sovitsRef || '').trim()].join('|');
   if (key === '|' || key === lastRememberedVoiceKey) return false;
   const written = recordWarmPayload(payload, options);
