@@ -6,6 +6,7 @@ Last updated: 2026-10-26
 
 - 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Lab instance stopped 2026-10-23. See docs/deployment.md.
 - 2026-10-26/30: Singapore (Tong Yee). Commit e3ab580 (staging branch 32f6011): Live Full length check uses the voice's reference pace; TTS page clears/guards refs on voice switch. Baked into staging AMI ami-0642b66fa3ae46b4f (30234eb + patch), LT v41 default (not yet boot-tested on a fresh GPU). Training audio cleaned locally (Demucs voice isolation, natural pauses kept) -> cs-tengyu-liu_5: Live Fast 0.948 / WER 6%, Live Full 0.947 / WER 2% (best-effort chunks), above every zero-shot model on whole-set match. _4 (pauses squeezed to 0.35 s) rushed and failed Live Full. Shootout v7 https://claude.ai/artifact/HErgzdxhtLM6YRamR2rd3E. Staging left running (ASG 1/1/1, fixed EC2 on).
+- 2026-11-03: audit + fixes. Dev/staging branches both at one commit (51c2607 deployed; 6ab95ad committed, NOT deployed: SSO creds expired). Lambda URLs AWS_IAM, ALB rules need X-VCS-Origin-Verify (direct = 403), CF origin timeout 60 s, MC has /api/*. Coordinator `#owner` lease fix live (staging synthesis had 503'd). Browser-verified via CloudFront: staging Live Fast TTS/Full/chat, lectures signed chat+voice, faculty sign-in, MC; dev TTS/Full and GI. Dev staff chat fails until 6ab95ad gateway env ships. GPUs RUNNING: dev, staging fixed, ASG 1/1/1.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
@@ -114,6 +115,5 @@ CONTRADICTION: the lecture badge showed `cs-nathanael-ng` while `client/env/stag
 3. Faculty publishing: start the Dev GPU, publish two profiles across two lecture categories, confirm
    Dev and Staging resolve the same pair, then settle the `gi.env` vs lecture-badge contradiction.
 4. Open Dev GI after starting its GPU; ask an administrator for CloudTrail attribution and orphan cleanup.
-
 Also open (BUGS.md): the Faculty full-screen "Starting the GPU" modal blocks authoring while capacity
 warms.

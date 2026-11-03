@@ -1,5 +1,16 @@
 # Bugs
 
+- Fixed 2026-11-03: coordinator released its fleet lease with `owner = :owner` (DynamoDB reserved word), so after
+  the lease code was first deployed every staging `/api/live/tts-sentence` returned 503 and the UI said "GPU not
+  started". Now `#owner`; `reservedWords.test.js` scans every expression.
+- Fixed 2026-11-03: dev Lambda had `GPU_SCHEDULE_ENABLED=true` with START=END=0, so the 5-min idle-check stopped the
+  dev GPU after every start. Set false (matches repo file).
+- Fixed 2026-11-03 (deploy pending 6ab95ad): dev Live Fast chat closed with "Live chat sign-in failed (missing)";
+  the dev gateway required Entra with no staff-origin exemption.
+- Open 2026-11-03: WAF CommonRuleSet `SizeRestrictions_BODY` (8 KB) blocks long POST bodies on training/Live Fast
+  sites (19 real blocks in 30 days, bare 403). Needs an admin (`wafv2:UpdateWebACL`); see TODO.
+- Fixed 2026-11-03: ~1 in 20 staging status polls said "Service Unavailable" on a healthy GPU (Target Optimizer
+  cap); Lambda retries GETs. Live Fast "shared voice model changed" toast fired on every load (cache path vs key).
 - Fixed 2026-10-30 (e3ab580, staging client deployed; found 2026-10-26): the staging TTS page could save another voice's reference clips onto a new voice. Now refs clear on dataset change and saves refuse paths under another voice's training/datasets/. Also fixed: profiles saved the previously active voice's training metadata (both Singapore profiles still carry expName cs-tengyuliu until re-saved).
   cs-tengyuliu-v1 (audiobook) stores DeanVoice's primary + 5 aux refs; it was created 27 s after deanvoice-v1
   was re-saved on 2026-10-23. Output matched Dean (resemblyzer 0.81) better than the narrator (0.73).

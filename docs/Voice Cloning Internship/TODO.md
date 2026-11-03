@@ -1,6 +1,23 @@
 # Active TODO
 
-- [ ] Boot one fresh staging GPU from LT v41 (`ami-0642b66fa3ae46b4f`) and confirm the reference-pace check and a public WAV; then look at why every Live Full chunk still ships best-effort on strict ASR (cs-tengyu-liu_5: clipped short words, "gee eye").
+- [ ] Deploy commit 6ab95ad (blocked 2026-11-03 by expired SSO creds): `deploy-worker.ps1 -Env dev` (dev gateway
+  `LIVE_AUTH_EXEMPT_ORIGINS`, fixes dev staff chat "sign-in failed (missing)") and live-fast/chatbot clients on
+  dev plus live-fast/chatbot/chatbot-text/mc on staging (TTS waits out voice switches; no false shared-voice notice).
+- [ ] Admin (role lacks `wafv2:UpdateWebACL`): on ACLs `CreatedByCloudFront-2dd08c01` and `-17f1c03d` set
+  CommonRuleSet `SizeRestrictions_BODY` to Count (it blocked 19 real Live Fast requests in 30 days: long text
+  returns a bare 403) and add per-IP rate rules: 100/5 min on non-GET GPU control/write routes, 600/5 min on
+  unsigned `/api/live/tts-sentence` + `/api/inference`. Then attach an ACL to lectures, faculty and MC.
+- [ ] Admin (role lacks `elasticloadbalancing:ModifyListener`): set both ALB listener default actions to fixed
+  403 and delete catch-all rule 49000; rotate `ALB_ORIGIN_VERIFY_VALUE` (CloudFront ALB origin header + Lambda env
+  together) if it is ever exposed.
+- [ ] Dev routing-only coordinator: the first synthesis after the page loads a voice through `/models/select`
+  answers `MODEL_CAPACITY_STARTING` ("switching") 1-3 times although the weights are loaded; register residency
+  on page-side loads or treat reported weights as resident. Clients now auto-retry, so it costs seconds, not a click.
+- [ ] Browser-test one training start/stop on dev (needs an NTU email entered and creates a voice); confirm the
+  9-step SSE and the new "Lost contact" notice by stopping the dev GPU mid-run.
+- [ ] Update the on-box git remotes to `https://github.com/Nyeat/VoiceCloning.git` (repo moved; redirects still work).
+
+- [ ] LT v41 boot verified 2026-11-03 (healthy, public TTS/Full WAVs). Still: why every Live Full chunk ships best-effort on strict ASR (cs-tengyu-liu_5: clipped short words, "gee eye").
 
 - [ ] Ask an administrator to delete 23 orphaned snapshots of AMIs deregistered 2026-10-30 (this role lacks ec2:DeleteSnapshot): snap-0033266cb4284b077 snap-01705fe56e5820cfb snap-019f3b254fe5cca77 snap-02325155ee8b9bac9 snap-0269523316a8f28e1 snap-0284c31e29b9a811c snap-03294c2113d36f9e4 snap-0340c7ba971a2ede0 snap-03d6503d31f330f51 snap-03db3732dab6cf943 snap-049b7193518fa02d5 snap-05689108d35bdb3c8 snap-05804d36233bae64b snap-05cd6c0e0122baba3 snap-0720c257d4f6cbacb snap-07d4f07c2a95dc071 snap-07e032a2802f68b42 snap-09cf487a09a2c82f3 snap-09e8ce11759096db6 snap-0b12245cada7a5d60 snap-0e37f8fcaf1d039b3 snap-0f20340f7a02e3f89 snap-0f87846585a15e652.
 
@@ -12,21 +29,12 @@
 - [ ] Live MC (staging): run a real human microphone session in Chrome/Edge in both turn-based and
   continuous modes (headphones for continuous). Scripted and fake-mic browser turns pass (2026-10-06).
 
-- [ ] Redeploy the other live clients (chatbot/GI, Faculty, lectures) so they get the 2026-10-06
-  VAD silence-tail fix in the shared `useLiveSpeech` hook.
-
-- [ ] Reconcile `origin/codex/staging-multi-user-scaling` (2 commits not on local branches) with
-  `separate-containers-new` before re-syncing Dev/Staging pointers; it was not force-pushed.
-
-
-
 - [ ] Ask an administrator for `cloudtrail:LookupEvents` (or a CloudTrail Lake query) to attribute the
   staging ASG instance stops recorded in BUGS.md. Until then the churn cannot be traced: the Lambda
   scheduler/idle-stop touches only the fixed `i-0f0da8be59367f7a8`, and no repo script stops ASG
   instances.
 
-
-- [ ] Deploy and live-verify the local same-model burst fix after refreshing `VCS_AWS_*`. The code now
+- [ ] Same-model burst fix DEPLOYED 2026-11-03 (with the `#owner` release fix); live-verify it. The code now
   uses a scoped fleet admission lease plus expiring request reservations, distributes waiting work,
   enforces two queued per worker, and automatically retries queue-full/timeout responses. Rerun the
   exact six-request/three-GPU case and a larger super-overflow burst; require no idle-capacity scale.

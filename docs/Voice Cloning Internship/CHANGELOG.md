@@ -2103,3 +2103,28 @@
 - Training audio: local Demucs htdemucs vocals stem of 30minSINGAPORE_TongYee.wav, 80 Hz high-pass, energy split, dropped <0.8 s fragments and 53 regions with resemblyzer < 0.72 vs speaker centroid, loudness evened. Library files SINGAPORE_TongYee_clean.wav (pauses 0.35 s, 23.5 min) and SINGAPORE_TongYee_clean_v5.wav (pauses kept up to 1.2 s, 26.3 min). Scripts stayed in the session scratchpad, not the repo.
 - cs-tengyu-liu_4 (clean, squeezed pauses, skip denoise): Live Fast 0.915 / 0.844 / WER 9% with dropped phrases; Live Full failed 3/3 (dropped words, then 6.3 s vs 10.5 s expected). cs-tengyu-liu_5 (natural pauses, skip denoise): 318 clips, median clip SNR 55 -> 78 dB vs _3; Live Fast 30.6 s 0.948 / 0.941 / WER 6%; Live Full 31.3 s 0.947 / 0.928 / WER 2%, all 4 chunks best-effort. Request bodies checked: weights and all refs from each voice's own dataset.
 - Shootout artifact v7: v5 rows only for in-house, v5 reference clips, full original and cleaned training audio, before/after sample; v2/v3 in-house audio removed.
+
+## 2026-11-03 - Full system audit and hardening (dev + staging)
+
+- Access: Lambda URLs dev/staging now AWS_IAM with per-distribution CloudFront grants (direct URL 403); ALB
+  rules require `X-VCS-Origin-Verify` (CloudFront origin header + Lambda `ALB_ORIGIN_VERIFY_VALUE`), catch-all
+  rule 49000 returns 403; CloudFront Lambda/ALB origin read timeout 30 -> 60 s, origin IDs renamed
+  (`<env>-lambda-url`, `<env>-gpu-alb`), MC got `/api/*`. Public `/api/voice-profile/active` drops ownerEmail.
+- Lambda: worker calls have a 55 s deadline (clear 504), capacity retry default 20 s, GETs retry a 503 twice
+  (Target Optimizer counts polls against its cap), training clip list returns presigned URLs (page load
+  250 -> 11 requests), `/voice-profile/mine` reads profiles in parallel. Coordinator lease release used the
+  reserved word `owner` (every staging synthesis 503'd once deployed); fixed with `#owner` + regression test.
+- Client: progress SSE reopens a stream closed by HTTP errors and shows "Lost contact"; analytics POST sends
+  `x-amz-content-sha256`; shared-voice notice uses canonical weight names; Faculty defaults to the last-used
+  voice; TTS auto-retries capacity answers (5 s polls).
+- Config/ops: dev Lambda `GPU_SCHEDULE_ENABLED` true->false (0-0 window force-stopped the dev GPU); staging env
+  file idle-stop 0 + retry 20000 to match live; one staging CORS list; staff exemption kept and policy test
+  rewritten; dev gateway exempts dev Live Fast; npm test scripts for client/workers/coordinator; deploy-worker
+  waits up to 15 min (SSM) and 2 min (health). Branches merged; both remotes at one commit; boxes on that commit.
+- Files: lambda/shared/gpuWorker.js, lambda/instance, lambda/voice-profile, lambda/training-audio,
+  lambda/model-coordinator, client sse/resilientStream/hooks/LivePage/api/lessonAnalytics/synthesisRetry/
+  modelLoading, env files, scripts/deploy-worker.ps1, docs/staging-architecture.md, dev guide.
+- Tests: Lambda 343, coordinator 56, client 525, inference 261, training 23, gateway 184 all pass. Browser via
+  CloudFront: staging Live Fast TTS/Full/chat, lectures signed chat+voice, faculty sign-in, MC, training page;
+  dev TTS/Full, GI chat+voice. Not tested: training run, real microphone, burst/scale tests, 6ab95ad (undeployed).
+

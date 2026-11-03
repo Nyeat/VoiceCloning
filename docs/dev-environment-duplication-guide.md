@@ -26,7 +26,7 @@ artifacts use the shared bucket in `ap-southeast-1`, separated by prefix.
 
 | Resource | dev | staging |
 |---|---|---|
-| Source branch | `separate-containers-new` for all components | `staging` for the general worker path; `codex/staging-multi-user-scaling` for the configured chatbot/current scaling path |
+| Source branch | `separate-containers-new` | `codex/staging-multi-user-scaling` — must point at the same commit as dev (both `51c2607`+ on 2026-11-03) |
 | Fixed GPU | `VoiClo-GPU-Seoul` (`i-03f258d470a2fa73f`) | `voice-gpu-staging` (`i-0f0da8be59367f7a8`) |
 | Lambda | `Liu_Teng_Yu_Intern2026-Voice_Cloning_Project` | `Liu_Teng_Yu_Intern2026-Voice_Cloning_Project-staging` |
 | Training CloudFront | `d3dghqhnk7aoku.cloudfront.net` | `d1qh0ebsvevhy3.cloudfront.net` |
@@ -49,11 +49,18 @@ management:
 
 - dev is one fixed GPU and has no ASG, scaling alarms, ASG scheduled actions, or
   fixed start/stop schedule;
-- dev Lambda has `GPU_SCHEDULE_ENABLED=false` and no inference ASG name;
+- dev Lambda has `GPU_SCHEDULE_ENABLED=false` and no inference ASG name (2026-11-03: it had been
+  left `true` with a 0–0 window, which force-stopped the dev GPU within 5 minutes of every start);
 - `VoiClo-gpu-idle-stop` invokes the dev Lambda idle check every five minutes;
 - user activity starts the dev GPU, and idle-check may stop it after inactivity;
 - staging owns `vcs-staging-gpu-inference`, reactive scaling, recurring 07:00/19:00
   Singapore actions, and event-specific capacity actions.
+
+Other deliberate differences: staging alone has Faculty, Live MC, the text kiosk, ElevenLabs stock
+voices and the lecturer table; dev alone has learner analytics. Dev's Lambda opens unsigned staff
+synthesis with `LIVE_AUTH_DEMO_ONLY=true`; staging uses `LIVE_AUTH_EXEMPT_ORIGINS`. Both gateways
+exempt only their Live Fast origin (plus MC on staging). Access hardening is identical: IAM Lambda
+URLs, ALB `X-VCS-Origin-Verify` rules, 60 s CloudFront origin timeouts.
 
 Do not copy staging ASG or schedule configuration into dev. Do not point either
 environment at the other environment's Lambda, ALB, CloudFront distribution, or S3

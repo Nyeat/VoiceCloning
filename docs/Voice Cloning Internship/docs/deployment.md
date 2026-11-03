@@ -2,6 +2,16 @@
 
 ## Current Shape
 
+### Access controls (2026-11-03, both environments)
+
+- Browser -> CloudFront only. Lambda URLs are AWS_IAM: a new distribution needs `lambda add-permission` twice
+  (InvokeFunctionUrl with `--function-url-auth-type AWS_IAM`, and InvokeFunction), both with its SourceArn.
+- ALB: every rule carries an `X-VCS-Origin-Verify` header condition; rule 49000 `*` -> 403. A new ALB caller must
+  send the header (Lambda gets it from `ALB_ORIGIN_VERIFY_VALUE`; CloudFront from the ALB origin custom header).
+  The secret is not in git; read it from the Lambda env. Health checks are unaffected.
+- WAF/listener-default changes are admin-only (see TODO). Deploy order that never breaks traffic: Lambda code +
+  env, CloudFront headers, then ALB rules.
+
 - 2026-10-30: staging inference default is LT v41 / `ami-0642b66fa3ae46b4f` (30234eb + e3ab580 worker patch); v40 / `ami-07236b80dcdb93bcb` is the rollback. 23 older AMIs deregistered; their snapshots await an administrator (TODO).
 
 ### Staging manual operation (2026-10-09)

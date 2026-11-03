@@ -12,17 +12,17 @@ then the coordinator routes by the exact GPT+SoVITS weight pair rather than disp
 
 **Environment:** `staging` (the stable copy for users; development happens on `dev`)
 **Region:** ap-northeast-2 (Seoul) · **Account:** 329599637774
-**Last control-plane inventory:** 2026-10-08 · **Last public-path check:** 2026-08-25
+**Last control-plane inventory:** 2026-11-03 · **Last public-path check:** 2026-08-25
 
-**Operational shutdown (2026-10-08):** Live AWS history confirmed both daily ASG actions
-restored minimum 1 after manual scale-to-zero, relaunching GPUs. ASG
-`vcs-staging-gpu-inference` and both daily actions now have min/desired/max 0.
-The staging coordinator is routing-only. Both fixed GPU-control Lambdas have an
-always-closed enabled `0` to `0` schedule, blocking browser-triggered starts.
-Fixed staging, Dev, and the Dev manual-routing GPU are stopped. The remaining ASG
-worker is in EC2 `shutting-down` state. Restore capacity only deliberately; the prior
-maximum was 192. This supersedes older capacity baselines below. Provisioning/event
-scripts may restore their own defaults; do not run them during this shutdown.
+**Access hardening (2026-11-03, read back live):** the Lambda Function URLs (dev and staging)
+are `AuthType AWS_IAM`; only the listed CloudFront distributions may invoke them (statements
+`cf-url-<dist>` + `cf-invoke-<dist>`), so a direct URL call returns 403. Every ALB listener rule
+also requires header `X-VCS-Origin-Verify` (per-environment secret held in the CloudFront ALB
+origin custom header and the Lambda env `ALB_ORIGIN_VERIFY_VALUE`); rule 49000 (`/*`) answers 403
+to anything else, because this role cannot run `ModifyListener` to change the default action.
+CloudFront Lambda/ALB origins use a 60 s read timeout and honest origin IDs
+(`staging-lambda-url`, `staging-gpu-alb`). The Oct 2026 shutdown was lifted on 2026-11-03: the
+coordinator is `autoscale` again, the fixed-GPU schedule is disabled, and capacity is set by hand.
 
 > **Keep this file up to date.** Any change to staging infra (console, CLI, or script) must be reflected here in the same PR/commit. Every ID below was read from AWS on the date above — an AI session can diff this file against `aws describe-*` output to detect drift.
 >
@@ -195,10 +195,17 @@ and JSON content type.
 
 | Prio | Path pattern(s) | Target group | Backend service |
 |---|---|---|---|
+Rules 1–4 and 50 also require `X-VCS-Origin-Verify` (see the access-hardening note at the top).
+
+| Prio | Path pattern(s) | Target group | Backend service |
+|---|---|---|---|
 | 1 | `/api/live/chat/realtime` | vcs-staging-tg-3002 | live gateway (WebSocket) |
 | 2 | `/inference/progress/*` | vcs-staging-tg-3003 | fixed progress relay; polls shared S3 events when another worker owns the session |
 | 3 | `/models*`, `/ref-audio*`, `/inference*` | vcs-stg-opt-3103 | ASG inference fleet through Target Optimizer |
-| default | everything else | vcs-staging-tg-3001 | gpu worker (training) |
+| 4 | `/api/live/session/*` | vcs-staging-tg-3002 | live gateway (sign-in records) |
+| 50 | header only | vcs-staging-tg-3001 | gpu worker (training) |
+| 49000 | `*` (no header) | — | fixed 403 `Forbidden` |
+| default | unreachable | vcs-staging-tg-3001 | left as-is (ModifyListener denied) |
 
 **Fixed-instance target groups** (HTTP, health check `GET /healthz`, interval 30 s,
 healthy threshold 5):
@@ -307,7 +314,7 @@ browser behavior or the `resemblyzer` dependency requirement.
 | Function | `Liu_Teng_Yu_Intern2026-Voice_Cloning_Project-staging` |
 | Runtime / size / timeout | nodejs24.x / 128 MB / 120 s, handler `index.handler` |
 | Exec role | `Liu_Teng_Yu_Intern2026-LambdaExecutionRole` (shared with dev Lambda — scoped staging role is an open admin ask) |
-| Function URL | `https://7xx6w7q5jwzda6nlltlyfckfzm0vyfmy.lambda-url.ap-northeast-2.on.aws/` — AuthType **NONE**, needs BOTH resource policy statements (`FunctionURLAllowPublicAccess` + `FunctionURLAllowInvokeAction`; a URL 403s with only the first) |
+| Function URL | `https://7xx6w7q5jwzda6nlltlyfckfzm0vyfmy.lambda-url.ap-northeast-2.on.aws/` — AuthType **AWS_IAM** since 2026-11-03; each staging distribution needs both `cf-url-<dist>` (InvokeFunctionUrl) and `cf-invoke-<dist>` (InvokeFunction). A new distribution 403s until both are added. POST/PUT bodies must carry `x-amz-content-sha256`. |
 
 **Environment variables** (secrets redacted; change with get-function-configuration → edit one key → update-function-configuration, never rebuild the map by hand):
 
@@ -315,13 +322,15 @@ browser behavior or the `resemblyzer` dependency requirement.
 |---|---|
 | GPU_INSTANCE_ID | `i-0f0da8be59367f7a8` ← must track the current staging instance |
 | GPU_INSTANCE_REGION | ap-northeast-2 |
-| GPU_IDLE_STOP_MINUTES | 90 |
-| GPU_SCHEDULE_ENABLED / START / END / TZ | true / 7 / 19 / Singapore |
+| GPU_IDLE_STOP_MINUTES | 0 (manual capacity mode; the fixed GPU hosts the gateway) |
+| GPU_SCHEDULE_ENABLED | false |
 | GPU_INFERENCE_ASG_NAME | unset; exact fixed-instance state coupling is pending Lambda-role Auto Scaling permissions |
-| INFERENCE_CAPACITY_RETRY_MS | 30000 |
+| INFERENCE_CAPACITY_RETRY_MS | 20000 (with the 55 s worker deadline, stays inside the 60 s CloudFront timeout) |
+| ALB_ORIGIN_VERIFY_VALUE | *(secret; must equal the staging CloudFront ALB origin header)* |
 | GPU_WORKER_URL, INFERENCE_WORKER_URL | `http://voice-gpu-alb-staging-1031778835.ap-northeast-2.elb.amazonaws.com` |
 | GPU_WORKER_PUBLIC_URL | `https://dfzrfr93t2ruf.cloudfront.net` |
-| CORS_ORIGIN | the 3 staging CloudFront domains (comma-separated) |
+| CORS_ORIGIN | all 7 staging origins; identical list in the gateway env |
+| LIVE_AUTH_EXEMPT_ORIGINS | Live Fast/TTS + Live MC only (staff tools; Origin is spoofable, so treat as public metered surfaces) |
 | S3_BUCKET / S3_PREFIX / S3_REGION | `interns2026-small-projects-bucket-shared` / `echolect-staging/` / ap-southeast-1 |
 | ARTIFACT_SOURCE / MODEL_SOURCE | s3 / s3 |
 | LIVE_DEMO_LOCKOUT | **true on the 2026-07-28 public `/api/config` check** (the 2026-07-07 control-plane snapshot recorded false) |
