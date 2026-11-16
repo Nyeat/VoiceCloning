@@ -9,7 +9,7 @@ Last updated: 2026-11-16
   Test your voice lock chat like lectures while a voice starts/switches; dev GPU manual-start only; staging fixed GPU
   30-min idle stop (training + open chats + optional ASG inference); staging ASG min 0 / max 3; per-voice boots.
   Worker+gateway deployed both (idle stop live). d1a0b35: 3 min switch grace, 8 s selection dwell, per-GPU scale-in.
-  BLOCKED: training sign-in AADSTS50011 (Entra redirect URIs); voicecloning.lkcmedicine.org DNS pending.
+  SSO + domain live (staging only; dev + staging CloudFront sign in too). Staging training GPU auto-starts; consent modal + tour.
 
 - 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Lab instance stopped 2026-10-23. See docs/deployment.md.
 - 2026-10-26/30: Singapore (Tong Yee). Commit e3ab580 (staging branch 32f6011): Live Full length check uses the voice's reference pace; TTS page clears/guards refs on voice switch. Baked into staging AMI ami-0642b66fa3ae46b4f (30234eb + patch), LT v41 default (not yet boot-tested on a fresh GPU). Training audio cleaned locally (Demucs voice isolation, natural pauses kept) -> cs-tengyu-liu_5: Live Fast 0.948 / WER 6%, Live Full 0.947 / WER 2% (best-effort chunks), above every zero-shot model on whole-set match. _4 (pauses squeezed to 0.35 s) rushed and failed Live Full. Shootout v7 https://claude.ai/artifact/HErgzdxhtLM6YRamR2rd3E. Staging left running (ASG 1/1/1, fixed EC2 on).

@@ -626,7 +626,7 @@ Any GPU may be stopped by hand at any time, but it does not stay off:
 | Staging fixed `i-0f0da8be59367f7a8` (training + gateway) | opening staging Live Fast, signed-in faculty/lectures | 30 idle min (2026-11-16), see idle rule below |
 | Staging inference ASG `vcs-staging-gpu-inference` | coordinator, on real cloned-voice synthesis only | `no-traffic-15m` alarm: <1 coordinator call/min for 15 min -> desired -1, to min |
 
-The training site never auto-starts (badge "GPU stopped · Start"). Stop ASG GPUs by setting min/desired 0, never by
+Staging training site auto-starts its GPU once signed in; dev training never auto-starts (badge "GPU stopped · Start"). Stop ASG GPUs by setting min/desired 0, never by
 stopping the instance (ASG replaces it). Stopping the fixed GPU mid-training kills the run (no email).
 ASG now min 0 / max 3 (raised 2026-11-16): scale-in to 0 proven (03:14 UTC); scale-out from 0 by the coordinator is coded
 (desired < max -> +1) but never observed live — every launch in history was manual. Launch-to-InService measured

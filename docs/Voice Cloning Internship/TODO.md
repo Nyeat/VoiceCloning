@@ -6,15 +6,11 @@
   training); let lectures send text while STARTING; server-side owner check for cloned-voice synthesis; live-prove
   scale-from-0 and the six-request/three-GPU burst; delete or wire the inert ASG policies/alarms.
 
-- [ ] Training site (2026-11-16): (1) Entra admin adds SPA redirect URIs https://d1qh0ebsvevhy3.cloudfront.net,
-  https://d3dghqhnk7aoku.cloudfront.net, https://voicecloning.lkcmedicine.org to app 9b5c52c0 (AADSTS50011 now);
-  (2) [done: worker deployed both] (worker busy refusal, email link,
-  staging gateway CORS, gateway activity route — staging idle-stop only works after this; then add
-  GPU_GATEWAY_ACTIVITY_URL to lambda/.env.deployment and redeploy dev Lambda); (3) lkcmedicine.org DNS admin adds CNAME
-  _7226f503e55fb9a4666269ca282512da.voicecloning -> _78e9593c156063cd570de39565f0cec7.wzccmgtwzk.acm-validations.aws.
-  and voicecloning -> d1qh0ebsvevhy3.cloudfront.net, then attach alias + cert 68de3646 to EC2SYT1OKGW9Q and set
-  TRAINING_PUBLIC_URL to the domain; (4) staging ASG max is 3 (done 2026-11-16); (5) browser-verify
-  sign-in, train, busy banner, email link, test-tab chat on dev and staging.
+- [ ] Training site (2026-11-16): Entra redirect URIs, domain DNS, cert and alias done; SSO verified on
+  voicecloning.lkcmedicine.org, staging and dev CloudFront (all reach consent). Staging TRAINING_PUBLIC_URL now the
+  domain. Still: add GPU_GATEWAY_ACTIVITY_URL to lambda/.env.deployment + redeploy dev Lambda; browser-verify
+  consent, new nav + guided tour, staging GPU auto-start, train, busy banner, email link, test-tab chat on dev and
+  staging (needs owner to accept consent).
 
 - [ ] Optional, admin only (role lacks `wafv2:UpdateWebACL`; the client now refuses >8 KB bodies with "shorten or split", so not required): on ACLs `CreatedByCloudFront-2dd08c01` and `-17f1c03d` set
   CommonRuleSet `SizeRestrictions_BODY` to Count (it blocked 19 real Live Fast requests in 30 days: long text

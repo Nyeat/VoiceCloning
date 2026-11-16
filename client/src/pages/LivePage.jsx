@@ -5483,7 +5483,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
         </div>
       </div>
       {voiceTest && (
-        <aside className="flex w-full min-h-0 flex-col border border-slate-200 bg-white lg:w-[340px] lg:shrink-0 rounded-md">
+        <aside data-tour="voice-picker" className="flex w-full min-h-0 flex-col border border-slate-200 bg-white lg:w-[340px] lg:shrink-0 rounded-md">
           <div className="border-b border-slate-200 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Your voice</p>
           </div>

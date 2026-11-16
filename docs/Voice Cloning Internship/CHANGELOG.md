@@ -2189,3 +2189,15 @@
   per-GPU idle scale-in sweep (`chooseScaleInCandidate`, TerminateInstanceInAutoScalingGroup); shared capacity
   wording, no notice when ready. Coordinator 64, Lambda 364, client 537 pass; Lambdas, coordinators and all bundles
   deployed. Not live-tested: sweep permission, two-voice scale-out.
+
+## 2026-11-16 (SSO + domain)
+- Staging Lambda TRAINING_PUBLIC_URL -> https://voicecloning.lkcmedicine.org (live env merge,
+  42 vars kept; lambda/.env.deployment.staging updated). Domain cert + alias already on EC2SYT1OKGW9Q.
+- Tested in browser: SSO sign-in reaches consent on the domain, staging and dev CloudFront. Not tested: past consent.
+- Training site UI (deployed staging + dev): staging auto-starts the training GPU once signed in
+  (client/env/staging/training.env VITE_GPU_AUTO_START=true; dev stays manual, =false); App.jsx TrainingWithGpu.
+  Consent is now a modal with full 10-section terms; checkboxes unlock after scrolling to the end
+  (CONSENT_VERSION 2026-11-16.2, everyone re-consents). New login page, pill-tab sticky nav, avatar.
+  "?" starts a spotlight tour (client/src/training/GuidedTour.jsx, data-tour anchors in TrainingPage/LivePage).
+  Tests: client npm test 537/537, build ok; browser-checked login page, consent modal + scroll gate.
+  Not checked: nav and tour visually (behind consent), staging auto-start on a real stopped GPU.

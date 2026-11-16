@@ -360,7 +360,7 @@ export default function TrainingPage({ consent = null }) {
             </section>
           ) : null}
 
-          <section className="border border-slate-200 bg-white p-5">
+          <section data-tour="upload" className="border border-slate-200 bg-white p-5">
             <SectionHeading step="01" title="Add your recordings" hint="Several files are fine — they are combined into one voice." />
             <Dropzone onAdd={addFiles} disabled={isRunning || uploading} />
             {fileError ? <p className="mt-2 text-xs text-red-700" role="alert">{fileError}</p> : null}
@@ -390,7 +390,7 @@ export default function TrainingPage({ consent = null }) {
             ) : null}
           </section>
 
-          <section className="border border-slate-200 bg-white p-5">
+          <section data-tour="start-training" className="border border-slate-200 bg-white p-5">
             <SectionHeading
               step="02"
               title="Start training"
@@ -523,7 +523,7 @@ export default function TrainingPage({ consent = null }) {
           </section>
 
           {config.authEnabled ? (
-            <section className="border border-slate-200 bg-white">
+            <section data-tour="your-voices" className="border border-slate-200 bg-white">
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
                 <h2 className="text-sm font-semibold text-slate-900">Your voices</h2>
                 {latestVoice ? (

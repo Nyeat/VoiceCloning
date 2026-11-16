@@ -1,6 +1,6 @@
 // Voice-cloning consent is recorded per signed-in account and per wording
 // version: changing the wording (bump CONSENT_VERSION) asks everyone again.
-export const CONSENT_VERSION = '2026-11-16';
+export const CONSENT_VERSION = '2026-11-16.2';
 
 const KEY_PREFIX = 'vc-training-consent';
 const HELP_SEEN_KEY = 'vc-training-help-seen';

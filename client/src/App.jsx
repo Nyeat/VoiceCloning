@@ -147,16 +147,26 @@ export default function App() {
   return <AppWithGpu autoStart={GPU_AUTO_START} />;
 }
 
+// The training site is opt-in: VITE_GPU_AUTO_START=true (staging) starts the
+// training GPU once someone is signed in; otherwise (dev) the badge offers Start.
+const TRAINING_GPU_AUTO_START = import.meta.env.VITE_GPU_AUTO_START === 'true';
+
+function TrainingWithGpu() {
+  const auth = useAuth();
+  return (
+    <GpuStatusProvider
+      autoStart={TRAINING_GPU_AUTO_START && Boolean(auth.isAuthenticated)}
+      target="training"
+    >
+      <TrainingApp />
+    </GpuStatusProvider>
+  );
+}
+
 function AppWithGpu({ autoStart }) {
   // The training site checks the training worker's health, not the inference
-  // fleet's, and never starts the GPU by itself (the badge offers Start).
-  if (APP_MODE_CONFIG.mode === 'training') {
-    return (
-      <GpuStatusProvider autoStart={false} target="training">
-        <TrainingApp />
-      </GpuStatusProvider>
-    );
-  }
+  // fleet's.
+  if (APP_MODE_CONFIG.mode === 'training') return <TrainingWithGpu />;
   return (
     <GpuStatusProvider autoStart={autoStart}>
       {APP_MODE_CONFIG.gi ? <GiApp /> : <AppShell />}
