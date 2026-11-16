@@ -8,7 +8,7 @@
 
 - [ ] Training site (2026-11-16): (1) Entra admin adds SPA redirect URIs https://d1qh0ebsvevhy3.cloudfront.net,
   https://d3dghqhnk7aoku.cloudfront.net, https://voicecloning.lkcmedicine.org to app 9b5c52c0 (AADSTS50011 now);
-  (2) commit + push both branches, then scripts/deploy-worker.ps1 dev/staging (worker busy refusal, email link,
+  (2) [pushed 0b017da] scripts/deploy-worker.ps1 staging, and dev after a manual start (worker busy refusal, email link,
   staging gateway CORS, gateway activity route — staging idle-stop only works after this; then add
   GPU_GATEWAY_ACTIVITY_URL to lambda/.env.deployment and redeploy dev Lambda); (3) lkcmedicine.org DNS admin adds CNAME
   _7226f503e55fb9a4666269ca282512da.voicecloning -> _78e9593c156063cd570de39565f0cec7.wzccmgtwzk.acm-validations.aws.

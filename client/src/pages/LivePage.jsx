@@ -317,6 +317,14 @@ function synthesizeSentenceWhenReady(params, { onCapacityWait } = {}) {
   });
 }
 
+// Notices owned by the voice-capacity flow, cleared once the voice is ready.
+const CAPACITY_NOTICE_TITLES = new Set([
+  'Starting a GPU with this voice',
+  'Switching a GPU to this voice',
+  'Getting this voice ready',
+  'Voice is heavily loaded',
+]);
+
 // A neutral partner for hearing your own clone speak, so the lecturer can judge
 // the voice rather than a lecture's content.
 const VOICE_TEST_SYSTEM_PROMPT = 'You are a friendly assistant helping a lecturer hear how their cloned voice sounds. '
@@ -1502,10 +1510,18 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
       setModelSelectionOnly(selectionOnly);
       setVoiceCapacityBlocked(Boolean(coordinatorCapacity && !coordinatorCapacity.canStartConversation));
       if (coordinatorCapacity && !coordinatorCapacity.canStartConversation) {
+        const capacityState = String(coordinatorCapacity.state || '').toUpperCase();
         setGpuNotice({
           tone: coordinatorCapacity.simulated ? 'info' : 'warning',
-          title: coordinatorCapacity.simulated ? 'Dev capacity simulation' : 'Preparing voice capacity',
-          message: coordinatorCapacity.message || voiceCapacityNotice(coordinatorCapacity),
+          title: coordinatorCapacity.simulated
+            ? 'Dev capacity simulation'
+            : capacityState === 'STARTING'
+              ? 'Starting a GPU with this voice'
+              : capacityState === 'WARMING'
+                ? 'Switching a GPU to this voice'
+                : 'Getting this voice ready',
+          // Same wording as the lecture site; the coordinator's text is a fallback.
+          message: voiceCapacityNotice(coordinatorCapacity) || coordinatorCapacity.message,
         });
         // A switch on a warm GPU finishes in seconds; a cold boot takes minutes.
         // Check quickly at first, then back off.
@@ -1522,13 +1538,18 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
           title: coordinatorCapacity?.simulated ? 'Dev capacity simulation' : 'Voice loads on demand',
           message: coordinatorCapacity.message || voiceCapacityNotice(coordinatorCapacity),
         });
-      } else if (coordinatorCapacity?.capacityTight || /^BUSY_/u.test(coordinatorState)) {
+      } else if (/^BUSY_/u.test(coordinatorState)) {
+        // Busy/queued: usable, but say why replies may be slower. A ready voice
+        // (even with one slot left) gets no notice.
         setGpuNotice({
           tone: 'info',
           title: coordinatorCapacity.simulated ? 'Dev capacity simulation' : 'Voice is heavily loaded',
-          message: coordinatorCapacity.message
-            || 'This voice is available, but your request may queue while additional capacity is prepared.',
+          message: voiceCapacityNotice(coordinatorCapacity) || coordinatorCapacity.message,
         });
+      } else {
+        setGpuNotice((current) => (
+          CAPACITY_NOTICE_TITLES.has(current?.title) ? null : current
+        ));
       }
       const latestRankOneConfig = voiceConfigsRef.current[0] || rankOneConfig;
       const latestRankOneIsAutoManaged = isAutoManagedLiveFastConfig(latestRankOneConfig, selectedExpName);

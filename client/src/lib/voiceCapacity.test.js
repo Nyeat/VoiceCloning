@@ -9,28 +9,34 @@ import {
 test('a missing model blocks conversation and gives the truthful fifteen-minute alternative', () => {
   const capacity = { state: 'STARTING', canStartConversation: false, retryAfterSeconds: 900 };
   assert.equal(voiceCapacityBlocksConversation(capacity), true);
-  assert.match(voiceCapacityNotice(capacity), /up to 15 minutes/i);
-  assert.match(voiceCapacityNotice(capacity), /another lecture/i);
+  assert.match(voiceCapacityNotice(capacity), /Starting a GPU with this voice/i);
+  assert.match(voiceCapacityNotice(capacity), /up to 15/i);
 });
 
 test('a busy resident model remains usable while background capacity starts', () => {
   const capacity = { state: 'BUSY_STARTING', canStartConversation: true };
   assert.equal(voiceCapacityBlocksConversation(capacity), false);
   assert.match(voiceCapacityNotice(capacity), /continue/i);
-  assert.match(voiceCapacityNotice(capacity), /background/i);
+  assert.match(voiceCapacityNotice(capacity), /new GPU is starting in the background/i);
+  assert.match(voiceCapacityNotice(capacity), /queued/i);
 });
 
-test('one remaining slot warns without launching capacity during page preflight', () => {
+test('a ready voice shows no warning, even with one slot left', () => {
   const capacity = { state: 'READY', canStartConversation: true, capacityTight: true };
   assert.equal(voiceCapacityBlocksConversation(capacity), false);
-  assert.match(voiceCapacityNotice(capacity), /only one slot remains/i);
-  assert.match(voiceCapacityNotice(capacity), /if your request fills it/i);
+  assert.equal(voiceCapacityNotice(capacity), '');
 });
 
-test('a successful request can report the background scale-out on the next capacity poll', () => {
+test('a switch says so and locks the chat until it finishes', () => {
+  const capacity = { state: 'WARMING', canStartConversation: false };
+  assert.equal(voiceCapacityBlocksConversation(capacity), true);
+  assert.match(voiceCapacityNotice(capacity), /Switching a GPU to this voice/i);
+});
+
+test('a ready voice with background scale-out shows no warning', () => {
   const capacity = { state: 'READY_SCALING', canStartConversation: true };
   assert.equal(voiceCapacityBlocksConversation(capacity), false);
-  assert.match(voiceCapacityNotice(capacity), /another GPU is starting/i);
+  assert.equal(voiceCapacityNotice(capacity), '');
 });
 
 test('selection-only preparation is usable without claiming that another GPU started', () => {

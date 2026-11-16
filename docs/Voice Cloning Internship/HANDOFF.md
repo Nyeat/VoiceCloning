@@ -4,10 +4,12 @@ Last updated: 2026-11-16
 
 ## Current State
 
-- 2026-11-16: training site rebuilt with SSO/consent/guide/Test-your-voice; Lambda + all client bundles deployed
-  to dev and staging from an UNCOMMITTED tree (commit/push denied this session). Sign-in fails AADSTS50011 until an
-  Entra admin adds SPA redirect URIs for both training CloudFronts + voicecloning.lkcmedicine.org, so the training
-  sites are unusable until then. Worker (busy refusal + email link) not deployed. See TODO.
+- 2026-11-16: commits a2afc88 + 0b017da pushed to both branches; all dev/staging bundles, both Lambdas and
+  coordinators deployed. New training site (SSO, consent, guide, Test your voice); one training at a time; Faculty +
+  Test your voice lock chat like lectures while a voice starts/switches; dev GPU manual-start only; staging fixed GPU
+  30-min idle stop (training + open chats + optional ASG inference); staging ASG min 0 / max 3; per-voice boots.
+  BLOCKED: training sign-in AADSTS50011 (Entra redirect URIs); GPU worker/gateway deploy not run (needs approval),
+  so staging never idle-stops yet and emails lack the test link; voicecloning.lkcmedicine.org DNS pending.
 
 - 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Lab instance stopped 2026-10-23. See docs/deployment.md.
 - 2026-10-26/30: Singapore (Tong Yee). Commit e3ab580 (staging branch 32f6011): Live Full length check uses the voice's reference pace; TTS page clears/guards refs on voice switch. Baked into staging AMI ami-0642b66fa3ae46b4f (30234eb + patch), LT v41 default (not yet boot-tested on a fresh GPU). Training audio cleaned locally (Demucs voice isolation, natural pauses kept) -> cs-tengyu-liu_5: Live Fast 0.948 / WER 6%, Live Full 0.947 / WER 2% (best-effort chunks), above every zero-shot model on whole-set match. _4 (pauses squeezed to 0.35 s) rushed and failed Live Full. Shootout v7 https://claude.ai/artifact/HErgzdxhtLM6YRamR2rd3E. Staging left running (ASG 1/1/1, fixed EC2 on).
@@ -15,11 +17,9 @@ Last updated: 2026-11-16
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
-- 2026-10-09: staging manual capacity mode (shutdown: ASG 0/0/1, then stop fixed EC2; docs/deployment.md).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected
   cloned-voice snapshot and category to Dev; training, analytics and transcripts stay isolated.
-- ElevenLabs stock voices bypass the cloned-voice coordinator. A signed-in Faculty Alice response
-  played while cloned Nathanael requests still had 23.1s queue waits and one timeout.
+- ElevenLabs stock voices bypass the cloned-voice coordinator.
 
 ## Verification Status (read this first)
 

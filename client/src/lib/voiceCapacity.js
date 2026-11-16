@@ -27,34 +27,28 @@ export function voiceCapacityNotice(capacity = {}) {
   if (value.state === 'ON_DEMAND') {
     return value.message || 'This voice will load on the first synthesis request. Selecting it did not start another GPU.';
   }
-  if (value.state === 'CHECKING') return 'Checking this lecture voice capacity…';
+  // One wording for lectures, Faculty and Test your voice. A ready voice gets no
+  // notice at all, even with one slot left.
+  if (value.state === 'CHECKING') return 'Getting this voice ready…';
   if (value.state === 'STARTING') {
-    return 'This lecture voice is not active yet. A GPU is starting; allow up to 15 minutes, or try another lecture meanwhile.';
+    return 'Starting a GPU with this voice. This takes about 10 minutes (allow up to 15). Please wait — the chat unlocks automatically, or try another lecture or voice meanwhile.';
   }
   if (value.state === 'WARMING') {
-    return 'A genuinely idle GPU is switching to this lecture voice. Voice conversation will unlock when warming finishes.';
+    return 'Switching a GPU to this voice. This usually takes under a minute (up to 3 minutes if that GPU was just in use). The chat unlocks automatically.';
   }
   if (value.state === 'BUSY_STARTING') {
-    return 'This lecture voice is busy. You can continue; another GPU is starting in the background, so voice audio may be delayed.';
+    return 'Lots of people are using this voice. A new GPU is starting in the background, so you may be queued and replies can be slower. You can continue.';
   }
   if (value.state === 'BUSY_WARMING') {
-    return 'This lecture voice is busy. You can continue while a genuinely idle GPU switches to add capacity.';
+    return 'Lots of people are using this voice. Another GPU is switching to it in the background, so replies can be slower. You can continue.';
   }
   if (value.state === 'BUSY_LIMIT') {
-    return 'This lecture voice is busy and staging is at its GPU limit. You can continue, but voice audio may be delayed.';
+    return 'Lots of people are using this voice and every GPU is in use. You can continue, but replies may be slower.';
   }
   if (value.state === 'LIMIT') {
-    return 'This lecture voice is unavailable because staging is at its GPU limit. Please try another lecture.';
+    return 'Every GPU is in use, so this voice cannot start right now. Please try again shortly or use another voice.';
   }
-  if (value.state === 'READY_SCALING') {
-    return 'This lecture voice is available and another GPU is starting in the background to add capacity.';
-  }
-  if (value.state === 'READY_WARMING') {
-    return 'This lecture voice is available while a genuinely idle GPU switches in the background to add capacity.';
-  }
+  if (['READY', 'READY_SCALING', 'READY_WARMING'].includes(value.state)) return '';
   if (value.state === 'ERROR') return 'Voice capacity could not be verified. Please retry before starting a conversation.';
-  if (value.capacityTight) {
-    return 'This lecture voice is available, but only one slot remains. If your request fills it, extra capacity will be prepared in the background.';
-  }
   return '';
 }

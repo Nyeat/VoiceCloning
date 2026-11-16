@@ -3,6 +3,7 @@ import {
   AutoScalingClient,
   DescribeAutoScalingGroupsCommand,
   SetInstanceProtectionCommand,
+  TerminateInstanceInAutoScalingGroupCommand,
   UpdateAutoScalingGroupCommand,
 } from '@aws-sdk/client-auto-scaling';
 import { DescribeInstancesCommand, EC2Client } from '@aws-sdk/client-ec2';
@@ -20,6 +21,7 @@ import {
   applyResidencyLocks,
   chooseCapacityAction,
   choosePreparationAction,
+  chooseScaleInCandidate,
   chooseSynthesisAdmission,
   preflightScaleBlocked,
   matchingFreeSlots,
@@ -51,7 +53,17 @@ const assignmentTimeoutMs = Math.max(
   Number(process.env.MODEL_ASSIGNMENT_TIMEOUT_MS) || 840_000,
 );
 const pendingTtlMs = Math.max(120_000, Number(process.env.MODEL_PENDING_TTL_MS) || 600_000);
-const preflightScaleCooldownMs = Math.max(0, Number(process.env.MODEL_PREFLIGHT_SCALE_COOLDOWN_MS) || 60_000);
+// A voice selection only starts a NEW GPU once that same voice has been
+// selected continuously for this long (pages re-check every 5 s). A quick
+// click-through of several lectures never buys GPUs; other voices are never
+// held up by it. Real synthesis is not subject to it.
+// Per-GPU scale-in: a GPU idle this long (and whose voice nobody is using or
+// selecting) is terminated individually, longest-idle first, one per sweep.
+const scaleInIdleMs = Math.max(60_000, Number(process.env.MODEL_SCALE_IN_IDLE_MS) || 15 * 60_000);
+const scaleInSweepMs = 60_000;
+const preflightDwellMs = Math.max(0, Number(process.env.MODEL_PREFLIGHT_DWELL_MS) || 8_000);
+// A gap longer than this restarts the dwell (the page was closed).
+const selectionGapMs = 30_000;
 // Bounded overflow waiting per GPU. A burst spreads across matching workers up
 // to this depth; beyond it the request is retried by the caller instead of
 // queueing without limit behind work that has not started.
@@ -225,6 +237,27 @@ async function recordDemand(modelKey, voiceProfileId, now = Date.now()) {
       expiresAt: Math.floor((now + 86_400_000) / 1_000),
     },
   }));
+}
+
+// Tracks how long a voice has been continuously selected. Returns the dwell in ms.
+async function recordSelection(modelKey, existingItems, now = Date.now()) {
+  const id = coordinationKey('SELECT', modelKey);
+  const previous = existingItems.find((item) => item.id === id);
+  const continuing = previous && now - Number(previous.lastSeenAt || 0) < selectionGapMs;
+  const firstSeenAt = continuing ? Number(previous.firstSeenAt || now) : now;
+  await document.send(new PutCommand({
+    TableName: tableName,
+    Item: {
+      entity: 'SELECT',
+      id,
+      coordinatorScope,
+      modelKey,
+      firstSeenAt,
+      lastSeenAt: now,
+      expiresAt: Math.floor((now + 3_600_000) / 1_000),
+    },
+  }));
+  return now - firstSeenAt;
 }
 
 function demandMap(items) {
@@ -809,6 +842,7 @@ async function prepareCapacity(event) {
   const source = clean(event.source) || 'preflight';
   const existing = await scanState();
   await recordDemand(modelKey, model.voiceProfileId, now);
+  const selectionDwellMs = await recordSelection(modelKey, existing, now);
   const refreshed = await refreshFleet(existing, now);
   const { group } = refreshed;
   const workers = lockedFleet(existing, refreshed.workers, now);
@@ -878,7 +912,7 @@ async function prepareCapacity(event) {
     workers,
     now,
     pendingTtlMs,
-    cooldownMs: preflightScaleCooldownMs,
+    cooldownMs: 0,
   });
   const capacityInput = {
     workers,
@@ -966,6 +1000,17 @@ async function prepareCapacity(event) {
       message: simulated
         ? 'Dev capacity simulation: no idle fixed GPU can prepare this voice. Staging would wait for a real synthesis request before requesting another GPU; Dev autoscaling is disabled.'
         : 'This voice will load on demand. Selecting it did not start another GPU; the first synthesis request will prepare capacity if needed.',
+    });
+  }
+  if (!routingOnly() && selectionDwellMs < preflightDwellMs) {
+    // Not yet: confirm the person is staying on this voice before buying a GPU.
+    return capacityResponse({
+      state: 'CHECKING',
+      canStartConversation: readyMatching.length > 0,
+      model,
+      matchingWorkers: readyMatching.length,
+      capacityAction: 'none',
+      message: 'Getting this voice ready…',
     });
   }
   console.log('[model-coordinator][decision]', JSON.stringify({
@@ -1224,13 +1269,73 @@ async function synthesize(event) {
   };
 }
 
+// Throttled to one sweep per minute across all coordinator invocations. Runs
+// under the admission lease so no request can be routed to a GPU while it is
+// being removed. Never fails the caller's request.
+async function sweepIdleWorkers(now = Date.now()) {
+  if (routingOnly()) return null;
+  try {
+    await document.send(new PutCommand({
+      TableName: tableName,
+      Item: {
+        entity: 'SWEEP', id: coordinationKey('SWEEP', 'scale-in'), coordinatorScope,
+        sweptAt: now, expiresAt: Math.floor((now + 3_600_000) / 1_000),
+      },
+      ConditionExpression: 'attribute_not_exists(id) OR sweptAt < :since',
+      ExpressionAttributeValues: { ':since': now - scaleInSweepMs },
+    }));
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') return null;
+    throw error;
+  }
+  const lease = await acquireAdmissionLease();
+  try {
+    const items = await scanState();
+    const { group, workers: probed } = await refreshFleet(items, now);
+    const workers = applyAdmissionReservations(lockedFleet(items, probed, now), items, now);
+    const candidate = chooseScaleInCandidate({
+      workers,
+      now,
+      idleMs: scaleInIdleMs,
+      minSize: Number(group?.MinSize || 0),
+      desired: Number(group?.DesiredCapacity || 0),
+      lastDemandByModel: demandMap(items),
+    });
+    if (!candidate) return null;
+    await autoscaling.send(new TerminateInstanceInAutoScalingGroupCommand({
+      InstanceId: candidate.instanceId,
+      ShouldDecrementDesiredCapacity: true,
+    }));
+    await document.send(new DeleteCommand({ TableName: tableName, Key: { id: candidate.id || `WORKER#${candidate.instanceId}` } }))
+      .catch(() => {});
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'sweep', decision: 'scale-in', workerId: candidate.instanceId,
+      modelKey: String(candidate.modelKey || '').slice(0, 12),
+      idleMinutes: Math.round((now - Number(candidate.lastActivityAt || now)) / 60_000),
+      desiredCapacity: Number(group?.DesiredCapacity || 0) - 1,
+    }));
+    return candidate.instanceId;
+  } finally {
+    await releaseAdmissionLease(lease);
+  }
+}
+
+async function withSweep(result) {
+  try {
+    await sweepIdleWorkers();
+  } catch (error) {
+    console.error('[model-coordinator][sweep]', error?.name || '', error?.message || error);
+  }
+  return result;
+}
+
 export async function handler(event = {}) {
   try {
     if (event.action === 'claim') return claimBootAssignment(clean(event.instanceId));
     if (event.action === 'cancel') return cancelReply(clean(event.replyToken));
     if (event.action === 'lock-residency') return lockResidency(event);
     if (event.action === 'unlock-residency') return unlockResidency(event);
-    if (event.action === 'prepare') return prepareCapacity(event);
+    if (event.action === 'prepare') return withSweep(await prepareCapacity(event));
     if (event.action === 'reassign') return runReassignment(clean(event.id));
     if (event.action === 'status') {
       const existing = await scanState();
@@ -1244,7 +1349,8 @@ export async function handler(event = {}) {
         )),
       };
     }
-    if (event.action === 'synthesize') return synthesize(event);
+    if (event.action === 'synthesize') return withSweep(await synthesize(event));
+    if (event.action === 'sweep') return { statusCode: 200, removed: await sweepIdleWorkers() };
     return { statusCode: 400, error: 'Unknown coordinator action' };
   } catch (error) {
     console.error('[model-coordinator]', error);

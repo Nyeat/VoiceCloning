@@ -213,3 +213,35 @@ export function chooseSynthesisAdmission({
     ? { type: 'queue', worker: queuedWorker, capacityAction }
     : { type: 'queue-full', capacityAction };
 }
+
+// Per-GPU scale-in. Picks the GPU that has been idle the longest, where idle
+// means: READY, nothing speaking or waiting, not event-locked, and neither the
+// GPU nor its voice has been used/selected for `idleMs` (an open page that keeps
+// selecting a voice keeps that voice's GPU). Never takes the group below its
+// minimum. Returns null when nothing should be removed.
+export function chooseScaleInCandidate({
+  workers = [],
+  now = Date.now(),
+  idleMs = 15 * 60_000,
+  minSize = 0,
+  desired = 0,
+  lastDemandByModel = {},
+} = {}) {
+  if (Number(desired) - 1 < Number(minSize)) return null;
+  const idleSince = (worker) => Math.max(
+    Number(worker.lastActivityAt || 0),
+    Number(worker.firstSeenAt || 0),
+    Number(lastDemandByModel[worker.modelKey] || 0),
+  );
+  return workers
+    .filter((worker) => (
+      worker.state === 'READY'
+      && worker.reachable !== false
+      && worker.residencyLocked !== true
+      && Number(worker.active || 0) === 0
+      && Number(worker.queued || 0) === 0
+      && now - idleSince(worker) >= idleMs
+    ))
+    .sort((a, b) => idleSince(a) - idleSince(b)
+      || Number(b.firstSeenAt || 0) - Number(a.firstSeenAt || 0))[0] || null;
+}

@@ -484,3 +484,26 @@ test('an unclaimed booting GPU blocks a selection-triggered boot (it can serve t
   const workers = [{ instanceId: 'i-new', state: 'BOOTING', reachable: true }];
   assert.equal(preflightScaleBlocked({ coordinationItems: [], workers, now: 1_000_000 }), true);
 });
+
+test('per-GPU scale-in removes the longest-idle GPU and keeps busy ones', async () => {
+  const { chooseScaleInCandidate } = await import('./decision.js');
+  const now = 10_000_000;
+  const workers = [
+    { instanceId: 'busy', state: 'READY', active: 1, queued: 0, lastActivityAt: now - 30 * 60_000, firstSeenAt: 0 },
+    { instanceId: 'idle20', state: 'READY', active: 0, queued: 0, lastActivityAt: now - 20 * 60_000, firstSeenAt: 0 },
+    { instanceId: 'idle16', state: 'READY', active: 0, queued: 0, lastActivityAt: now - 16 * 60_000, firstSeenAt: 0 },
+    { instanceId: 'idle5', state: 'READY', active: 0, queued: 0, lastActivityAt: now - 5 * 60_000, firstSeenAt: 0 },
+  ];
+  assert.equal(chooseScaleInCandidate({ workers, now, desired: 4, minSize: 0 }).instanceId, 'idle20');
+});
+
+test('per-GPU scale-in respects the group minimum, event locks and recent voice demand', async () => {
+  const { chooseScaleInCandidate } = await import('./decision.js');
+  const now = 10_000_000;
+  const idle = { state: 'READY', active: 0, queued: 0, lastActivityAt: now - 20 * 60_000, firstSeenAt: 0 };
+  assert.equal(chooseScaleInCandidate({ workers: [{ ...idle, instanceId: 'a' }], now, desired: 1, minSize: 1 }), null);
+  assert.equal(chooseScaleInCandidate({ workers: [{ ...idle, instanceId: 'a', residencyLocked: true }], now, desired: 2 }), null);
+  assert.equal(chooseScaleInCandidate({
+    workers: [{ ...idle, instanceId: 'a', modelKey: 'tom' }], now, desired: 2, lastDemandByModel: { tom: now - 60_000 },
+  }), null);
+});
