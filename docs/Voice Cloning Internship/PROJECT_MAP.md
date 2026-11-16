@@ -16,11 +16,9 @@
 
 ## Frontend (`client/`)
 
-- `src/App.jsx`
-  - User-facing routes are Training (`/`) and Live Fast (`/live-fast`).
-  - Owns the GPU start/status button.
-- `src/pages/TrainingPage.jsx`
-  - Upload training audio, start/stop training, read training state.
+- `src/App.jsx` — routes per build; training mode renders `src/training/TrainingApp.jsx` (SSO, consent, guide,
+  tabs `/` and `/test-voice`). GPU badge `components/GpuInstanceControl.jsx`, rules `lib/gpuStatusModel.js`.
+- `src/pages/TrainingPage.jsx` — Train tab: upload, start/stop, busy banner, own voices. Test tab = `LivePage variant="voice-test"`.
 - `src/pages/LivePage.jsx`; `src/pages/McSessionPage.jsx` (+ `src/lib/mcSession.js`) — staging-only Live MC page, build mode `mc`
   - Live chatbot UI, model selection, trained reference selection, cloned voice playback, Text to Speech tab, pronunciation admin panel.
 - `src/pages/SupervisorDashboardPage.jsx` — dev `/admin` graph ranking and learner evidence; S3 index/evidence replays: `scripts/backfill-analytics-user-index.mjs`, `scripts/backfill-learner-evidence.mjs`.
@@ -118,7 +116,7 @@
 - `src/index.js`
   - Express + WebSocket host on port `3002`.
 - `src/routes/liveChat.js`
-  - Browser-facing `/api/live/chat/realtime` route.
+  - Browser-facing `/api/live/chat/realtime` route; `services/sessionActivity.js` = open-chat idle signal.
 - `src/services/openaiRealtimeBridge.js`
   - Backend WebSocket bridge to OpenAI Realtime.
 - `src/services/openaiRealtimeEvents.js`

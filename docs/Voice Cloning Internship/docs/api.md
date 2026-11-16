@@ -90,6 +90,12 @@ Primary router: `lambda/router.js`
 
 Notes:
 
+- With `TRAINING_AUTH_REQUIRED=true` (dev + staging) every training route uses the signed-in account as owner
+  (`X-VCS-Entra-Token`); typed emails are ignored. `/upload/presign|confirm` only accept the owner's voice.
+- `POST /api/train/next-name` allocates the next voice name. `POST /api/train` returns 409 `TRAINING_BUSY` while any
+  run is active and forwards `config.testVoiceUrl` (from `TRAINING_PUBLIC_URL`) for the completion email.
+- `GET /api/train/current`: owner gets the full run (`mine: true`); others get `{busy, stepsDone, stepsTotal,
+  currentStep, startedAt}` only. `POST /api/train/stop` is owner-only (403 otherwise).
 - `POST /api/train` requires `expName`.
 - Optional training config currently includes `batchSize`, `sovitsEpochs`, `gptEpochs`, `sovitsSaveEvery`, `gptSaveEvery`, `asrLanguage`, `asrModel`, and `skipDenoise`.
 - Training SSE currently reports 9 steps and now includes `Extract Speaker Verification` between HuBERT and semantic extraction.
@@ -171,7 +177,7 @@ Notes:
 
 ### GPU instance control
 
-- `GET /api/instance/status`
+- `GET /api/instance/status[?target=training|inference]` — adds `readinessTarget`, `autoStopMinutes`.
 - `POST /api/instance/start`
 - `GET /api/instance/idle-check`
 - `POST /api/instance/idle-check`
@@ -193,6 +199,7 @@ Notes:
 - Training SSE: `/train/progress/:sessionId`
 - Inference SSE: `/inference/progress/:sessionId`
 - Live WebSocket: `/api/live/chat/realtime`
+- Gateway activity: `GET /api/live/session/activity` → `{busy, liveSessions, idleMs, lastActivityAt}` (idle check)
   - First frame `session.init` (`systemPrompt`) may also carry, all optional and validated/clamped by the
     gateway: `turnDetection` (`{type:'server_vad', threshold, silenceMs, prefixMs}` or
     `{type:'semantic_vad', eagerness}`), `noiseReduction` (`near_field`/`far_field`/`off`),
