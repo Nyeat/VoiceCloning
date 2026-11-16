@@ -634,16 +634,24 @@ ASG now min 0 / max 3 (raised 2026-11-16): scale-in to 0 proven (03:14 UTC); sca
 and the coordinator act: target-tracking `request-rate` has target 1e9 (inert), other step policies have no alarm,
 `all-capacity-busy-1m` alarm is unattached. Termination `NewestInstance`; coordinator protects busy workers.
 
-Coordinator (staging autoscale, dev routing-only): one voice per GPU, 2 slots. Page open / voice selection
-(lecture capacity check and /api/models/select, both `allowScale: true`): route -> switch a truly idle GPU (0 active,
-0 queued, idle >= 30 s, not event-locked, not promised) -> else start one GPU. Boots are per voice (2026-11-16):
-another voice's boot does not block this one; only an unclaimed booting GPU or any boot started in the last 60 s
-(`MODEL_PREFLIGHT_SCALE_COOLDOWN_MS`, anti click-through) defers it. Same-voice overload adds its own background GPU
-independently. Measured switch ~5-15 s (longer if weights must download); new GPU ~10 min. One PENDING boot marker
-per voice, TTL 15 min (`MODEL_PENDING_TTL_MS=900000`). Scale-up re-reads desired capacity before +1.
-Synthesis: route to oldest matching GPU with a free slot -> else queue on least-loaded matching GPU (max 2 waiting
-each) and switch an idle GPU or add one GPU (one PENDING marker per voice) -> else retryable `MODEL_QUEUE_FULL`;
-no GPU holds the voice -> switch idle GPU or add one, return `MODEL_CAPACITY_STARTING` (request not held).
+Coordinator (staging autoscale, dev routing-only), as of d1a0b35: one voice per GPU, 2 slots.
+Voice selection (lecture open, Faculty/Test pick; `allowScale: true`): route if a GPU has the voice and a free slot
+-> else switch a truly idle GPU (READY, 0 active, 0 queued, not event-locked, not promised, and neither the GPU nor
+its voice used/selected for 3 min: `MODEL_(PREFLIGHT_)REASSIGN_IDLE_MS=180000`) -> if a GPU will become switchable
+within its grace, wait for it rather than boot -> else start one GPU once this voice has been selected continuously
+for 8 s (`MODEL_PREFLIGHT_DWELL_MS`; stops click-through multi-buys) unless this voice already has a boot or an
+unclaimed GPU is booting. Boots are independent per voice. Synthesis: route to oldest matching GPU with a free slot
+-> else queue on least-loaded matching GPU (max 2 waiting each) and add one GPU for that voice in the background ->
+else retryable `MODEL_QUEUE_FULL`; no GPU holds the voice -> switch idle GPU or add one, `MODEL_CAPACITY_STARTING`.
+One PENDING boot marker per voice (TTL 15 min); scale-up re-reads desired capacity before +1.
+Scale-in: the coordinator sweeps at most once a minute (on its own traffic, under the admission lease) and terminates
+the longest-idle READY GPU (15 min, voice not used/selected, not event-locked, never below MinSize) with
+TerminateInstanceInAutoScalingGroup; whether the Lambda role allows that is unverified (AccessDenied is logged and
+skipped). The `no-traffic-15m` alarm still removes GPUs from a completely quiet fleet.
+Messages (lectures, Faculty, Test your voice share `voiceCapacityNotice`): READY none; CHECKING "Getting this voice
+ready"; STARTING "Starting a GPU with this voice ... about 10 minutes" (chat locked); WARMING "Switching a GPU to this
+voice ... under a minute (up to 3)" (locked); BUSY_STARTING/BUSY_WARMING "Lots of people are using this voice ...
+replies can be slower" (usable); LIMIT/BUSY_LIMIT every GPU in use.
 Fleet lease + reservations serialize concurrent Lambdas; queued waits end ~50 s (Lambda 55 s, CloudFront 60 s).
 While a lecture voice is STARTING/WARMING the lecture composer is fully disabled (no typing either); BUSY_* states
 allow chat with delayed audio. Test your voice and Faculty lock mic+typing the same way (2026-11-16); BUSY/queued stays usable.
@@ -656,5 +664,5 @@ probe answers and none is busy for `GPU_IDLE_STOP_MINUTES`. Probes: training wor
 any training process runs), gateway `GPU_GATEWAY_ACTIVITY_URL` (busy while any live chat socket is open; idle time
 from last message/close), inference (dev: fixed GPU via `/fixed-inference/activity/status`; staging: ASG, marked
 `GPU_IDLE_INFERENCE_PROBE=optional` — counted when it answers, ignored when the ASG is at 0). A failed required
-probe means "do not stop". Staging gateway route ships with the next worker deploy; until then staging never
-stops (verified: reason `worker-unreachable`, gateway 404). Dev gets `GPU_GATEWAY_ACTIVITY_URL` after that deploy.
+probe means "do not stop". Worker+gateway deployed to both 2026-11-16; staging idle-check verified reading
+training + gateway (`idle-threshold-not-met`), dev Lambda has `GPU_GATEWAY_ACTIVITY_URL` too.

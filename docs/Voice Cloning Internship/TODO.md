@@ -1,14 +1,14 @@
 # Active TODO
 
 - [ ] Coordinator review (2026-11-16), in priority order (max raised to 3): class-start
-  bursts need scheduled prewarm or deficit-based batch scale-out; scale-in counts fleet-wide calls (any call resets
-  15 min) — use per-GPU idle; add the fixed staging GPU as a permanent inference worker (check VRAM beside
+  bursts need scheduled prewarm or deficit-based batch scale-out; per-GPU idle scale-in built (d1a0b35) — confirm the Lambda role
+  has autoscaling:TerminateInstanceInAutoScalingGroup (logs show AccessDenied otherwise); add the fixed staging GPU as a permanent inference worker (check VRAM beside
   training); let lectures send text while STARTING; server-side owner check for cloned-voice synthesis; live-prove
   scale-from-0 and the six-request/three-GPU burst; delete or wire the inert ASG policies/alarms.
 
 - [ ] Training site (2026-11-16): (1) Entra admin adds SPA redirect URIs https://d1qh0ebsvevhy3.cloudfront.net,
   https://d3dghqhnk7aoku.cloudfront.net, https://voicecloning.lkcmedicine.org to app 9b5c52c0 (AADSTS50011 now);
-  (2) [pushed 0b017da] scripts/deploy-worker.ps1 staging, and dev after a manual start (worker busy refusal, email link,
+  (2) [done: worker deployed both] (worker busy refusal, email link,
   staging gateway CORS, gateway activity route — staging idle-stop only works after this; then add
   GPU_GATEWAY_ACTIVITY_URL to lambda/.env.deployment and redeploy dev Lambda); (3) lkcmedicine.org DNS admin adds CNAME
   _7226f503e55fb9a4666269ca282512da.voicecloning -> _78e9593c156063cd570de39565f0cec7.wzccmgtwzk.acm-validations.aws.

@@ -2182,3 +2182,10 @@
   `fleetIsInMotion` guard in prepareCapacity; 60 s cross-voice cooldown); requestScale re-reads DesiredCapacity before
   +1 (two voices booting together no longer lose a GPU); staging PENDING TTL 15 min. Coordinator 62, Lambda 362 pass;
   both Lambdas + coordinators deployed. Not load-tested live.
+- Worker + gateway deployed to staging and dev (scripts/deploy-worker.ps1; dev GPU started by hand for it): worker
+  TRAINING_BUSY guard, email test link, gateway session activity route and staging CORS live. Staging idle-check now
+  reads training + gateway. Dev Lambda gets `GPU_GATEWAY_ACTIVITY_URL`.
+- d1a0b35: 3 min switch grace; per-voice 8 s selection dwell replaces the 60 s cross-voice cooldown; coordinator
+  per-GPU idle scale-in sweep (`chooseScaleInCandidate`, TerminateInstanceInAutoScalingGroup); shared capacity
+  wording, no notice when ready. Coordinator 64, Lambda 364, client 537 pass; Lambdas, coordinators and all bundles
+  deployed. Not live-tested: sweep permission, two-voice scale-out.
