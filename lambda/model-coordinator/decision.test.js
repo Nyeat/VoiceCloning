@@ -463,3 +463,24 @@ test('once the grace expires the same idle GPU is reassigned, not scaled', () =>
   assert.equal(action.type, 'reassign');
   assert.equal(action.worker.instanceId, 'i-idle');
 });
+
+test('preflight boots are independent per voice: another voice booting does not block this one', async () => {
+  const { preflightScaleBlocked } = await import('./decision.js');
+  const now = 1_000_000;
+  const tomBooting = [{ entity: 'PENDING', modelKey: 'tom', requestedAt: now - 120_000 }];
+  const workers = [{ instanceId: 'i-tom', state: 'BOOTING', reachable: true }];
+  assert.equal(preflightScaleBlocked({ coordinationItems: tomBooting, workers, now }), false);
+});
+
+test('preflight boot cooldown stops one person clicking through lectures from buying several GPUs', async () => {
+  const { preflightScaleBlocked } = await import('./decision.js');
+  const now = 1_000_000;
+  const justStarted = [{ entity: 'PENDING', modelKey: 'a', requestedAt: now - 10_000 }];
+  assert.equal(preflightScaleBlocked({ coordinationItems: justStarted, workers: [], now }), true);
+});
+
+test('an unclaimed booting GPU blocks a selection-triggered boot (it can serve this voice)', async () => {
+  const { preflightScaleBlocked } = await import('./decision.js');
+  const workers = [{ instanceId: 'i-new', state: 'BOOTING', reachable: true }];
+  assert.equal(preflightScaleBlocked({ coordinationItems: [], workers, now: 1_000_000 }), true);
+});

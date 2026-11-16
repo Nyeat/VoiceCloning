@@ -21,7 +21,7 @@ import {
   chooseCapacityAction,
   choosePreparationAction,
   chooseSynthesisAdmission,
-  fleetIsInMotion,
+  preflightScaleBlocked,
   matchingFreeSlots,
 } from './decision.js';
 
@@ -51,6 +51,7 @@ const assignmentTimeoutMs = Math.max(
   Number(process.env.MODEL_ASSIGNMENT_TIMEOUT_MS) || 840_000,
 );
 const pendingTtlMs = Math.max(120_000, Number(process.env.MODEL_PENDING_TTL_MS) || 600_000);
+const preflightScaleCooldownMs = Math.max(0, Number(process.env.MODEL_PREFLIGHT_SCALE_COOLDOWN_MS) || 60_000);
 // Bounded overflow waiting per GPU. A burst spreads across matching workers up
 // to this depth; beyond it the request is retried by the caller instead of
 // queueing without limit behind work that has not started.
@@ -517,9 +518,20 @@ export async function requestScale(
     return { started: false, pending: winner.Item };
   }
   try {
+    // Re-read just before the bump: two voices starting a GPU at the same time
+    // both held the same snapshot and both wrote desired+1, losing one GPU.
+    let currentDesired = desired;
+    try {
+      const fresh = await autoscalingClient.send(new DescribeAutoScalingGroupsCommand({ AutoScalingGroupNames: [asgName] }));
+      currentDesired = Math.max(desired, Number(fresh?.AutoScalingGroups?.[0]?.DesiredCapacity) || 0);
+    } catch { /* fall back to the snapshot */ }
+    if (currentDesired >= maximum) {
+      await documentClient.send(new DeleteCommand({ TableName: tableName, Key: { id: pendingId } })).catch(() => {});
+      return { started: false, atMaximum: true };
+    }
     await autoscalingClient.send(new UpdateAutoScalingGroupCommand({
       AutoScalingGroupName: asgName,
-      DesiredCapacity: Math.min(maximum, desired + 1),
+      DesiredCapacity: Math.min(maximum, currentDesired + 1),
     }));
   } catch (error) {
     // The marker is claimed before the bump so two concurrent callers cannot both
@@ -861,11 +873,12 @@ async function prepareCapacity(event) {
   // reassignable, and therefore scaling. A selection waits for capacity already
   // in motion instead of buying more. Real synthesis is unaffected and still
   // scales on real overlapping demand.
-  const fleetInMotion = fleetIsInMotion({
+  const fleetInMotion = preflightScaleBlocked({
     coordinationItems: existing.filter((item) => itemInScope(item)),
     workers,
     now,
     pendingTtlMs,
+    cooldownMs: preflightScaleCooldownMs,
   });
   const capacityInput = {
     workers,

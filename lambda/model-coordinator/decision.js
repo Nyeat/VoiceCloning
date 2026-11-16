@@ -120,6 +120,29 @@ export function fleetIsInMotion({
     || workers.some((worker) => worker.reachable !== false && worker.state !== 'READY');
 }
 
+// Voice-independent version of the selection guard. A boot or switch already
+// running for ANOTHER voice must not make this voice wait for it: Jack's new
+// voice gets its own GPU while Tom's is still booting. Two things still block a
+// selection-triggered boot:
+//   - a booting GPU nobody has claimed yet (it can serve this voice), and
+//   - any selection/boot started in the last `cooldownMs`, so one person
+//     clicking through three lectures does not buy three GPUs (the original
+//     1->2->3->4 incident). A page that stays open retries after the cooldown.
+export function preflightScaleBlocked({
+  coordinationItems = [],
+  workers = [],
+  now = Date.now(),
+  pendingTtlMs = 600_000,
+  cooldownMs = 60_000,
+} = {}) {
+  const livePending = coordinationItems.filter((item) => (
+    item?.entity === 'PENDING' && now - Number(item.requestedAt || 0) < pendingTtlMs
+  ));
+  if (livePending.some((item) => now - Number(item.requestedAt || 0) < cooldownMs)) return true;
+  const booting = workers.filter((worker) => worker.reachable !== false && worker.state !== 'READY').length;
+  return booting > livePending.length;
+}
+
 export function matchingFreeSlots(workers = [], requestedModelKey = '') {
   return workers
     .filter((worker) =>

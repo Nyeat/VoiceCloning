@@ -69,9 +69,9 @@ test('claims a boot and grows the group by one', async () => {
 
   assert.equal(result.started, true);
   assert.deepEqual(documentClient.calls.map(label), ['Get', 'Put']);
-  assert.equal(autoscalingClient.calls.length, 1);
-  assert.ok(autoscalingClient.calls[0] instanceof UpdateAutoScalingGroupCommand);
-  assert.equal(autoscalingClient.calls[0].input.DesiredCapacity, 3);
+  const updates = autoscalingClient.calls.filter((call) => call instanceof UpdateAutoScalingGroupCommand);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].input.DesiredCapacity, 3);
   assert.equal(documentClient.calls[1].input.Item.coordinatorScope, 'vcs-staging-gpu-inference');
 });
 
@@ -108,7 +108,11 @@ test('a failed scale-up leaves no claim, so the next poll retries the group', as
   });
 
   assert.equal(result.started, true);
-  assert.equal(recovered.calls.length, 1, 'the retry must reach the Auto Scaling group');
+  assert.equal(
+    recovered.calls.filter((call) => call instanceof UpdateAutoScalingGroupCommand).length,
+    1,
+    'the retry must reach the Auto Scaling group',
+  );
   assert.equal(documentClient.rows.get(PENDING_ID)?.requestedAt, NOW + 15_000);
 });
 
@@ -140,4 +144,24 @@ test('reports atMaximum without claiming a boot', async () => {
   assert.deepEqual(result, { started: false, atMaximum: true });
   assert.equal(autoscalingClient.calls.length, 0);
   assert.deepEqual(documentClient.calls.map(label), ['Get']);
+});
+
+test('a scale-up re-reads desired capacity so two voices starting together both get a GPU', async () => {
+  const documentClient = recordingDocument();
+  const calls = [];
+  const autoscalingClient = {
+    calls,
+    async send(command) {
+      calls.push(command);
+      // Another voice already raised the group past this caller's snapshot.
+      if (command.constructor.name === 'DescribeAutoScalingGroupsCommand') {
+        return { AutoScalingGroups: [{ DesiredCapacity: Number(GROUP.DesiredCapacity) + 1 }] };
+      }
+      return {};
+    },
+  };
+  const result = await requestScale(GROUP, MODEL_KEY, BODY, NOW, { documentClient, autoscalingClient });
+  assert.equal(result.started, true);
+  const update = calls.find((call) => call instanceof UpdateAutoScalingGroupCommand);
+  assert.equal(update.input.DesiredCapacity, Number(GROUP.DesiredCapacity) + 2);
 });

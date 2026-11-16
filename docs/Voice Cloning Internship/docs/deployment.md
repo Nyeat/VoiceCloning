@@ -636,9 +636,11 @@ and the coordinator act: target-tracking `request-rate` has target 1e9 (inert), 
 
 Coordinator (staging autoscale, dev routing-only): one voice per GPU, 2 slots. Page open / voice selection
 (lecture capacity check and /api/models/select, both `allowScale: true`): route -> switch a truly idle GPU (0 active,
-0 queued, idle >= 30 s, not event-locked, not promised) -> else start one GPU, but never while any boot, switch or
-non-READY worker exists (then WARMING) and never when an idle GPU only needs its 30 s grace. Measured switch ~5-15 s
-(longer if the weights must first download); new GPU ~10 min. One PENDING boot marker per voice (TTL 10 min).
+0 queued, idle >= 30 s, not event-locked, not promised) -> else start one GPU. Boots are per voice (2026-11-16):
+another voice's boot does not block this one; only an unclaimed booting GPU or any boot started in the last 60 s
+(`MODEL_PREFLIGHT_SCALE_COOLDOWN_MS`, anti click-through) defers it. Same-voice overload adds its own background GPU
+independently. Measured switch ~5-15 s (longer if weights must download); new GPU ~10 min. One PENDING boot marker
+per voice, TTL 15 min (`MODEL_PENDING_TTL_MS=900000`). Scale-up re-reads desired capacity before +1.
 Synthesis: route to oldest matching GPU with a free slot -> else queue on least-loaded matching GPU (max 2 waiting
 each) and switch an idle GPU or add one GPU (one PENDING marker per voice) -> else retryable `MODEL_QUEUE_FULL`;
 no GPU holds the voice -> switch idle GPU or add one, return `MODEL_CAPACITY_STARTING` (request not held).

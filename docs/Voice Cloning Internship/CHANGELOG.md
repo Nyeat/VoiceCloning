@@ -2178,3 +2178,7 @@
 - Faculty now locks mic+typing like lectures while its cloned voice is STARTING/WARMING (new GPU or switch);
   BUSY/queued stays usable with a "heavily loaded" notice; stock voices never lock (LivePage.jsx). Staging inference
   ASG max 1 -> 3 (live; deploy.config.json). Client 536 pass.
+- Coordinator: selection-triggered boots are per voice (`preflightScaleBlocked` replaces the fleet-wide
+  `fleetIsInMotion` guard in prepareCapacity; 60 s cross-voice cooldown); requestScale re-reads DesiredCapacity before
+  +1 (two voices booting together no longer lose a GPU); staging PENDING TTL 15 min. Coordinator 62, Lambda 362 pass;
+  both Lambdas + coordinators deployed. Not load-tested live.
