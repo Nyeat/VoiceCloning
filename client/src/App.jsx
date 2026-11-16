@@ -18,11 +18,17 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { APP_MODE_CONFIG, shouldApplyLiveDemoLockout } from '@/lib/appMode';
 import { GpuStatusProvider, useGpuStatus } from '@/lib/gpuStatus.jsx';
+import { describeGpuStatus } from '@/lib/gpuStatusModel';
+import GpuInstanceControl from '@/components/GpuInstanceControl.jsx';
+import TrainingApp from './training/TrainingApp.jsx';
 import { fetchLiveDemoLockout } from '@/lib/runtimeConfig';
 
 // Live-fast (doovx…) and the Dean demo have no training UI — those are the builds
 // that should auto-start the GPU and show the "starting" overlay on entry.
-const GPU_AUTO_START = !APP_MODE_CONFIG.showTraining;
+// VITE_GPU_AUTO_START=false (dev) makes every build manual-start only: the badge
+// says "GPU stopped · Start" and nothing starts the GPU on page activity.
+const GPU_AUTO_START = !APP_MODE_CONFIG.showTraining
+  && import.meta.env.VITE_GPU_AUTO_START !== 'false';
 import TrainingPage from './pages/TrainingPage.jsx';
 import LivePage from './pages/LivePage.jsx';
 import GiChatPage from './pages/GiChatPage.jsx';
@@ -42,121 +48,42 @@ function LiveFastEntry() {
   return <LivePage replyMode="phrases" mode={tab === 'text-to-speech' ? 'tts' : 'chat'} />;
 }
 
-function GpuInstanceControl() {
-  const { status, checking, starting, start: handleStart } = useGpuStatus();
-
-  if (checking && !status) {
-    return (
-      <button
-        type="button"
-        disabled
-        title="Checking the GPU instance status."
-        className="inline-flex h-8 cursor-wait items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-400"
-      >
-        <Power size={12} />
-        Checking GPU
-      </button>
-    );
-  }
-
-  if (!status?.configured) {
-    return (
-      <button
-        type="button"
-        disabled
-        title={status?.message || 'GPU instance control is not configured yet.'}
-        className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-400"
-      >
-        <Power size={12} />
-        GPU not configured
-      </button>
-    );
-  }
-
-  const isReady = status.workerReady;
-  const canStart = status.startable && !starting;
-  const label = isReady
-    ? 'GPU ready'
-    : status.state === 'stopped'
-      ? 'Start GPU'
-      : starting || status.state === 'pending'
-        ? 'Starting GPU'
-        : status.state === 'running'
-          ? 'GPU warming up'
-        : `GPU ${status.state || 'unknown'}`;
-  const title = status.message
-    || (status.state === 'running' && !status.workerReady
-      ? 'The EC2 instance is running, but the GPU worker is still warming up.'
-      : label);
-
-  return (
-    <button
-      type="button"
-      onClick={handleStart}
-      disabled={!canStart}
-      title={title}
-      className={cn(
-        'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors',
-        isReady
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          : canStart
-            ? 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            : 'cursor-not-allowed border-slate-200 bg-white text-slate-400'
-      )}
-    >
-      <span className={cn(
-        'h-2 w-2 rounded-full',
-        isReady ? 'bg-emerald-500' : canStart ? 'bg-slate-300' : 'bg-slate-200'
-      )} />
-      {label}
-    </button>
-  );
-}
-
 function GpuStartingOverlay() {
-  const { status, checking, starting, workerReady, start } = useGpuStatus();
+  const { status, checking, starting, workerReady, autoStart, start } = useGpuStatus();
 
   // Only block the page for the auto-start builds, and only until the worker is
   // actually ready. Local dev (no instance configured) is never blocked.
   const configured = status?.configured;
   if (workerReady) return null;
   if (!checking && !configured) return null;
+  // Nothing on this page will start it, so a "Starting the GPU" screen would be
+  // a lie; the header badge says "GPU stopped" instead.
+  if (!autoStart) return null;
 
-  const state = status?.state;
-  const unavailable = state === 'unavailable' || state === 'unknown';
-  const stopping = state === 'stopping' || state === 'shutting-down';
-  const heading = unavailable
-    ? 'Waiting for the GPU'
-    : stopping
-      ? 'Stopping the GPU'
-      : state === 'running'
-        ? 'Warming up the GPU'
-        : 'Starting the GPU';
-  const detail = unavailable
-    ? (status?.message || 'Trying to reach the GPU instance…')
-    : stopping
-      ? 'The shared GPU is shutting down after being idle. It will restart automatically — hang tight.'
-      : state === 'running'
-        ? 'The instance is up — loading the voice engine. This takes a few seconds.'
-        : starting || state === 'pending'
-          ? 'Powering on the shared GPU instance. This can take up to a minute on a cold start.'
-          : 'Getting the GPU ready…';
-
-  // Don't offer a manual retry while it's mid-stop (it isn't startable until fully
-  // stopped, and auto-start will pick it up then).
-  const canManualStart = status?.startable && !starting && !stopping;
+  const view = describeGpuStatus({ status, checking, starting, autoStart });
+  const heading = {
+    checking: 'Checking the GPU',
+    starting: 'Starting the GPU',
+    warming: 'Warming up the GPU',
+    stopping: 'Stopping the GPU',
+    unavailable: 'Waiting for the GPU',
+  }[view.phase] || 'Getting the GPU ready';
+  const detail = view.phase === 'stopping'
+    ? 'The shared GPU is shutting down after being idle. It restarts automatically once it has stopped.'
+    : view.detail;
+  const canManualStart = view.phase === 'unavailable' && status?.startable && !starting;
 
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/70 px-6 backdrop-blur-md">
-      <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white/95 p-8 text-center shadow-2xl">
+      <div className="w-full max-w-sm rounded-xl border border-white/10 bg-white p-8 text-center shadow-2xl" role="status" aria-live="polite">
         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-          {unavailable
+          {view.phase === 'unavailable'
             ? <Power size={26} className="text-primary" />
             : <Loader2 size={26} className="animate-spin text-primary" />}
         </div>
         <h1 className="text-lg font-semibold text-slate-900">{heading}</h1>
         <p className="mt-3 text-sm leading-relaxed text-slate-600">{detail}</p>
-        {unavailable && canManualStart && (
+        {canManualStart && (
           <button
             type="button"
             onClick={start}
@@ -221,6 +148,15 @@ export default function App() {
 }
 
 function AppWithGpu({ autoStart }) {
+  // The training site checks the training worker's health, not the inference
+  // fleet's, and never starts the GPU by itself (the badge offers Start).
+  if (APP_MODE_CONFIG.mode === 'training') {
+    return (
+      <GpuStatusProvider autoStart={false} target="training">
+        <TrainingApp />
+      </GpuStatusProvider>
+    );
+  }
   return (
     <GpuStatusProvider autoStart={autoStart}>
       {APP_MODE_CONFIG.gi ? <GiApp /> : <AppShell />}

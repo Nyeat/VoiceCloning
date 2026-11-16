@@ -1932,3 +1932,15 @@ aws events put-targets --region ap-northeast-2 --rule vcs-staging-gpu-idle-stop 
 10. Only one NAT-backed private subnet currently exists (`ap-northeast-2a`). A
    production-resilient fleet should add another private subnet/AZ before relying on
    multi-AZ capacity. Route edits are admin-only for this role.
+
+## Verified state 2026-11-16
+
+- Inference ASG `vcs-staging-gpu-inference` min 0 / max 1: scale-in to 0 via `no-traffic-15m` proven; coordinator
+  scale-out from 0 is coded but unobserved live; max 1 prevents any second GPU. Launch-to-ready ~10 min.
+- Only the coordinator scales out; `request-rate` target tracking (target 1e9) and the other step policies are inert.
+- Fixed GPU `i-0f0da8be59367f7a8`: training + live gateway only, `GPU_IDLE_STOP_MINUTES=0`, auto-started by
+  Live Fast / faculty / lectures page opens; the training site does not auto-start it.
+- Training distribution `EC2SYT1OKGW9Q` now has `/api/live/chat/realtime` and `/api/live/session/*` behaviors and
+  `X-VCS-Site: faculty` on its Lambda and ALB origins; `voicecloning.lkcmedicine.org` alias waits on ACM cert
+  `68de3646-…` DNS validation (record in vault TODO) and the Entra redirect URIs.
+- Full rules, review findings and open gaps: vault `docs/deployment.md` "GPU Power and Autoscaling", `TODO.md`.

@@ -203,6 +203,8 @@ test('instance start only calls EC2 start when the user-triggered request finds 
         workerReady: false,
         startable: false,
         started: true,
+        readinessTarget: 'training',
+        autoStopMinutes: 0,
       });
     });
   } finally {
@@ -846,4 +848,81 @@ test('idle check stops a stale busy GPU after configured idle minutes', async ()
     globalThis.fetch = previousFetch;
     delete globalThis.__voiceCloningEc2Client;
   }
+});
+
+async function runIdleCheck({ env, responses }) {
+  const calls = [];
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const value = String(url);
+    const match = Object.keys(responses).sort((a, b) => b.length - a.length).find((suffix) => value.endsWith(suffix));
+    const reply = match ? responses[match] : { status: 404, body: {} };
+    return new Response(JSON.stringify(reply.body), { status: reply.status, headers: { 'Content-Type': 'application/json' } });
+  };
+  globalThis.__voiceCloningEc2Client = {
+    async send(command) {
+      calls.push(command.constructor.name);
+      if (command.constructor.name === 'DescribeInstancesCommand') {
+        return { Reservations: [{ Instances: [{ InstanceId: 'i-fixed', State: { Name: 'running' } }] }] };
+      }
+      return {};
+    },
+  };
+  const { handler } = await import(`./index.js?gatewayIdle=${Date.now()}${Math.random()}`);
+  try {
+    return await withEnv({ GPU_INSTANCE_ID: 'i-fixed', GPU_WORKER_URL: 'http://alb', GPU_IDLE_STOP_MINUTES: '30', ...env }, async () => {
+      const response = await handler({ requestContext: { http: { method: 'POST' } }, rawPath: '/api/instance/idle-check' });
+      return { calls, body: JSON.parse(response.body) };
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    delete globalThis.__voiceCloningEc2Client;
+  }
+}
+
+const IDLE_40 = { status: 200, body: { busy: false, idleMs: 40 * 60_000, lastActivityAt: Date.now() - 40 * 60_000 } };
+
+test('idle check keeps the fixed GPU on while a live chat is open on its gateway', async () => {
+  const { calls, body } = await runIdleCheck({
+    env: { GPU_GATEWAY_ACTIVITY_URL: 'http://alb/api/live/session/activity' },
+    responses: {
+      '/activity/status': IDLE_40,
+      '/api/live/session/activity': { status: 200, body: { busy: true, idleMs: 0, liveSessions: 1, lastActivityAt: Date.now() } },
+    },
+  });
+  assert.equal(body.stopped, false);
+  assert.deepEqual(calls, ['DescribeInstancesCommand']);
+});
+
+test('idle check never stops when the gateway activity cannot be read', async () => {
+  const { body } = await runIdleCheck({
+    env: { GPU_GATEWAY_ACTIVITY_URL: 'http://alb/api/live/session/activity' },
+    responses: { '/activity/status': IDLE_40 },
+  });
+  assert.equal(body.stopped, false);
+  assert.equal(body.reason, 'worker-unreachable');
+});
+
+test('optional inference probe: absent autoscaled GPUs do not pin the fixed GPU on', async () => {
+  const { body } = await runIdleCheck({
+    env: {
+      INFERENCE_WORKER_URL: 'http://alb',
+      GPU_IDLE_INFERENCE_PROBE: 'optional',
+      GPU_GATEWAY_ACTIVITY_URL: 'http://alb/api/live/session/activity',
+    },
+    responses: { '/activity/status': IDLE_40, '/api/live/session/activity': IDLE_40, '/inference/activity/status': { status: 503, body: {} } },
+  });
+  assert.equal(body.stopped, true);
+  assert.equal(body.reason, 'idle-timeout');
+});
+
+test('optional inference probe: busy autoscaled inference still keeps it on', async () => {
+  const { body } = await runIdleCheck({
+    env: { INFERENCE_WORKER_URL: 'http://alb', GPU_IDLE_INFERENCE_PROBE: 'optional' },
+    responses: {
+      '/activity/status': IDLE_40,
+      '/inference/activity/status': { status: 200, body: { busy: true, idleMs: 0, lastActivityAt: Date.now() } },
+    },
+  });
+  assert.equal(body.stopped, false);
 });

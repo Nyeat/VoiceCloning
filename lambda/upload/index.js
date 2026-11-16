@@ -2,6 +2,29 @@ import path from 'path';
 import { generatePresignedPutUrl, headObject } from '../shared/s3.js';
 import { isSafePathSegment, sanitizeFilename } from '../shared/paths.js';
 import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
+import { createLiveAuthGuard } from '../shared/liveAuth.js';
+import { ownsVoiceName } from '../shared/voiceIdentity.js';
+import { trainingAuthRequired } from '../training/index.js';
+
+let uploadAuthGuard;
+
+// With training sign-in on, audio may only be uploaded into a voice the
+// signed-in account owns. Returns an error response, or null when allowed.
+async function rejectUnlessOwner(event, expName) {
+  if (!trainingAuthRequired()) return null;
+  if (uploadAuthGuard === undefined) uploadAuthGuard = createLiveAuthGuard();
+  if (!uploadAuthGuard) return err(503, 'Training sign-in is not configured');
+  let identity;
+  try {
+    identity = await uploadAuthGuard.authorize(event);
+  } catch {
+    return err(401, 'Sign in with your NTU account to upload training audio');
+  }
+  if (identity?.synthetic || !ownsVoiceName(identity?.email, expName)) {
+    return err(403, 'You can only upload audio for your own voice');
+  }
+  return null;
+}
 
 const ALLOWED_AUDIO_EXTS = ['.wav', '.mp3', '.ogg', '.flac', '.m4a'];
 const ALLOWED_REF_AUDIO_EXTS = ['.wav', '.mp3', '.ogg', '.flac', '.m4a', '.webm', '.mp4'];
@@ -26,6 +49,8 @@ export const handler = async (event) => {
       if (!isSafePathSegment(expName)) return err(400, 'expName contains unsupported characters');
       if (!Array.isArray(files) || files.length === 0) return err(400, 'files array is required');
       if (files.length > 50) return err(400, 'Maximum 50 files per upload');
+      const denied = await rejectUnlessOwner(event, expName);
+      if (denied) return denied;
 
       const uploads = [];
       for (const file of files) {
@@ -45,6 +70,12 @@ export const handler = async (event) => {
       const { expName, keys } = body;
       if (!expName || !Array.isArray(keys) || keys.length === 0) {
         return err(400, 'expName and keys array are required');
+      }
+      const denied = await rejectUnlessOwner(event, expName);
+      if (denied) return denied;
+      const ownPrefix = `training/datasets/${expName}/raw/`;
+      if (keys.some((key) => !String(key || '').startsWith(ownPrefix))) {
+        return err(400, 'keys must belong to this voice');
       }
 
       let confirmed = 0;

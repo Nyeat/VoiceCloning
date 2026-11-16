@@ -665,8 +665,8 @@ export function stopInferenceServer() {
   return api.post('/inference/stop');
 }
 
-export function getInstanceStatus() {
-  return api.get('/instance/status');
+export function getInstanceStatus(target = '') {
+  return api.get('/instance/status', target ? { params: { target } } : undefined);
 }
 
 export function startInstance() {

@@ -32,10 +32,20 @@ function inferenceWorkerUrl() {
   return (process.env.INFERENCE_WORKER_URL || '').replace(/\/+$/u, '');
 }
 
-function statusReadinessTarget() {
+// A page may ask about the half of the GPU it actually uses: the training site
+// asks for 'training' so a still-booting inference fleet never shows it
+// "warming up" while the training worker is ready.
+function statusReadinessTarget(requested = '') {
+  const wanted = String(requested || '').trim().toLowerCase();
+  if (wanted === 'training' || wanted === 'worker') return 'worker';
+  if (wanted === 'inference' && inferenceWorkerUrl()) return 'inference';
   return String(process.env.GPU_STATUS_READINESS_TARGET || '').trim().toLowerCase() === 'inference'
     ? 'inference'
     : 'worker';
+}
+
+function autoStopMinutes() {
+  return scheduleConfig().enabled ? null : idleStopMinutes();
 }
 
 function idleStopMinutes() {
@@ -152,13 +162,15 @@ async function describeInstance(ec2, id) {
   return normalizeState(response);
 }
 
-async function checkWorkerReady() {
-  const target = statusReadinessTarget();
+async function checkWorkerReady(requestedTarget = '') {
+  const target = statusReadinessTarget(requestedTarget);
   const baseUrl = target === 'inference' ? inferenceWorkerUrl() : workerUrl();
   if (!baseUrl) return false;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
+  // A worker busy synthesising can take a few seconds to answer; a too-short
+  // probe made a ready GPU flicker back to "warming up".
+  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
     const response = await fetch(
       `${baseUrl}${target === 'inference' ? '/models' : '/healthz'}`,
@@ -172,13 +184,16 @@ async function checkWorkerReady() {
   }
 }
 
-function statusPayload({ id, state, workerReady, started = false, previousState = null }) {
+function statusPayload({ id, state, workerReady, started = false, previousState = null, target = '' }) {
   const payload = {
     configured: true,
     instanceId: id,
     state,
     workerReady,
     startable: state === 'stopped',
+    readinessTarget: statusReadinessTarget(target) === 'worker' ? 'training' : 'inference',
+    // 0 = never stops on its own (manual capacity); null = schedule-controlled.
+    autoStopMinutes: autoStopMinutes(),
   };
 
   if (previousState) {
@@ -193,6 +208,10 @@ function statusPayload({ id, state, workerReady, started = false, previousState 
   return payload;
 }
 
+function inferenceProbeOptional() {
+  return String(process.env.GPU_IDLE_INFERENCE_PROBE || '').trim().toLowerCase() === 'optional';
+}
+
 function activityProbeTargets() {
   const trainingUrl = workerUrl();
   if (!trainingUrl) {
@@ -203,6 +222,13 @@ function activityProbeTargets() {
     name: 'training',
     url: `${trainingUrl}/activity/status`,
   }];
+
+  // Open live chats run through the gateway on this same GPU. A probe that
+  // fails counts as busy (never stop on missing evidence).
+  const gatewayActivityUrl = String(process.env.GPU_GATEWAY_ACTIVITY_URL || '').trim();
+  if (gatewayActivityUrl) {
+    targets.push({ name: 'gateway', url: gatewayActivityUrl });
+  }
 
   const fixedInferenceActivityUrl = String(process.env.GPU_FIXED_INFERENCE_ACTIVITY_URL || '').trim();
   const inferenceUrl = inferenceWorkerUrl();
@@ -215,6 +241,10 @@ function activityProbeTargets() {
     targets.push({
       name: 'inference',
       url: `${inferenceUrl}/inference/activity/status`,
+      // Staging synthesis runs on the separate auto-scaling GPUs, which may be
+      // at zero; their absence must not pin the fixed GPU on. When they answer,
+      // their activity still counts.
+      optional: inferenceProbeOptional(),
     });
   }
 
@@ -275,7 +305,7 @@ async function getWorkerActivityStatus() {
 
   const failures = results
     .map((result, index) => (
-      result.status === 'rejected'
+      result.status === 'rejected' && !targets[index].optional
         ? { name: targets[index].name, message: result.reason?.message || String(result.reason) }
         : null
     ))
@@ -287,20 +317,22 @@ async function getWorkerActivityStatus() {
     );
   }
 
-  return mergeActivityStatuses(results.map((result) => result.value));
+  return mergeActivityStatuses(results
+    .filter((result) => result.status === 'fulfilled')
+    .map((result) => result.value));
 }
 
-async function getStatus() {
+async function getStatus(target = '') {
   const id = instanceId();
   if (!id) return unconfiguredStatus();
 
   const ec2 = createEc2Client();
   // The common path is an already-running GPU. Probe worker health in parallel with
   // EC2 state instead of paying those network latencies serially on every page load.
-  const workerReadyPromise = checkWorkerReady();
+  const workerReadyPromise = checkWorkerReady(target);
   const state = await describeInstance(ec2, id);
   const workerReady = state === 'running' ? await workerReadyPromise : false;
-  return statusPayload({ id, state, workerReady });
+  return statusPayload({ id, state, workerReady, target });
 }
 
 async function startInstance() {
@@ -516,7 +548,7 @@ export const handler = async (event) => {
 
   try {
     if (method === 'GET' && routePath.endsWith('/instance/status')) {
-      return ok(await getStatus());
+      return ok(await getStatus(event.queryStringParameters?.target));
     }
 
     if (method === 'POST' && routePath.endsWith('/instance/start')) {
@@ -533,6 +565,14 @@ export const handler = async (event) => {
 
     if ((method === 'POST' || method === 'GET') && routePath.endsWith('/instance/idle-check')) {
       const result = await stopInstanceIfIdle();
+      console.log('[idle-check]', JSON.stringify({
+        stopped: result.stopped === true,
+        reason: result.reason,
+        state: result.state,
+        idleStopMinutes: result.idleStopMinutes,
+        idleMs: result.activity?.idleMs,
+        busy: result.activity?.busy,
+      }));
       if (!inferenceAutoScalingGroupName()) return ok(result);
       return ok({
         ...result,

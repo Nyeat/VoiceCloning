@@ -1,4 +1,5 @@
 import express from 'express';
+import { ACTIVITY_PATH, sessionActivity } from './services/sessionActivity.js';
 import cors from 'cors';
 import { createServer } from 'http';
 import {
@@ -49,6 +50,11 @@ app.get('/readyz', (_req, res) => {
     problems,
     timestamp: Date.now(),
   });
+});
+
+// Read by the Lambda idle-stop check: open live chats keep the fixed GPU on.
+app.get(ACTIVITY_PATH, (_req, res) => {
+  res.json(sessionActivity.status());
 });
 
 // Records who reached the lesson, independently of whether they ever speak.

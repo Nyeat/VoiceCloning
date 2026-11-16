@@ -171,6 +171,7 @@ export async function runPipelineWithS3(sessionId, {
   skipDenoise = false,
   selectedReferences = {},
   sourceDatasetStats = {},
+  testVoiceUrl = '',
 }) {
   const startedAt = new Date().toISOString();
   const localExpDir = path.join(LOCAL_TEMP_ROOT, expName);
@@ -510,7 +511,7 @@ export async function runPipelineWithS3(sessionId, {
     sseManager.send(sessionId, 'pipeline-complete', { success: true });
 
     if (email) {
-      sendTrainingCompleteEmail(email, expName).then(() => {
+      sendTrainingCompleteEmail(email, expName, { testVoiceUrl }).then(() => {
         recordTrainingLog(sessionId, {
           stream: 'stdout',
           data: `Notification email sent to ${email}\n`,

@@ -20,7 +20,7 @@
       "serviceLinkedRoleReady": true,
       "created": true,
       "desiredCapacity": 0,
-      "maxCapacity": 1,
+      "maxCapacity": 3,
       "eventPreWarmCapacity": 50,
       "scheduledActionsCreated": true,
       "eventPreWarmAt": "2026-08-04T13:30:00+08:00",
@@ -34,7 +34,7 @@
       "currentInstanceId": null,
       "listenerCutover": true,
       "manualCapacity": {
-        "note": "2026-11-03: coordinator autoscale; capacity set by hand. Off = ASG 0/0/1 + fixed GPU stopped; on = ASG 1/1/1 + fixed GPU running.",
+        "note": "2026-11-16: min 0 / max 3; coordinator adds GPUs on demand, no-traffic-15m alarm removes them. Fixed GPU idle-stops after 30 min (training, live chats, inference all idle).",
         "verifiedAt": "2026-11-03"
       }
     },

@@ -2148,3 +2148,33 @@
   2-slot GPU (route/route/queue/queue/queue-full, all 200 by 12 s, no scale at max 1), lecture Dean reply 6 s,
   Faculty no longer moves the default. Not tested: scale-out beyond one GPU (max held at 1), microphone, training.
 
+
+## 2026-11-16
+
+- Training site rebuilt (dev d3dghqhnk7aoku, staging d1qh0ebsvevhy3; alias voicecloning.lkcmedicine.org pending):
+  Microsoft SSO (staff/assoc), privacy notice, per-account consent, pulsing "?" guide, NTU branding, own-voices
+  list, shared storage removed; new "Test your voice" tab = LivePage `variant="voice-test"` (own voices only, no
+  stock voices/lectures/publish). Files: client/src/training/*, pages/TrainingPage.jsx, LivePage.jsx, App.jsx,
+  components/GpuInstanceControl.jsx, lib/gpuStatusModel.js, env/*/training.env.
+- Training owner = signed-in account (`TRAINING_AUTH_REQUIRED`): Lambda training/upload check ownership; others get
+  a redacted busy summary; second training refused (`TRAINING_BUSY`) in Lambda and worker (`TRAINING_ALLOW_QUEUE`
+  restores the queue). Completion email links to /test-voice?voice=<name> (`TRAINING_PUBLIC_URL`).
+- GPU badge: "GPU stopped" when the page will not auto-start; 2-miss hysteresis before ready -> warming; overlay only
+  on auto-start builds; `/api/instance/status?target=training` checks the training worker; 5 s probe.
+- Ops: Lambda dev+staging deployed; all dev/staging client bundles redeployed; training CloudFronts got
+  /api/live/chat/realtime + /api/live/session/* and X-VCS-Site=faculty (staging lambda+ALB, dev lambda only);
+  ACM cert requested for voicecloning.lkcmedicine.org (PENDING_VALIDATION).
+- Tests: Lambda 354, coordinator 58, client 536, worker email 4 pass; local mock-auth browser check of login,
+  consent, guide, train and test tabs. NOT done: commit/push and worker deploy (denied), real SSO sign-in
+  (AADSTS50011), ASG max change (denied), any training or chat run.
+- Test your voice now locks mic and typing (like lectures) while the selected cloned voice is not on a GPU, and
+  unlocks automatically when the coordinator reports it ready (client/src/pages/LivePage.jsx). Client 536 pass;
+  training bundles redeployed dev+staging. Not browser-tested against a real cold GPU.
+- Dev GPU manual-start only (`VITE_GPU_AUTO_START=false` in dev live-fast/gi/chatbot env; App.jsx); dev live-fast and
+  lectures bundles redeployed. Staging fixed GPU idle-stop 30 min (`.env.deployment.staging`); idle check now also
+  reads gateway open-chat activity (`live-gateway/src/services/sessionActivity.js`, GET /api/live/session/activity)
+  and treats staging ASG inference as optional; `[idle-check]` log line. Lambda 358, gateway 185, client 536 pass;
+  both Lambdas deployed; manual staging idle-check returned worker-unreachable (gateway not yet deployed, fails safe).
+- Faculty now locks mic+typing like lectures while its cloned voice is STARTING/WARMING (new GPU or switch);
+  BUSY/queued stays usable with a "heavily loaded" notice; stock voices never lock (LivePage.jsx). Staging inference
+  ASG max 1 -> 3 (live; deploy.config.json). Client 536 pass.

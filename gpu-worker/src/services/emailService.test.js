@@ -41,3 +41,26 @@ test('sendTrainingCompleteEmail skips silently when fromEmail is not provided', 
 
   assert.equal(calls.length, 0);
 });
+
+test('sendTrainingCompleteEmail links to the test-your-voice page when given an https URL', async () => {
+  const calls = [];
+  const { sendTrainingCompleteEmail } = await import('./emailService.js');
+  await sendTrainingCompleteEmail('user@example.com', 'my_voice', {
+    transport: { sendMail: async (message) => { calls.push(message); } },
+    fromEmail: 'sender@example.com',
+    testVoiceUrl: 'https://voicecloning.lkcmedicine.org/test-voice?voice=my_voice',
+  });
+  assert.match(calls[0].text, /Test your voice: https:\/\/voicecloning\.lkcmedicine\.org\/test-voice\?voice=my_voice/);
+  assert.match(calls[0].html, /href="https:\/\/voicecloning\.lkcmedicine\.org\/test-voice\?voice=my_voice"/);
+});
+
+test('sendTrainingCompleteEmail drops a non-https test link', async () => {
+  const calls = [];
+  const { sendTrainingCompleteEmail } = await import('./emailService.js');
+  await sendTrainingCompleteEmail('user@example.com', 'my_voice', {
+    transport: { sendMail: async (message) => { calls.push(message); } },
+    fromEmail: 'sender@example.com',
+    testVoiceUrl: 'javascript:alert(1)',
+  });
+  assert.doesNotMatch(calls[0].html, /href=/);
+});

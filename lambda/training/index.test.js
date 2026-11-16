@@ -5,7 +5,11 @@ import { createHandler, handler } from './index.js';
 // Every run creates a new voice, so what the handler does depends on which
 // voices already exist. A stub keeps that explicit per test.
 function handlerWithVoices(takenNames = []) {
-  return createHandler({ listTrainedVoiceNames: async () => takenNames });
+  return createHandler({
+    listTrainedVoiceNames: async () => takenNames,
+    readTrainingState: async () => ({ status: 'idle', queueDepth: 0 }),
+    authRequired: () => false,
+  });
 }
 
 test('training handler names the run after the NTU email and forwards nested config', async () => {
@@ -337,4 +341,89 @@ test('a client that proposes no name still gets the next free one', async () => 
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+function signedHandler({ email = 'alice.tan@staff.main.ntu.edu.sg', state = { status: 'idle', queueDepth: 0 }, takenNames = [] } = {}) {
+  return createHandler({
+    listTrainedVoiceNames: async () => takenNames,
+    readTrainingState: async () => state,
+    authRequired: () => true,
+    authGuard: { authorize: async () => ({ email, synthetic: false }) },
+    env: { TRAINING_PUBLIC_URL: 'https://voicecloning.lkcmedicine.org/' },
+  });
+}
+
+test('signed training ignores the typed email and uses the signed-in account', async () => {
+  const calls = [];
+  const previousFetch = globalThis.fetch;
+  process.env.GPU_WORKER_URL = 'http://gpu-worker.local:3001';
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ sessionId: 's1', steps: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const response = await signedHandler()({
+      requestContext: { http: { method: 'POST' } },
+      rawPath: '/api/train',
+      body: JSON.stringify({ email: 'mallory@staff.main.ntu.edu.sg' }),
+    });
+    assert.equal(response.statusCode, 200);
+    const sent = JSON.parse(calls[0].options.body);
+    assert.equal(sent.email, 'alice.tan@staff.main.ntu.edu.sg');
+    assert.equal(sent.expName, 'alice-tan');
+    assert.equal(sent.config.testVoiceUrl, 'https://voicecloning.lkcmedicine.org/test-voice?voice=alice-tan');
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('a second lecturer cannot start training while another run is active', async () => {
+  const response = await signedHandler({ state: { status: 'running', expName: 'bob', queueDepth: 0 } })({
+    requestContext: { http: { method: 'POST' } },
+    rawPath: '/api/train',
+    body: JSON.stringify({}),
+  });
+  assert.equal(response.statusCode, 409);
+  assert.equal(JSON.parse(response.body).code, 'TRAINING_BUSY');
+});
+
+test('another lecturer sees only a redacted busy summary of the current run', async () => {
+  const state = {
+    sessionId: 'secret-session', expName: 'bob', status: 'running', startedAt: 5, logs: ['x'],
+    steps: [{ name: 'a', status: 'done' }, { name: 'b', status: 'running' }, { name: 'c', status: 'pending' }],
+  };
+  const response = await signedHandler({ state })({ requestContext: { http: { method: 'GET' } }, rawPath: '/api/train/current' });
+  const body = JSON.parse(response.body);
+  assert.equal(body.sessionId, null);
+  assert.equal(body.busy, true);
+  assert.equal(body.mine, false);
+  assert.equal(body.stepsDone, 1);
+  assert.equal(body.currentStep, 'b');
+  assert.equal(JSON.stringify(body).includes('bob'), false);
+});
+
+test('the owner sees their own run in full', async () => {
+  const state = { sessionId: 's1', expName: 'alice-tan_2', status: 'running', steps: [], logs: ['ok'] };
+  const response = await signedHandler({ state })({ requestContext: { http: { method: 'GET' } }, rawPath: '/api/train/current' });
+  const body = JSON.parse(response.body);
+  assert.equal(body.sessionId, 's1');
+  assert.equal(body.mine, true);
+});
+
+test('a lecturer cannot stop a run they do not own', async () => {
+  const state = { sessionId: 's1', expName: 'bob', status: 'running' };
+  const response = await signedHandler({ state })({
+    requestContext: { http: { method: 'POST' } }, rawPath: '/api/train/stop', body: JSON.stringify({ sessionId: 's1' }),
+  });
+  assert.equal(response.statusCode, 403);
+});
+
+test('signed training refuses an anonymous caller', async () => {
+  const handler401 = createHandler({
+    authRequired: () => true,
+    authGuard: { authorize: async () => { throw new Error('no token'); } },
+    readTrainingState: async () => ({ status: 'idle' }),
+  });
+  const response = await handler401({ requestContext: { http: { method: 'POST' } }, rawPath: '/api/train/next-name', body: '{}' });
+  assert.equal(response.statusCode, 401);
 });

@@ -167,3 +167,10 @@ audio {
   --chart-recommended: 308 59% 40%; /* #a32a92 */
   --chart-possible: 32 95% 44%; /* #d97706 */
 }
+
+/* Training site (voicecloning.lkcmedicine.org): NTU navy, flat surfaces. */
+.vc-root {
+  --primary: 237 61% 24%; /* #181c62 */
+  --primary-foreground: 0 0% 100%;
+  --ring: 237 61% 24%;
+}

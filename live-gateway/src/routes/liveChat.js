@@ -1,4 +1,5 @@
 import { WebSocket, WebSocketServer } from 'ws';
+import { sessionActivity } from '../services/sessionActivity.js';
 import {
   CORS_ORIGIN,
   ENTRA_ALLOWED_EMAIL_DOMAINS,
@@ -287,6 +288,7 @@ export function attachLiveChatSocket(server, options = {}) {
     createBridge = (bridgeOptions) => new OpenAiRealtimeBridge(bridgeOptions),
     authTimeoutMs = AUTH_TIMEOUT_MS,
     authExempt = isAuthExemptOrigin,
+    activity = sessionActivity,
   } = options;
   const wss = new WebSocketServer({ noServer: true });
   const activeClients = new Map();
@@ -325,6 +327,7 @@ export function attachLiveChatSocket(server, options = {}) {
       ? transcriptStoreForRequest(req)
       : transcriptStore;
     activeClients.set(browserSocket, bridge);
+    activity.opened();
 
     let transcriptSession = null;
     bridge.on('app-event', (payload) => {
@@ -467,6 +470,7 @@ export function attachLiveChatSocket(server, options = {}) {
     }
 
     browserSocket.on('message', (data) => {
+      activity.touched();
       if (!authenticated) {
         if (authInFlight) {
           // Clients that send session.init immediately after session.auth must
@@ -481,6 +485,7 @@ export function attachLiveChatSocket(server, options = {}) {
     });
 
     const closeBridge = () => {
+      if (!closed) activity.closed();
       closed = true;
       activeClients.delete(browserSocket);
       clearTimeout(initTimer);

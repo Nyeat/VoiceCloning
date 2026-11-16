@@ -614,3 +614,45 @@ Historical only:
 - Remote root /opt/zero-shot-lab; systemd zero-shot-lab.service runs as ubuntu and starts on boot. Logs: logs/ui.log; evidence: smoke/verification-results.json and smoke/public-api.json. Each request loads one model and releases GPU memory on exit.
 - 2026-10-23: Fish Audio Drama 3 (models/fishd3, FP8 experts on L40S SM89) and S2-Pro (models/fishs2) installed in envs/fish; both verified. Instance found running on 23 Oct.
 - Scheduled shutdown: 2026-10-22 22:20 SGT (did not stop the instance). EC2 stop retains billable EBS. Temporary Gradio URL can change on service restart and lasts up to one week. Stop earlier using AWS EC2 stop-instances for this instance in ap-northeast-2.
+
+## GPU Power and Autoscaling (verified live 2026-11-16)
+
+No schedule is active: both Lambdas `GPU_SCHEDULE_ENABLED=false`; staging ASG daily actions parked at 2099-01-02.
+Any GPU may be stopped by hand at any time, but it does not stay off:
+
+| GPU | Restarted by | Stops by itself |
+|---|---|---|
+| Dev fixed `i-03f258d470a2fa73f` | **manual only** (badge Start / console; `VITE_GPU_AUTO_START=false` on dev builds) | yes, 30 idle min |
+| Staging fixed `i-0f0da8be59367f7a8` (training + gateway) | opening staging Live Fast, signed-in faculty/lectures | 30 idle min (2026-11-16), see idle rule below |
+| Staging inference ASG `vcs-staging-gpu-inference` | coordinator, on real cloned-voice synthesis only | `no-traffic-15m` alarm: <1 coordinator call/min for 15 min -> desired -1, to min |
+
+The training site never auto-starts (badge "GPU stopped · Start"). Stop ASG GPUs by setting min/desired 0, never by
+stopping the instance (ASG replaces it). Stopping the fixed GPU mid-training kills the run (no email).
+ASG now min 0 / max 3 (raised 2026-11-16): scale-in to 0 proven (03:14 UTC); scale-out from 0 by the coordinator is coded
+(desired < max -> +1) but never observed live — every launch in history was manual. Launch-to-InService measured
+10 min 07–10 s on 30 Oct, 3, 5, 16 Nov (matches `MODEL_BOOT_ESTIMATE_SECONDS=600`). Only the idle scale-in policy
+and the coordinator act: target-tracking `request-rate` has target 1e9 (inert), other step policies have no alarm,
+`all-capacity-busy-1m` alarm is unattached. Termination `NewestInstance`; coordinator protects busy workers.
+
+Coordinator (staging autoscale, dev routing-only): one voice per GPU, 2 slots. Page open / voice selection
+(lecture capacity check and /api/models/select, both `allowScale: true`): route -> switch a truly idle GPU (0 active,
+0 queued, idle >= 30 s, not event-locked, not promised) -> else start one GPU, but never while any boot, switch or
+non-READY worker exists (then WARMING) and never when an idle GPU only needs its 30 s grace. Measured switch ~5-15 s
+(longer if the weights must first download); new GPU ~10 min. One PENDING boot marker per voice (TTL 10 min).
+Synthesis: route to oldest matching GPU with a free slot -> else queue on least-loaded matching GPU (max 2 waiting
+each) and switch an idle GPU or add one GPU (one PENDING marker per voice) -> else retryable `MODEL_QUEUE_FULL`;
+no GPU holds the voice -> switch idle GPU or add one, return `MODEL_CAPACITY_STARTING` (request not held).
+Fleet lease + reservations serialize concurrent Lambdas; queued waits end ~50 s (Lambda 55 s, CloudFront 60 s).
+While a lecture voice is STARTING/WARMING the lecture composer is fully disabled (no typing either); BUSY_* states
+allow chat with delayed audio. Test your voice and Faculty lock mic+typing the same way (2026-11-16); BUSY/queued stays usable.
+Pages re-check every 5 s for the first minute, then 15 s, and unlock as soon as the voice is READY — the 10 min is
+only the displayed estimate. Chat speech retries every <=15 s for up to 20 min on lectures, Faculty and Test your
+voice alike (useLiveSpeech); only the TTS tool caps retries at 3 min.
+
+Idle rule (Lambda `/api/instance/idle-check`, every 5 min; logs `[idle-check]`): stop only when every required
+probe answers and none is busy for `GPU_IDLE_STOP_MINUTES`. Probes: training worker `/activity/status` (busy while
+any training process runs), gateway `GPU_GATEWAY_ACTIVITY_URL` (busy while any live chat socket is open; idle time
+from last message/close), inference (dev: fixed GPU via `/fixed-inference/activity/status`; staging: ASG, marked
+`GPU_IDLE_INFERENCE_PROBE=optional` — counted when it answers, ignored when the ASG is at 0). A failed required
+probe means "do not stop". Staging gateway route ships with the next worker deploy; until then staging never
+stops (verified: reason `worker-unreachable`, gateway 404). Dev gets `GPU_GATEWAY_ACTIVITY_URL` after that deploy.

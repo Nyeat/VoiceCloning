@@ -4,6 +4,51 @@ import { describeVoiceIdentity, nextVoiceName, ownsVoiceName } from '../shared/v
 import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 import { getObject, headObject } from '../shared/s3.js';
 import { listTrainedVoiceNames as listTrainedVoices } from '../shared/trainedVoices.js';
+import { createLiveAuthGuard } from '../shared/liveAuth.js';
+
+const BUSY_TRAINING_STATUSES = new Set(['waiting', 'running', 'queued', 'waiting-for-client']);
+
+// When on, the voice owner is the signed-in Microsoft account, never an email
+// typed into the page — that is what keeps one lecturer from training into,
+// stopping, or watching another lecturer's voice.
+export function trainingAuthRequired(env = process.env) {
+  return /^(1|true|yes|on)$/iu.test(String(env.TRAINING_AUTH_REQUIRED || ''));
+}
+
+export function isTrainingBusy(state) {
+  if (!state || typeof state !== 'object') return false;
+  if (Number(state.queueDepth) > 0) return true;
+  return BUSY_TRAINING_STATUSES.has(String(state.status || '').toLowerCase());
+}
+
+// What a lecturer who does NOT own the running job may see: that the GPU is
+// busy and roughly how far along it is. Never the voice name (it is derived
+// from the owner's email), logs, or the session id that opens the live stream.
+export function publicTrainingSummary(state) {
+  const steps = Array.isArray(state?.steps) ? state.steps : [];
+  const done = steps.filter((step) => ['done', 'complete', 'skipped'].includes(step?.status)).length;
+  const running = steps.find((step) => step?.status === 'running');
+  return {
+    sessionId: null,
+    status: 'busy',
+    busy: true,
+    mine: false,
+    startedAt: Number(state?.startedAt) || null,
+    stepsTotal: steps.length,
+    stepsDone: done,
+    currentStep: running?.name || '',
+    steps: [],
+    logs: [],
+  };
+}
+
+// The page that opens a trained voice in the "Test your voice" tab. Only an
+// https base is used, so a misconfigured value never reaches an email.
+export function testVoiceUrl(expName, env = process.env) {
+  const base = String(env.TRAINING_PUBLIC_URL || '').trim().replace(/\/+$/u, '');
+  if (!/^https:\/\//iu.test(base) || !expName) return '';
+  return `${base}/test-voice?voice=${encodeURIComponent(expName)}`;
+}
 
 function isWorkerUnavailableError(error) {
   const message = error?.message || '';
@@ -28,7 +73,36 @@ function decodeSegment(value) {
 export function createHandler({
   readObject = defaultReadObject,
   listTrainedVoiceNames = listTrainedVoices,
+  readTrainingState = () => gpuGet('/train/current'),
+  authGuard = createLiveAuthGuard(),
+  authRequired = trainingAuthRequired,
+  env = process.env,
 } = {}) {
+  // Resolves whose voice this request is about. Signed mode ignores any email
+  // in the body; legacy mode (auth off) keeps the typed email.
+  async function resolveOwner(event, body) {
+    if (!authRequired(env)) return { email: body?.email, signed: false };
+    if (!authGuard) {
+      const error = new Error('Training sign-in is not configured');
+      error.statusCode = 503;
+      throw error;
+    }
+    let identity;
+    try {
+      identity = await authGuard.authorize(event);
+    } catch {
+      const error = new Error('Sign in with your NTU account to train a voice');
+      error.statusCode = 401;
+      throw error;
+    }
+    if (identity?.synthetic || !identity?.email) {
+      const error = new Error('A signed-in NTU account is required to train a voice');
+      error.statusCode = 403;
+      throw error;
+    }
+    return { email: identity.email, signed: true };
+  }
+
   return async function trainingHandler(event) {
   if (event.requestContext?.http?.method === 'OPTIONS') {
     return preflight();
@@ -49,6 +123,13 @@ export function createHandler({
     if (method === 'POST' && routePath.endsWith('/train/stop')) {
       const { sessionId } = body;
       if (!sessionId) return err(400, 'sessionId is required');
+      const owner = await resolveOwner(event, body);
+      if (owner.signed) {
+        const current = await readTrainingState();
+        if (current?.sessionId !== sessionId || !ownsVoiceName(owner.email, current?.expName)) {
+          return err(403, 'You can only stop your own training run');
+        }
+      }
       return ok(await gpuPost('/train/stop', { sessionId }));
     }
 
@@ -57,7 +138,8 @@ export function createHandler({
     // letting the browser guess is what stops a stale client from uploading
     // into a voice that already exists.
     if (method === 'POST' && routePath.endsWith('/train/next-name')) {
-      const identity = describeVoiceIdentity(body.email);
+      const owner = await resolveOwner(event, body);
+      const identity = describeVoiceIdentity(owner.email);
       if (!identity.valid) return err(400, identity.error);
 
       const takenNames = await listTrainedVoiceNames();
@@ -88,7 +170,8 @@ export function createHandler({
         selectedReferences,
         sourceDatasetStats,
       } = body;
-      const identity = describeVoiceIdentity(email);
+      const owner = await resolveOwner(event, { email });
+      const identity = describeVoiceIdentity(owner.email);
       if (!identity.valid) return err(400, identity.error);
 
       const takenNames = await listTrainedVoiceNames();
@@ -111,6 +194,25 @@ export function createHandler({
         return err(409, `${expName} already exists; training would replace it`);
       }
 
+      // One GPU trains one voice at a time. Refuse up front with a readable
+      // answer; the worker enforces the same rule against races.
+      let currentState = null;
+      try {
+        currentState = await readTrainingState();
+      } catch {
+        currentState = null;
+      }
+      if (isTrainingBusy(currentState)) {
+        return {
+          ...err(409, 'Another voice is being trained right now. Training opens again when it finishes.'),
+          body: JSON.stringify({
+            error: 'Another voice is being trained right now. Training opens again when it finishes.',
+            code: 'TRAINING_BUSY',
+          }),
+        };
+      }
+      const notifyUrl = testVoiceUrl(expName, env);
+
       return ok(await gpuPost('/train', {
         expName,
         email: identity.email,
@@ -129,13 +231,24 @@ export function createHandler({
           ...(sourceDatasetStats && typeof sourceDatasetStats === 'object' && !Array.isArray(sourceDatasetStats)
             ? { sourceDatasetStats }
             : {}),
+          ...(notifyUrl ? { testVoiceUrl: notifyUrl } : {}),
         },
       }));
     }
 
     if (method === 'GET' && routePath.endsWith('/train/current')) {
+      let owner = null;
+      if (authRequired(env)) {
+        owner = await resolveOwner(event, {});
+      }
       try {
-        return ok(await gpuGet('/train/current'));
+        const state = await readTrainingState();
+        if (!owner) return ok(state);
+        if (state?.expName && ownsVoiceName(owner.email, state.expName)) {
+          return ok({ ...state, mine: true, busy: isTrainingBusy(state) });
+        }
+        if (isTrainingBusy(state)) return ok(publicTrainingSummary(state));
+        return ok({ sessionId: null, status: 'idle', busy: false, mine: false, steps: [], logs: [] });
       } catch (error) {
         return ok({
           sessionId: null,
@@ -162,6 +275,7 @@ export function createHandler({
 
     return err(404, 'Not found');
   } catch (error) {
+    if (error?.statusCode) return err(error.statusCode, error.message);
     return err(500, error.message);
   }
 };

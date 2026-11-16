@@ -15,6 +15,7 @@ const maxTrainingQueueDepth = Math.max(
   Math.min(100, Number.parseInt(process.env.TRAINING_MAX_QUEUE_DEPTH || '20', 10) || 20),
 );
 let activeSessionId = '';
+const allowTrainingQueue = /^(1|true|yes|on)$/iu.test(String(process.env.TRAINING_ALLOW_QUEUE || ''));
 
 async function runNextTrainingSession() {
   if (activeSessionId || pendingSessions.length === 0) return;
@@ -70,6 +71,15 @@ router.post('/train', (req, res) => {
       error: `${identity.email} does not own a voice called ${expName}`,
     });
   }
+  // One GPU trains one voice at a time. By default a second request is refused
+  // with a clear "busy" answer rather than silently queued behind a run that
+  // can take an hour; TRAINING_ALLOW_QUEUE=true restores the old FIFO queue.
+  if (!allowTrainingQueue && (activeSessionId || pendingSessions.length > 0)) {
+    return res.status(409).json({
+      error: 'Another voice is being trained right now. Training opens again when it finishes.',
+      code: 'TRAINING_BUSY',
+    });
+  }
   if (pendingSessions.length >= maxTrainingQueueDepth) {
     return res.status(429).json({
       error: 'The training queue is full. Please retry later.',
@@ -101,6 +111,7 @@ router.post('/train', (req, res) => {
       skipDenoise: config.skipDenoise,
       selectedReferences: config.selectedReferences,
       sourceDatasetStats: config.sourceDatasetStats,
+      testVoiceUrl: typeof config.testVoiceUrl === 'string' ? config.testVoiceUrl : '',
     },
   });
   sseManager.prepareSession(sessionId);

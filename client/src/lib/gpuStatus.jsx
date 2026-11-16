@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { getInstanceStatus, startInstance } from '../services/api.js';
 import { cacheGpuReadyStatus, readCachedGpuReadyStatus } from './gpuReadyCache.js';
+import { smoothGpuStatus } from './gpuStatusModel.js';
 
 const GpuStatusContext = createContext(null);
 
@@ -21,12 +22,24 @@ function sameStatus(a, b) {
 // button and the full-screen "starting" overlay read from here, and pages gate
 // their backend calls on `workerReady` so we never fire model/status requests at
 // a cold GPU (which is what surfaced the raw 503 / 404 error banners).
-export function GpuStatusProvider({ children, autoStart = false }) {
+export function GpuStatusProvider({ children, autoStart = false, target = '' }) {
   const cachedStatus = useMemo(() => readCachedGpuReadyStatus(), []);
   const [status, setStatus] = useState(cachedStatus);
   const [checking, setChecking] = useState(!cachedStatus);
   const [starting, setStarting] = useState(false);
   const autoStartedRef = useRef(false);
+  const readyMissesRef = useRef(0);
+
+  // Applies the not-ready hysteresis so one slow poll cannot flip a ready GPU
+  // back to "warming up" and re-open the overlay.
+  const applyStatus = useCallback((next) => {
+    setStatus((prev) => {
+      const smoothed = smoothGpuStatus(prev, next, readyMissesRef.current);
+      readyMissesRef.current = smoothed.misses;
+      cacheGpuReadyStatus(smoothed.status);
+      return sameStatus(prev, smoothed.status) ? prev : smoothed.status;
+    });
+  }, []);
   const prevWorkerReadyRef = useRef(false);
 
   // `background: true` for interval polls — they don't touch `checking` and only
@@ -35,9 +48,8 @@ export function GpuStatusProvider({ children, autoStart = false }) {
   const refreshStatus = useCallback(async ({ background = false } = {}) => {
     if (!background) setChecking(true);
     try {
-      const res = await getInstanceStatus();
-      cacheGpuReadyStatus(res.data);
-      setStatus((prev) => (sameStatus(prev, res.data) ? prev : res.data));
+      const res = await getInstanceStatus(target);
+      applyStatus(res.data);
     } catch (err) {
       const next = {
         configured: true,
@@ -46,12 +58,11 @@ export function GpuStatusProvider({ children, autoStart = false }) {
         startable: false,
         message: err.response?.data?.error || err.message || 'Could not check GPU instance status.',
       };
-      cacheGpuReadyStatus(next);
-      setStatus((prev) => (sameStatus(prev, next) ? prev : next));
+      applyStatus(next);
     } finally {
       if (!background) setChecking(false);
     }
-  }, []);
+  }, [applyStatus, target]);
 
   const start = useCallback(async () => {
     setStarting(true);
@@ -126,9 +137,10 @@ export function GpuStatusProvider({ children, autoStart = false }) {
     starting,
     workerReady: Boolean(status?.workerReady),
     configured: Boolean(status?.configured),
+    autoStart,
     refreshStatus,
     start,
-  }), [status, checking, starting, refreshStatus, start]);
+  }), [status, checking, starting, autoStart, refreshStatus, start]);
 
   return <GpuStatusContext.Provider value={value}>{children}</GpuStatusContext.Provider>;
 }
@@ -140,6 +152,7 @@ export function useGpuStatus() {
     starting: false,
     workerReady: false,
     configured: false,
+    autoStart: false,
     refreshStatus: () => {},
     start: () => {},
   };

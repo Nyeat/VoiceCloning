@@ -1,8 +1,13 @@
 # Voice Cloning Project Handoff
 
-Last updated: 2026-10-26
+Last updated: 2026-11-16
 
 ## Current State
+
+- 2026-11-16: training site rebuilt with SSO/consent/guide/Test-your-voice; Lambda + all client bundles deployed
+  to dev and staging from an UNCOMMITTED tree (commit/push denied this session). Sign-in fails AADSTS50011 until an
+  Entra admin adds SPA redirect URIs for both training CloudFronts + voicecloning.lkcmedicine.org, so the training
+  sites are unusable until then. Worker (busy refusal + email link) not deployed. See TODO.
 
 - 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Lab instance stopped 2026-10-23. See docs/deployment.md.
 - 2026-10-26/30: Singapore (Tong Yee). Commit e3ab580 (staging branch 32f6011): Live Full length check uses the voice's reference pace; TTS page clears/guards refs on voice switch. Baked into staging AMI ami-0642b66fa3ae46b4f (30234eb + patch), LT v41 default (not yet boot-tested on a fresh GPU). Training audio cleaned locally (Demucs voice isolation, natural pauses kept) -> cs-tengyu-liu_5: Live Fast 0.948 / WER 6%, Live Full 0.947 / WER 2% (best-effort chunks), above every zero-shot model on whole-set match. _4 (pauses squeezed to 0.35 s) rushed and failed Live Full. Shootout v7 https://claude.ai/artifact/HErgzdxhtLM6YRamR2rd3E. Staging left running (ASG 1/1/1, fixed EC2 on).
@@ -10,12 +15,7 @@ Last updated: 2026-10-26
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
-- 2026-10-09: Staging restarted in manual mode: fixed EC2 running; ASG min/desired/max 1.
-  Daily actions postponed to non-recurring January 2099 entries (suspend/delete denied).
-  Staging Lambda schedule disabled and idle-stop 0; coordinator autoscale for ASG discovery.
-  Gateway healthy; inference target still unhealthy after startup polling. Dev was not changed.
-  Shutdown: ASG min/desired/max 0, then stop fixed EC2; see docs/deployment.md.
-- 2026-10-06: Live MC capture/VAD/duplex overhaul, strict turns and capture sliders deployed to staging (`mc` + gateway). All uncommitted.
+- 2026-10-09: staging manual capacity mode (shutdown: ASG 0/0/1, then stop fixed EC2; docs/deployment.md).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected
   cloned-voice snapshot and category to Dev; training, analytics and transcripts stay isolated.
 - ElevenLabs stock voices bypass the cloned-voice coordinator. A signed-in Faculty Alice response

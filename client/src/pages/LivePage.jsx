@@ -317,12 +317,24 @@ function synthesizeSentenceWhenReady(params, { onCapacityWait } = {}) {
   });
 }
 
-export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
-  const kiosk = APP_MODE_CONFIG.kiosk;
+// A neutral partner for hearing your own clone speak, so the lecturer can judge
+// the voice rather than a lecture's content.
+const VOICE_TEST_SYSTEM_PROMPT = 'You are a friendly assistant helping a lecturer hear how their cloned voice sounds. '
+  + 'Reply naturally in two or three short, clear sentences. Vary sentence length and include the occasional '
+  + 'question so the voice can be heard in different intonations. Always respond only in English.';
+
+export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant = '', voiceTestNotice = '' }) {
+  // 'voice-test': the training site's "Test your voice" tab. A kiosk-style chat
+  // limited to the signed-in lecturer's own trained voices — no stock voices,
+  // no lectures, no instructions to publish.
+  const voiceTest = variant === 'voice-test';
+  const kiosk = APP_MODE_CONFIG.kiosk || voiceTest;
   // Where "please train your voice" sends a lecturer with no voice yet. Blank
   // (the default) simply drops the link rather than guessing a host.
   const TRAINING_APP_URL = String(import.meta.env.VITE_TRAINING_APP_URL || '').trim();
-  const canEditInstructions = APP_MODE_CONFIG.showInstructionsEditor;
+  const canEditInstructions = APP_MODE_CONFIG.showInstructionsEditor && !voiceTest;
+  // Pages that list the signed-in lecturer's own voices and default to them.
+  const showMyVoices = canEditInstructions || voiceTest;
   // Faculty only: which voices this lecturer owns, resolved server-side from
   // their signed-in email. `scope` is a request, not a permission — the server
   // downgrades it to 'mine' for anyone who is not an admin.
@@ -337,6 +349,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
   const [myVoicesLoading, setMyVoicesLoading] = useState(false);
   const [myVoicesError, setMyVoicesError] = useState('');
   const [myVoicesReloadToken, setMyVoicesReloadToken] = useState(0);
+  // Test-your-voice and Faculty: true while the coordinator says the selected cloned
+  // voice is not yet on a GPU. Like the lecture site, the chat stays locked
+  // (mic and typing) until the voice can actually speak.
+  const [voiceCapacityBlocked, setVoiceCapacityBlocked] = useState(false);
   const ensuredVoiceRef = useRef('');
   // Which assistant this panel is editing. Each category is stored separately,
   // so switching here swaps the whole panel — instructions, documents and the
@@ -574,7 +590,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
   );
   const usingStandardVoice = Boolean(standardVoice);
 
-  const selectedVoiceResolvesPerRequest = canEditInstructions
+  const selectedVoiceResolvesPerRequest = showMyVoices
     && Boolean(selectedVoiceProfileId)
     && myVoices.some((voice) => (
       voice.displayName === selectedProfile?.displayName && voice.hasSavedProfile
@@ -810,7 +826,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     language: liveLanguage,
     voiceProfileId: speakingVoiceProfileId,
     voiceModel: speakingVoiceModel,
-    systemPrompt: kiosk ? chatbotCombinedSystemPrompt : '',
+    systemPrompt: voiceTest ? VOICE_TEST_SYSTEM_PROMPT : (kiosk ? chatbotCombinedSystemPrompt : ''),
     fastMaxChunkWords: liveFastSettings.maxChunkWords,
     fastMaxSentencesPerChunk: liveFastSettings.maxSentencesPerChunk,
   });
@@ -1484,6 +1500,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       const coordinatorCapacity = response.data?.coordinatorCapacity;
       const selectionOnly = response.data?.selectionOnly === true;
       setModelSelectionOnly(selectionOnly);
+      setVoiceCapacityBlocked(Boolean(coordinatorCapacity && !coordinatorCapacity.canStartConversation));
       if (coordinatorCapacity && !coordinatorCapacity.canStartConversation) {
         setGpuNotice({
           tone: coordinatorCapacity.simulated ? 'info' : 'warning',
@@ -3513,15 +3530,17 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
   // Faculty only. Failure is shown in the panel rather than thrown: not knowing
   // which voices you own must never stop the rest of the kiosk working.
   useEffect(() => {
-    if (!canEditInstructions) return undefined;
+    if (!showMyVoices) return undefined;
     let ignore = false;
     setMyVoicesLoading(true);
     setMyVoicesError('');
     getMyVoiceProfiles(myVoicesScope)
       .then((res) => {
         if (ignore) return;
-        setMyVoices(Array.isArray(res.data?.voices) ? res.data.voices : []);
-        setStandardVoices(Array.isArray(res.data?.standardVoices) ? res.data.standardVoices : []);
+        const voices = Array.isArray(res.data?.voices) ? res.data.voices : [];
+        // The voice test tab is about the lecturer's own clone only.
+        setMyVoices(voiceTest ? voices.filter((voice) => voice.isMine !== false) : voices);
+        setStandardVoices(!voiceTest && Array.isArray(res.data?.standardVoices) ? res.data.standardVoices : []);
         setMyVoicesAdmin(res.data?.isAdmin === true);
         // The server decides the scope it actually served; trust that, not the request.
         setMyVoicesScope(res.data?.scope === 'all' ? 'all' : 'mine');
@@ -3538,7 +3557,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       })
       .finally(() => { if (!ignore) setMyVoicesLoading(false); });
     return () => { ignore = true; };
-  }, [canEditInstructions, myVoicesScope, myVoicesReloadToken]);
+  }, [showMyVoices, voiceTest, myVoicesScope, myVoicesReloadToken]);
 
   useEffect(() => {
     const initialVoiceKey = resolveInitialVoiceKey({
@@ -3629,16 +3648,24 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
   useEffect(() => {
     if (!modelsFetched || availableProfiles.length === 0) return;
     if (urlVoiceKeyRef.current) {
-      const match = availableProfiles.find((p) => p.key === urlVoiceKeyRef.current);
+      // The voice test tab honours ?voice= (the link in the "training
+      // complete" email) only for a voice the signed-in lecturer owns.
+      if (voiceTest && myVoicesLoading) return;
+      const allowed = !voiceTest || myVoices.some((voice) => (
+        voice.isMine !== false && normalizeVoiceKey(voice.displayName) === urlVoiceKeyRef.current
+      ));
+      const match = allowed ? availableProfiles.find((p) => p.key === urlVoiceKeyRef.current) : null;
       if (match) { urlVoiceKeyRef.current = ''; setSelectedPersonKey(match.key); autoLoadAttemptKeyRef.current = ''; return; }
+      if (voiceTest) urlVoiceKeyRef.current = '';
     }
     if (loadingActiveVoiceProfile) return;
-    if (availableProfiles.some((p) => p.key === selectedPersonKey)) return;
+    if (availableProfiles.some((p) => p.key === selectedPersonKey)
+      && (!voiceTest || myVoices.some((voice) => normalizeVoiceKey(voice.displayName) === selectedPersonKey))) return;
     // Faculty defaults to the signed-in lecturer's own voice, not to whatever
     // the build pins or the backend happens to have active. Waiting for the
     // ownership answer first matters: picking a fallback now and correcting it
     // afterwards would load one voice onto the shared GPU just to replace it.
-    if (canEditInstructions) {
+    if (showMyVoices) {
       if (myVoicesLoading) return;
       // The list is alphabetical for the picker; the default should be the
       // lecturer's most recently used voice, not whichever name sorts first.
@@ -3681,7 +3708,8 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     loadedSoVITSPath,
     loadingActiveVoiceProfile,
     activeVoiceProfile,
-    canEditInstructions,
+    showMyVoices,
+    voiceTest,
     myVoices,
     myVoicesLoading,
   ]);
@@ -4197,11 +4225,22 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
   const canBargeIn = liveSpeech.isMicInputEnabled || liveSpeech.isBargeInArmed;
   const meterActive = (liveSpeech.isMicInputEnabled && (liveSpeech.phase === 'listening' || liveSpeech.phase === 'thinking'))
     || (canBargeIn && liveSpeech.phase === 'speaking');
-  const buttonDisabled = !isReady || liveSpeech.phase === 'connecting' || liveSpeech.phase === 'stopping';
+  // Test your voice and Faculty follow the lecture rule: no talking to a cloned
+  // voice that cannot speak yet. Starting a new GPU or switching one to this
+  // voice (STARTING/WARMING, canStartConversation=false) locks mic and typing;
+  // a voice that is merely busy/queued (BUSY_*) stays usable with a notice.
+  // Stock voices never wait on a GPU. Locks only an idle chat, so an active
+  // conversation can always be stopped.
+  const lockUntilVoiceReady = voiceTest || canEditInstructions;
+  const voiceTestBlocked = lockUntilVoiceReady
+    && !usingStandardVoice
+    && liveSpeech.phase === 'idle'
+    && ((voiceTest && !selectedProfile) || (Boolean(selectedProfile) && (loadingModel || voiceCapacityBlocked)));
+  const buttonDisabled = !isReady || voiceTestBlocked || liveSpeech.phase === 'connecting' || liveSpeech.phase === 'stopping';
   // Typing is the way in for anyone without a working microphone. Sending opens
   // the conversation by itself, so it is live from idle too; it only closes off
   // while a reply is being generated or the session is coming up or going down.
-  const canSendText = isReady && !['connecting', 'thinking', 'stopping'].includes(liveSpeech.phase);
+  const canSendText = isReady && !voiceTestBlocked && !['connecting', 'thinking', 'stopping'].includes(liveSpeech.phase);
 
   const phaseLabel = {
     idle: 'Start', connecting: 'Connecting',
@@ -4242,7 +4281,12 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
     </button>
   );
 
-  const statusText = liveSpeech.notice
+  const statusText = (voiceTestBlocked
+    ? (!selectedProfile
+      ? 'Pick one of your voices to start.'
+      : 'Getting your voice ready on the GPU — the chat unlocks automatically.')
+    : '')
+    || liveSpeech.notice
     || (!liveSpeech.isMicInputEnabled && isConversationActive && liveSpeech.phase !== 'speaking' ? 'Mic off — voice chat still open.' : '')
     || {
       idle: 'Tap the mic to start.',
@@ -4423,7 +4467,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           <span className="bg-gradient-to-br from-slate-900 via-slate-800 to-primary/80 bg-clip-text text-transparent">
-            {isTtsMode ? 'Text to Speech' : 'Live Voice Chat'}
+            {isTtsMode ? 'Text to Speech' : voiceTest ? 'Test your voice' : 'Live Voice Chat'}
           </span>
         </h1>
 
@@ -5318,7 +5362,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
           </aside>
         </div>
       ) : (
-      <div className={cn('flex min-h-0 flex-1 gap-3', kiosk ? 'flex-row' : 'flex-col')}>
+      <div className={cn('flex min-h-0 flex-1 gap-3', voiceTest ? 'flex-col lg:flex-row' : kiosk ? 'flex-row' : 'flex-col')}>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_4px_32px_-8px_rgba(0,0,0,0.09)]">
 
         {/* Messages */}
@@ -5417,6 +5461,54 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
           </div>
         </div>
       </div>
+      {voiceTest && (
+        <aside className="flex w-full min-h-0 flex-col border border-slate-200 bg-white lg:w-[340px] lg:shrink-0 rounded-md">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Your voice</p>
+          </div>
+          {!myVoicesLoading && !myVoicesError && myVoices.length === 0 ? (
+            <div className="px-4 py-5 text-sm leading-6 text-slate-600">
+              <p className="font-medium text-slate-900">You have no trained voices yet.</p>
+              <p className="mt-1">Train a voice first. When it finishes we email you a link back to this tab.</p>
+              <a href="/" className="mt-3 inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-white hover:bg-primary/90">
+                Train a voice
+              </a>
+            </div>
+          ) : (
+            <MyVoicesPanel
+              voices={myVoices}
+              standardVoices={[]}
+              isAdmin={false}
+              scope="mine"
+              loading={myVoicesLoading}
+              error={myVoicesError}
+              selectedVoiceName={selectedProfile?.displayName || ''}
+              selectedVoiceProfileId=""
+              disabled={isConversationActive}
+              trainingUrl=""
+              onSelectVoice={handleSelectMyVoice}
+              onScopeChange={() => {}}
+              onRetry={() => setMyVoicesReloadToken((token) => token + 1)}
+            />
+          )}
+          {voiceTestNotice ? (
+            <p role="status" className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+              {voiceTestNotice}
+            </p>
+          ) : null}
+          <div className="border-t border-slate-200 px-4 py-4 text-xs leading-5 text-slate-600">
+            <p className="font-semibold text-slate-800">How to test</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-4">
+              <li>Pick one of your voices above.</li>
+              <li>Press the microphone and ask a question, or type one.</li>
+              <li>The answer is spoken in your cloned voice.</li>
+            </ol>
+            <p className="mt-3 text-slate-500">
+              Only you can see your voices here. Conversations are not used to train anything.
+            </p>
+          </div>
+        </aside>
+      )}
       {canEditInstructions && (
         <>
         {/* Mobile-only backdrop for the instructions drawer. */}
@@ -5651,7 +5743,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat' }) {
       )}
 
       {/* ── Advanced settings collapsible (hidden from end users; settings still applied) ── */}
-      {SHOW_ADVANCED_SETTINGS && (
+      {SHOW_ADVANCED_SETTINGS && !voiceTest && (
       <Collapsible open={showSettings} onOpenChange={setShowSettings}>
         <CollapsibleTrigger asChild>
           <button

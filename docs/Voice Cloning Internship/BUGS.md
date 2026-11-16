@@ -1,5 +1,11 @@
 # Bugs
 
+- Open 2026-11-16: training sites sign-in fails AADSTS50011 (redirect URIs not registered on Entra app 9b5c52c0);
+  Lambda already requires sign-in, so training is unusable on dev and staging until an admin adds them.
+- Open 2026-11-16: synthesis is not owner-checked server-side — any signed-in user can speak any cloned voice id
+  (Faculty and Test-your-voice only filter in the UI).
+- Open 2026-11-16: from 0 GPUs a lecture blocks the whole composer (typing too) for ~10 min while the voice starts.
+
 - Fixed 2026-11-03: after any worker restart the coordinator answered the first requests "An idle GPU is switching"
   and reloaded the same voice: the boot warm never recorded residency and its saved payload had no voice_model.
 - Fixed 2026-11-03: a voice switch told clients to retry after the 600 s boot estimate; chat honoured it and could
