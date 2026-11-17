@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
-  AudioWaveform, ChevronDown, CircleHelp, Headphones, Loader2, Lock, LogOut, Mic, ShieldCheck, X,
+  AudioWaveform, CircleHelp, Headphones, Loader2, Lock, LogOut, Mic, ShieldCheck, Trash2, X,
 } from 'lucide-react';
 import ntuLogo from '@/assets/ntu-logo.png';
 import { useAuth } from '@/auth/useAuth';
 import { config } from '@/config';
 import { PostLoginRedirectHandler, ProtectedRoute, SignInRecorder } from '@/auth/AppAuthGate';
 import GpuInstanceControl from '@/components/GpuInstanceControl.jsx';
+import { GpuInstanceWaitDialog } from '@/components/GpuWaitDialog.jsx';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import TrainingPage from '@/pages/TrainingPage.jsx';
@@ -55,11 +56,82 @@ const LOGIN_STEPS = [
   [Headphones, 'Test it privately', 'Ask questions and hear the answers in your own voice.'],
 ];
 
+// Shown over the sign-in page as soon as it opens, so the privacy terms are
+// read before anyone signs in. The full consent (with checkboxes) still follows
+// once per account after sign-in.
+function LoginNoticeDialog({ onClose }) {
+  useEffect(() => {
+    const onKey = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="login-notice-heading"
+        className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
+        <div className="border-b border-slate-200 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <ShieldCheck size={20} aria-hidden="true" />
+            </span>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Before you sign in</p>
+              <h2 id="login-notice-heading" className="text-lg font-semibold tracking-tight text-slate-900">
+                Your voice and your privacy
+              </h2>
+            </div>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            This service creates a synthetic copy of your voice. Please read how your recordings are handled.
+          </p>
+        </div>
+        <dl className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
+          {PRIVACY_POINTS.map(([term, detail]) => (
+            <div key={term} className="px-6 py-3.5">
+              <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{term}</dt>
+              <dd className="mt-1 text-sm leading-6 text-slate-700">{detail}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <p className="text-xs text-slate-500">You confirm the full terms after signing in.</p>
+          <button
+            type="button"
+            autoFocus
+            onClick={onClose}
+            className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-white hover:bg-primary/90"
+          >
+            I understand, continue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const LOGIN_ASSURANCES = [
+  [Lock, 'Private to you', 'Only your NTU account can see and test your voices.'],
+  [ShieldCheck, 'Your choice', 'Nothing is used with students until you choose it.'],
+  [Trash2, 'Delete any time', 'Ask and we remove your recordings and voices.'],
+];
+
 function TrainingLogin() {
   const location = useLocation();
   const auth = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [noticeOpen, setNoticeOpen] = useState(true);
+  const closeNotice = useCallback(() => setNoticeOpen(false), []);
 
   async function signIn() {
     setBusy(true);
@@ -94,7 +166,7 @@ function TrainingLogin() {
           <div className="inline-flex w-fit rounded-md bg-white px-3 py-2">
             <BrandMark />
           </div>
-          <p className="mt-12 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">For LKCMedicine faculty</p>
+          <p className="mt-10 text-xs font-semibold uppercase tracking-[0.2em] text-white/60 lg:mt-14">For LKCMedicine faculty</p>
           <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight sm:text-[2.6rem]">
             Your teaching voice, ready whenever students ask.
           </h1>
@@ -102,15 +174,16 @@ function TrainingLogin() {
             Train a private voice model from your own recordings. It can read lecture answers aloud in your voice
             — and nothing is used until you have tested it here.
           </p>
-          <ol className="mt-10 space-y-5">
+          <ol className="relative mt-10 space-y-6">
+            <span className="absolute bottom-5 left-5 top-5 w-px bg-white/15" aria-hidden="true" />
             {LOGIN_STEPS.map(([Icon, title, detail], index) => (
-              <li key={title} className="flex gap-4">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10">
+              <li key={title} className="relative flex gap-4">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-[#18264d]">
                   <Icon size={18} aria-hidden="true" />
                 </span>
                 <div>
                   <p className="text-sm font-semibold">
-                    <span className="mr-2 text-white/50">{index + 1}</span>
+                    <span className="mr-2 text-white/50">Step {index + 1}</span>
                     {title}
                   </p>
                   <p className="mt-0.5 text-sm leading-6 text-white/65">{detail}</p>
@@ -128,18 +201,16 @@ function TrainingLogin() {
       <section className="flex items-center justify-center px-4 py-10 sm:px-8">
         <div className="w-full max-w-md">
           <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-900/5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Lock size={22} aria-hidden="true" />
-            </div>
-            <h2 className="mt-5 text-2xl font-semibold tracking-tight text-slate-900">Sign in</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Welcome</p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Sign in to Voice Cloning</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Use your NTU staff account. Your recordings and voices stay private to you.
+              Use your NTU staff account. You will be taken to Microsoft and brought straight back.
             </p>
             <button
               type="button"
               onClick={signIn}
               disabled={working}
-              className="mt-7 flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-primary px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-60"
+              className="mt-7 flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-primary px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60"
             >
               {working ? <Loader2 size={18} className="animate-spin" /> : <MicrosoftMark />}
               {working ? 'Opening Microsoft…' : 'Sign in with Microsoft'}
@@ -150,27 +221,32 @@ function TrainingLogin() {
             {visibleError ? (
               <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{visibleError}</p>
             ) : null}
+
+            <ul className="mt-7 space-y-3 border-t border-slate-100 pt-6">
+              {LOGIN_ASSURANCES.map(([Icon, title, detail]) => (
+                <li key={title} className="flex gap-3">
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                    <Icon size={14} aria-hidden="true" />
+                  </span>
+                  <p className="text-sm leading-6 text-slate-600">
+                    <span className="font-medium text-slate-900">{title}.</span> {detail}
+                  </p>
+                </li>
+              ))}
+            </ul>
           </div>
 
-          <details className="group mt-5 rounded-xl border border-slate-200 bg-white">
-            <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-medium text-slate-800">
-              <span className="flex items-center gap-2">
-                <ShieldCheck size={16} className="text-primary" aria-hidden="true" />
-                Your voice and your privacy
-              </span>
-              <ChevronDown size={16} className="text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true" />
-            </summary>
-            <dl className="divide-y divide-slate-100 border-t border-slate-100">
-              {PRIVACY_POINTS.map(([term, detail]) => (
-                <div key={term} className="px-5 py-3">
-                  <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{term}</dt>
-                  <dd className="mt-1 text-sm leading-6 text-slate-700">{detail}</dd>
-                </div>
-              ))}
-            </dl>
-          </details>
+          <button
+            type="button"
+            onClick={() => setNoticeOpen(true)}
+            className="mx-auto mt-5 flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-primary"
+          >
+            <ShieldCheck size={15} aria-hidden="true" />
+            Read the privacy notice again
+          </button>
         </div>
       </section>
+      {noticeOpen ? <LoginNoticeDialog onClose={closeNotice} /> : null}
     </div>
   );
 }
@@ -513,7 +589,11 @@ function SignedInShell() {
             </nav>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
-            {consent ? <div data-tour="gpu"><GpuInstanceControl /></div> : null}
+            {/* The training GPU only. Test your voice runs on separate voice GPUs,
+                so a "ready" badge there would be misleading — hidden on that tab. */}
+            {consent && location.pathname !== '/test-voice'
+              ? <div data-tour="gpu"><GpuInstanceControl name="Training GPU" /></div>
+              : null}
             {consent && !helpSeen ? (
               <button type="button" onClick={startTour} className="hidden text-xs font-medium text-primary hover:underline xl:inline">
                 New here? Take the tour
@@ -575,6 +655,9 @@ function SignedInShell() {
           <span>Your voices are private to your NTU account.</span>
         </div>
       </footer>
+      {/* After consent, so it never covers the terms. Staging starts the GPU on
+          entry; dev shows it once someone presses Start. */}
+      {consent && !tourOpen && location.pathname !== '/test-voice' ? <GpuInstanceWaitDialog /> : null}
       <HelpGuide open={helpOpen} onClose={() => setHelpOpen(false)} />
       <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} onOpenGuide={() => setHelpOpen(true)} />
     </div>

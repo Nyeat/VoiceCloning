@@ -594,8 +594,7 @@ export function pendingWorkerMatchesBoot(pending, worker, modelKey) {
     && worker.state === 'READY'
     && worker.modelKey === modelKey
     && (worker.instanceId === pending.claimedBy
-      || Number(worker.firstSeenAt || 0) >= Number(pending.requestedAt || 0))
-    && Number(worker.active || 0) + Number(worker.queued || 0) < Number(worker.maxSlots || 0);
+      || Number(worker.firstSeenAt || 0) >= Number(pending.requestedAt || 0));
 }
 
 function liveAdmission(item, now = Date.now()) {
@@ -907,6 +906,22 @@ async function prepareCapacity(event) {
   // reassignable, and therefore scaling. A selection waits for capacity already
   // in motion instead of buying more. Real synthesis is unaffected and still
   // scales on real overlapping demand.
+  if (readyMatching.length > 0) {
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'prepare', source, decision: 'resident-busy', allowScale,
+      voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
+      matchingWorkers: readyMatching.length, desiredCapacity: group.DesiredCapacity,
+    }));
+    return capacityResponse({
+      state: 'READY',
+      canStartConversation: true,
+      model,
+      availableSlots: 0,
+      matchingWorkers: readyMatching.length,
+      capacityAction: 'none',
+    });
+  }
+
   const fleetInMotion = preflightScaleBlocked({
     coordinationItems: existing.filter((item) => itemInScope(item)),
     workers,
@@ -965,6 +980,18 @@ async function prepareCapacity(event) {
       message: 'GPU capacity is already being prepared. This voice will be ready shortly without starting another GPU.',
     });
   }
+  if ((action.type === 'reassign' || action.type === 'scale') && selectionDwellMs < preflightDwellMs) {
+    // Not yet: confirm the person is staying on this voice before switching or
+    // starting a GPU for it.
+    return capacityResponse({
+      state: 'CHECKING',
+      canStartConversation: false,
+      model,
+      matchingWorkers: 0,
+      capacityAction: 'none',
+      message: 'Getting this voice ready…',
+    });
+  }
   if (action.type === 'reassign') {
     console.log('[model-coordinator][decision]', JSON.stringify({
       request: 'prepare', source, decision: 'reassign', allowScale,
@@ -1000,17 +1027,6 @@ async function prepareCapacity(event) {
       message: simulated
         ? 'Dev capacity simulation: no idle fixed GPU can prepare this voice. Staging would wait for a real synthesis request before requesting another GPU; Dev autoscaling is disabled.'
         : 'This voice will load on demand. Selecting it did not start another GPU; the first synthesis request will prepare capacity if needed.',
-    });
-  }
-  if (!routingOnly() && selectionDwellMs < preflightDwellMs) {
-    // Not yet: confirm the person is staying on this voice before buying a GPU.
-    return capacityResponse({
-      state: 'CHECKING',
-      canStartConversation: readyMatching.length > 0,
-      model,
-      matchingWorkers: readyMatching.length,
-      capacityAction: 'none',
-      message: 'Getting this voice ready…',
     });
   }
   console.log('[model-coordinator][decision]', JSON.stringify({

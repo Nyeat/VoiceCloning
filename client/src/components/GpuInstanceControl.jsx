@@ -4,7 +4,15 @@ import { cn } from '@/lib/utils';
 import { useGpuStatus } from '@/lib/gpuStatus.jsx';
 import { describeGpuStatus } from '@/lib/gpuStatusModel';
 
-export default function GpuInstanceControl() {
+// `name` relabels the badge when a page has more than one kind of GPU (the
+// training site shows its fixed training GPU as "Training GPU").
+function relabel(label, name) {
+  if (name === 'GPU') return label;
+  const out = label.replace('GPU', name);
+  return out.startsWith(name) ? out : out.replace(name, name.toLowerCase());
+}
+
+export default function GpuInstanceControl({ name = 'GPU' }) {
   const { status, checking, starting, autoStart, start: handleStart } = useGpuStatus();
   const view = describeGpuStatus({ status, checking, starting, autoStart });
   const canStart = view.phase === 'stopped' && Boolean(status?.startable) && !starting;
@@ -33,7 +41,7 @@ export default function GpuInstanceControl() {
       )}
     >
       {view.phase === 'checking' ? <Power size={12} /> : <span className={cn('h-2 w-2 rounded-full', dot)} />}
-      {view.label}
+      {relabel(view.label, name)}
       {canStart && <span className="text-slate-400">· Start</span>}
     </button>
   );

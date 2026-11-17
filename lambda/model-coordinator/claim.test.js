@@ -146,6 +146,23 @@ test('the claimed new worker may satisfy and clear its pending overflow launch',
   }, 'model-a'), true);
 });
 
+test('a booted worker whose warm-up fills its slots still completes its launch', () => {
+  // 2026-11-17 staging: the new GPU was ready with the voice but busy warming,
+  // and the lone user was told "a new GPU is starting" for minutes.
+  assert.equal(pendingWorkerMatchesBoot(pending({
+    claimedBy: 'i-new',
+  }), {
+    instanceId: 'i-new',
+    firstSeenAt: now + 1,
+    reachable: true,
+    state: 'READY',
+    modelKey: 'model-a',
+    active: 2,
+    queued: 0,
+    maxSlots: 2,
+  }, 'model-a'), true);
+});
+
 test('capacity polling consumes a completed claimed boot marker', async () => {
   const calls = [];
   const documentClient = { send: async (command) => { calls.push(command); return {}; } };

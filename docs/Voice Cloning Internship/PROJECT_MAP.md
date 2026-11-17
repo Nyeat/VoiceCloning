@@ -19,6 +19,7 @@
 - `src/App.jsx` — routes per build; training mode renders `src/training/TrainingApp.jsx` (SSO, consent, guide,
   tabs `/` and `/test-voice`). GPU badge `components/GpuInstanceControl.jsx`, rules `lib/gpuStatusModel.js`.
 - `src/training/GuidedTour.jsx` — spotlight tour from the header "?" (steps target `data-tour` attributes).
+- `src/components/GpuWaitDialog.jsx` — dismissible GPU/voice wait popup (estimate + timer), all builds.
 - `src/pages/TrainingPage.jsx` — Train tab: upload, start/stop, busy banner, own voices. Test tab = `LivePage variant="voice-test"`.
 - `src/pages/LivePage.jsx`; `src/pages/McSessionPage.jsx` (+ `src/lib/mcSession.js`) — staging-only Live MC page, build mode `mc`
   - Live chatbot UI, model selection, trained reference selection, cloned voice playback, Text to Speech tab, pronunciation admin panel.

@@ -2201,3 +2201,24 @@
   "?" starts a spotlight tour (client/src/training/GuidedTour.jsx, data-tour anchors in TrainingPage/LivePage).
   Tests: client npm test 537/537, build ok; browser-checked login page, consent modal + scroll gate.
   Not checked: nav and tour visually (behind consent), staging auto-start on a real stopped GPU.
+
+## 2026-11-17 (GPU wait dialog, login notice)
+- New client/src/components/GpuWaitDialog.jsx: centred, dismissible wait popup (estimate, elapsed timer,
+  progress). Used for GPU power-on/warm-up (App.jsx shell, all non-gi builds; training site after consent,
+  incl. staging auto-start and dev manual Start) and for voice STARTING (~10 min, up to 15) / WARMING
+  (~1 min, up to 3) in LivePage (lectures, Faculty, live-fast, Test your voice). App.jsx GpuStartingOverlay
+  no longer blocks the page while starting/warming. Inline banner now names the wait and estimate.
+- LivePage gpu-ready handler clears the once-per-voice load guard so a GPU that comes up (dev manual
+  Start, idle restart) re-prepares the selected voice without a reselect/refresh.
+- Training login redesigned (assurances, step rail); privacy notice pops up on arrival, reopenable.
+- Tests: client npm test 537/537; vite build training/chatbot/live-fast ok. Not tested: visual/browser,
+  instance-wait estimates (180 s start / 90 s warm are guesses), dev warming on a real GPU. Not deployed.
+- Coordinator (lambda/model-coordinator/index.js), not deployed: a boot counts as complete once its GPU is
+  READY with the voice (free slot no longer required; warm-up synths kept the PENDING marker alive and a lone
+  user saw "new GPU starting / heavily loaded"). A selection on a resident-but-busy voice returns READY and
+  never switches/scales. The 8 s selection dwell now gates idle-GPU switches as well as boots, Dev included.
+- Client: voice preparation polling (LivePage, useGiChatEngine) only runs while the tab is visible
+  (client/src/lib/pageVisibility.js), so the dwell means time on the tab.
+- Tests: coordinator npm test 65/65 (+1 boot-completion test); client 537/537; builds chatbot/gi/training/
+  live-fast ok. Not tested: prepare flow end-to-end on a real fleet.
+

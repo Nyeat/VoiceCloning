@@ -21,6 +21,7 @@ import { isResponseBusy, isVoiceActive, toGiStatus } from './giChatStatus.js';
 import { getMyLearnerSummary } from '@/services/learnerAnalytics';
 import { buildLearnerSupportGuidance } from '@/lib/learnerGuidance';
 import { useDeployedChatbotPrompt } from './useDeployedChatbotPrompt.js';
+import { runWhenPageVisible } from '@/lib/pageVisibility';
 import {
   normalizeVoiceCapacity,
   voiceCapacityBlocksConversation,
@@ -170,7 +171,7 @@ export function useGiChatEngine({
         const next = normalizeVoiceCapacity(response?.data || {});
         setVoiceCapacity(next);
         if (next.state !== 'READY' || next.capacityTight) {
-          timer = window.setTimeout(check, nextDelayMs(next.state));
+          timer = window.setTimeout(() => runWhenPageVisible(() => { if (!cancelled) void check(); }), nextDelayMs(next.state));
         }
       } catch {
         if (!cancelled) {
@@ -180,7 +181,7 @@ export function useGiChatEngine({
       }
     };
     setVoiceCapacity(normalizeVoiceCapacity());
-    void check();
+    runWhenPageVisible(() => { if (!cancelled) void check(); });
     return () => {
       cancelled = true;
       if (timer) window.clearTimeout(timer);

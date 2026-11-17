@@ -20,6 +20,7 @@ import { APP_MODE_CONFIG, shouldApplyLiveDemoLockout } from '@/lib/appMode';
 import { GpuStatusProvider, useGpuStatus } from '@/lib/gpuStatus.jsx';
 import { describeGpuStatus } from '@/lib/gpuStatusModel';
 import GpuInstanceControl from '@/components/GpuInstanceControl.jsx';
+import { GpuInstanceWaitDialog } from '@/components/GpuWaitDialog.jsx';
 import TrainingApp from './training/TrainingApp.jsx';
 import { fetchLiveDemoLockout } from '@/lib/runtimeConfig';
 
@@ -61,6 +62,9 @@ function GpuStartingOverlay() {
   if (!autoStart) return null;
 
   const view = describeGpuStatus({ status, checking, starting, autoStart });
+  // Starting/warming is a dismissible wait dialog (GpuInstanceWaitDialog), not a
+  // page block: people can read and browse while the GPU comes up.
+  if (['checking', 'starting', 'warming'].includes(view.phase)) return null;
   const heading = {
     checking: 'Checking the GPU',
     starting: 'Starting the GPU',
@@ -203,6 +207,7 @@ function AppShell() {
         <SignInRecorder />
         <AnimatedBackground />
         {GPU_AUTO_START && !isLoginRoute && <GpuStartingOverlay />}
+        {!isLoginRoute && <GpuInstanceWaitDialog />}
         {/* Minimal header — the sign-in screen is full-bleed, so it has no chrome */}
         {!appConfig.showGiChat && !isLoginRoute && (
         <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md">

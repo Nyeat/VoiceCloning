@@ -72,9 +72,13 @@
   Decision 2026-08-31: keep MinSize=1 so staging stays warm; revisit only if cost matters more than
   avoiding a ~10-minute first-request cold start.
 
-- Open (UX): Faculty shows a full-screen blocking "Starting the GPU" modal while capacity warms, so a
-  lecturer cannot write or edit instructions during the wait. The lecture surface correctly uses the
-  non-blocking `BUSY_STARTING` notice instead.
+- Fixed in code 2026-11-17, not deployed: staging Test your voice showed "Lots of people… a new GPU is
+  starting" to a lone user. Logs: 10:39 SGT scale from 0 was correct (no inference GPU); once the GPU was
+  READY its warm-up filled both slots, so the boot marker was never consumed. Also: the training-site header
+  badge shows the training GPU, not the inference fleet, so "GPU ready" can sit beside a voice cold start.
+
+- Fixed in code 2026-11-17, not deployed: Faculty full-screen blocking "Starting the GPU" modal while
+  capacity warms. Starting/warming is now a dismissible GpuWaitDialog; recheck in browser after deploy.
 
 - Fixed and deployed 2026-09-01: `prepareCapacity` did not clear a `PENDING` boot marker after its
   claimed/new GPU became ready, leaving the lecture warning until TTL expiry. Capacity polling and

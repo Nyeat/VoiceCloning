@@ -96,6 +96,8 @@ import { isTransientBackendError, sanitizeBackendError } from '@/lib/backendErro
 import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
 import { voiceCapacityNotice } from '@/lib/voiceCapacity';
 import FloatingNotice from '@/components/FloatingNotice';
+import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
+import { runWhenPageVisible } from '@/lib/pageVisibility';
 import {
   addTtsHistoryItem,
   createTtsHistoryItem,
@@ -324,6 +326,13 @@ const CAPACITY_NOTICE_TITLES = new Set([
   'Getting this voice ready',
   'Voice is heavily loaded',
 ]);
+
+// Waits that get the centred, dismissible dialog. Same numbers as the wording
+// in voiceCapacityNotice: a fresh GPU ~10 min (up to 15), a switch < 1 min (up to 3).
+const CAPACITY_WAITS = {
+  STARTING: { estimateSeconds: 600, maxSeconds: 900 },
+  WARMING: { estimateSeconds: 60, maxSeconds: 180 },
+};
 
 // A neutral partner for hearing your own clone speak, so the lecturer can judge
 // the voice rather than a lecture's content.
@@ -1511,23 +1520,42 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
       setVoiceCapacityBlocked(Boolean(coordinatorCapacity && !coordinatorCapacity.canStartConversation));
       if (coordinatorCapacity && !coordinatorCapacity.canStartConversation) {
         const capacityState = String(coordinatorCapacity.state || '').toUpperCase();
-        setGpuNotice({
-          tone: coordinatorCapacity.simulated ? 'info' : 'warning',
-          title: coordinatorCapacity.simulated
-            ? 'Dev capacity simulation'
-            : capacityState === 'STARTING'
-              ? 'Starting a GPU with this voice'
-              : capacityState === 'WARMING'
-                ? 'Switching a GPU to this voice'
-                : 'Getting this voice ready',
-          // Same wording as the lecture site; the coordinator's text is a fallback.
-          message: voiceCapacityNotice(coordinatorCapacity) || coordinatorCapacity.message,
+        const title = coordinatorCapacity.simulated
+          ? 'Dev capacity simulation'
+          : capacityState === 'STARTING'
+            ? 'Starting a GPU with this voice'
+            : capacityState === 'WARMING'
+              ? 'Switching a GPU to this voice'
+              : 'Getting this voice ready';
+        // Same wording as the lecture site; the coordinator's text is a fallback.
+        const message = voiceCapacityNotice(coordinatorCapacity) || coordinatorCapacity.message;
+        const timing = coordinatorCapacity.simulated ? null : CAPACITY_WAITS[capacityState];
+        const voiceId = selectedVoiceProfileId;
+        setGpuNotice((current) => {
+          // Keep the same wait (key + start time) across polls so the timer and
+          // a dismissal survive; a new voice or a new phase starts a new wait.
+          const same = current?.wait && current.wait.voiceId === voiceId && current.wait.state === capacityState;
+          const startedAt = same ? current.wait.startedAt : Date.now();
+          return {
+            tone: coordinatorCapacity.simulated ? 'info' : 'warning',
+            title,
+            message,
+            wait: timing ? {
+              ...timing,
+              title,
+              message,
+              voiceId,
+              state: capacityState,
+              startedAt,
+              key: same ? current.wait.key : `${voiceId}:${capacityState}:${startedAt}`,
+            } : null,
+          };
         });
         // A switch on a warm GPU finishes in seconds; a cold boot takes minutes.
         // Check quickly at first, then back off.
         preparingPollCountRef.current += 1;
         const pollMs = preparingPollCountRef.current <= 12 ? 5_000 : 15_000;
-        window.setTimeout(() => loadSelectedModel(attempt, activeRequestVersion), pollMs);
+        window.setTimeout(() => runWhenPageVisible(() => loadSelectedModel(attempt, activeRequestVersion)), pollMs);
         return;
       }
       preparingPollCountRef.current = 0;
@@ -3745,7 +3773,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     const loadKey = `${selectedProfile.gptModel.path}::${selectedProfile.sovitsModel.path}`;
     if (autoLoadAttemptKeyRef.current === loadKey) return;
     autoLoadAttemptKeyRef.current = loadKey;
-    loadSelectedModel();
+    runWhenPageVisible(() => loadSelectedModel());
   }, [
     serverReady,
     selectedProfile,
@@ -4133,6 +4161,11 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
 
   useEffect(() => {
     async function handleGpuReady() {
+      // A GPU that just came up (auto-start, or a manual Start on dev) holds no
+      // voice for this page yet. Clear the once-per-voice guard so the selected
+      // voice is prepared again instead of waiting for a reselect or refresh.
+      autoLoadAttemptKeyRef.current = '';
+      preparingPollCountRef.current = 0;
       fetchModels();
       checkStatus();
       // A GPU restart can leave the active voice profile holding a stale fallback
@@ -4602,7 +4635,9 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
         )}
       </div>
 
-      <FloatingNotice notice={gpuNotice} onClose={() => setGpuNotice(null)} />
+      {gpuNotice?.wait
+        ? <GpuWaitDialog wait={gpuNotice.wait} />
+        : <FloatingNotice notice={gpuNotice} onClose={() => setGpuNotice(null)} />}
 
       {displayModelError && (
         <p className="rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm text-red-600">{displayModelError}</p>
@@ -4621,7 +4656,9 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
             <>
               <Loader2 size={14} className="shrink-0 animate-spin" />
               {!voiceModelReady
-                ? 'Loading the voice — this may take a moment.'
+                ? gpuNotice?.wait
+                  ? `${gpuNotice.wait.title} — usually ${gpuNotice.wait.state === 'STARTING' ? 'about 10 minutes (up to 15)' : 'under a minute (up to 3)'}. The chat unlocks automatically.`
+                  : 'Loading the voice — this may take a moment.'
                 : 'Almost ready — preparing the voice references.'}
             </>
           )}
