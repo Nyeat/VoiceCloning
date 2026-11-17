@@ -11,6 +11,7 @@ import {
 } from '@aws-sdk/client-auto-scaling';
 import { ok, err, preflight } from '../shared/cors.js';
 import { originVerifyHeaders } from '../shared/gpuWorker.js';
+import { invokeCoordinator } from '../shared/modelCoordinator.js';
 
 function instanceId() {
   return (process.env.GPU_INSTANCE_ID || '').trim();
@@ -565,6 +566,16 @@ export const handler = async (event) => {
 
     if ((method === 'POST' || method === 'GET') && routePath.endsWith('/instance/idle-check')) {
       const result = await stopInstanceIfIdle();
+      // The coordinator's per-GPU scale-in otherwise runs only after a request,
+      // so a fleet nobody is using would never shrink (the legacy no-traffic
+      // alarm that covered that case is disabled). Best effort; no-op without
+      // a coordinator.
+      let removedInferenceWorker = null;
+      try {
+        removedInferenceWorker = (await invokeCoordinator({ action: 'sweep' }))?.removed ?? null;
+      } catch (error) {
+        console.error('[idle-check] coordinator sweep failed', error?.message || error);
+      }
       console.log('[idle-check]', JSON.stringify({
         stopped: result.stopped === true,
         reason: result.reason,
@@ -572,6 +583,7 @@ export const handler = async (event) => {
         idleStopMinutes: result.idleStopMinutes,
         idleMs: result.activity?.idleMs,
         busy: result.activity?.busy,
+        removedInferenceWorker,
       }));
       if (!inferenceAutoScalingGroupName()) return ok(result);
       return ok({
