@@ -72,12 +72,23 @@
   Decision 2026-08-31: keep MinSize=1 so staging stays warm; revisit only if cost matters more than
   avoiding a ~10-minute first-request cold start.
 
-- Fixed in code 2026-11-17, not deployed: staging Test your voice showed "Lots of people… a new GPU is
+- Fixed and deployed 2026-11-17 (1a8126f, e18e0b2): spare duplicate voice GPU never scaled in while its voice
+  was used elsewhere; scale-in sweep never ran without coordinator traffic (alarm disabled). Verify the
+  idle-check log shows `removedInferenceWorker` on the next quiet period.
+
+- Fixed and deployed 2026-11-17 (28e4e66): Test your voice showed "This text is too long to send" on open
+  (auto config save carried presigned clip URLs, 21.5 KB vs 8 KB WAF limit); a lone user got a 2nd ASG GPU
+  (queued request scaled); "GPU not started" shown for a queued-sentence timeout.
+
+- Fixed 2026-11-17: legacy alarm `vcs-staging-inference-no-traffic-15m` reverted coordinator boots after
+  each scale-in. Its actions are disabled; coordinator also retries a boot that never launched.
+
+- Fixed and deployed 2026-11-17: staging Test your voice showed "Lots of people… a new GPU is
   starting" to a lone user. Logs: 10:39 SGT scale from 0 was correct (no inference GPU); once the GPU was
   READY its warm-up filled both slots, so the boot marker was never consumed. Also: the training-site header
   badge shows the training GPU, not the inference fleet, so "GPU ready" can sit beside a voice cold start.
 
-- Fixed in code 2026-11-17, not deployed: Faculty full-screen blocking "Starting the GPU" modal while
+- Fixed and deployed 2026-11-17: Faculty full-screen blocking "Starting the GPU" modal while
   capacity warms. Starting/warming is now a dismissible GpuWaitDialog; recheck in browser after deploy.
 
 - Fixed and deployed 2026-09-01: `prepareCapacity` did not clear a `PENDING` boot marker after its

@@ -282,3 +282,13 @@ These live in runtime configuration and will not appear in any branch diff:
 - Staging ASG instances run `warm-staging-deanvoice.sh` from a systemd drop-in
   (`gpu-inference-worker.service.d/staging-warm.conf`) and keep several deploy scripts
   truncated to zero bytes on the fleet image. Neither applies to dev.
+
+## 2026-11-17 — GPU capacity and mic defaults
+- Overflow = all slots of the voice's GPUs taken: switch an idle GPU or add one while new requests wait in
+  the bounded queue with a "may be slower" notice. Selections wait ~8 s (tab visible) before switching or
+  starting a GPU, Dev too. Idle voice GPUs scale in after 40 min.
+- One reference-clip selector (lambda/shared/referenceSelection.js) for pages and server.
+- The coordinator owns idle scale-in; the legacy CloudWatch `vcs-staging-inference-no-traffic-15m` actions
+  are disabled.
+- Every chatbot uses Live MC's Medium mic preset unless Live MC's sliders override it.
+

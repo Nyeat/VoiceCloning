@@ -34,7 +34,7 @@
 - `src/services/liveChatSocket.js` — WebSocket client for `/api/live/chat/realtime`.
 - `src/lib/runtimeConfig.js`
   - Resolves API paths; `src/lib/appMode.js` handles split-build gating.
-- `src/lib/referenceSelection.js`
+- `src/lib/referenceSelection.js` (re-exports `lambda/shared/referenceSelection.js`, shared with the server)
   - Auto-picks primary and auxiliary reference clips from training audio.
   - Scoring now prefers clean names/transcripts and ideal clip length (~3-9s).
 - `src/lib/pronunciationCsv.js` — Pronunciation dictionary CSV import/export.

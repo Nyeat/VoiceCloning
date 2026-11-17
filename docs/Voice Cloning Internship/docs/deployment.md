@@ -624,7 +624,7 @@ Any GPU may be stopped by hand at any time, but it does not stay off:
 |---|---|---|
 | Dev fixed `i-03f258d470a2fa73f` | **manual only** (badge Start / console; `VITE_GPU_AUTO_START=false` on dev builds) | yes, 30 idle min |
 | Staging fixed `i-0f0da8be59367f7a8` (training + gateway) | opening staging Live Fast, signed-in faculty/lectures | 30 idle min (2026-11-16), see idle rule below |
-| Staging inference ASG `vcs-staging-gpu-inference` | coordinator, on real cloned-voice synthesis only | `no-traffic-15m` alarm: <1 coordinator call/min for 15 min -> desired -1, to min |
+| Staging inference ASG `vcs-staging-gpu-inference` | coordinator: voice selection (8 s dwell) or overflow | coordinator per-GPU scale-in, 40 idle min (`no-traffic-15m` alarm actions disabled 2026-11-17) |
 
 Staging training site auto-starts its GPU once signed in; dev training never auto-starts (badge "GPU stopped · Start"). Stop ASG GPUs by setting min/desired 0, never by
 stopping the instance (ASG replaces it). Stopping the fixed GPU mid-training kills the run (no email).
@@ -641,14 +641,21 @@ its voice used/selected for 3 min: `MODEL_(PREFLIGHT_)REASSIGN_IDLE_MS=180000`) 
 within its grace, wait for it rather than boot -> else start one GPU once this voice has been selected continuously
 for 8 s (`MODEL_PREFLIGHT_DWELL_MS`; stops click-through multi-buys) unless this voice already has a boot or an
 unclaimed GPU is booting. Boots are independent per voice. Synthesis: route to oldest matching GPU with a free slot
--> else queue on least-loaded matching GPU (max 2 waiting each) and add one GPU for that voice in the background ->
+-> else (overflow = all slots taken) queue on least-loaded matching GPU (max 2 waiting each) and switch an idle GPU
+or add one for that voice in the background ->
 else retryable `MODEL_QUEUE_FULL`; no GPU holds the voice -> switch idle GPU or add one, `MODEL_CAPACITY_STARTING`.
 One PENDING boot marker per voice (TTL 15 min); scale-up re-reads desired capacity before +1.
-Scale-in: the coordinator sweeps at most once a minute (on its own traffic, under the admission lease) and terminates
-the longest-idle READY GPU (15 min, voice not used/selected, not event-locked, never below MinSize) with
-TerminateInstanceInAutoScalingGroup; whether the Lambda role allows that is unverified (AccessDenied is logged and
-skipped). The `no-traffic-15m` alarm still removes GPUs from a completely quiet fleet.
-Messages (lectures, Faculty, Test your voice share `voiceCapacityNotice`): READY none; CHECKING "Getting this voice
+Since 2026-11-17 the 8 s dwell (tab visible) also gates idle-GPU switches, Dev included; a selection never acts on
+a voice already resident with free slots. A boot counts as done once its GPU is READY with the voice (busy slots no
+longer matter); a PENDING boot >90 s old whose desired-capacity bump was reverted (`targetDesired`) is retried.
+Scale-in: the coordinator sweeps at most once a minute (after its own requests and from the scheduled idle-check,
+under the admission lease) and terminates the longest-idle READY GPU (40 min `MODEL_SCALE_IN_IDLE_MS=2400000`, not
+event-locked, never below MinSize). Voice demand keeps only the LAST GPU holding a voice warm; spare copies idle by
+their own activity. The legacy `no-traffic-15m` alarm reverted fresh boots after a scale-in, so its actions are
+disabled (re-enable: `aws cloudwatch enable-alarm-actions`).
+Messages (lectures, Faculty, Test your voice share `voiceCapacityNotice`; STARTING/WARMING and fixed-GPU starts show
+a dismissible wait popup with estimate + timer, `GpuWaitDialog`; Live Fast pages re-check every 15 s while BUSY or on
+the last slot): READY none; CHECKING "Getting this voice
 ready"; STARTING "Starting a GPU with this voice ... about 10 minutes" (chat locked); WARMING "Switching a GPU to this
 voice ... under a minute (up to 3)" (locked); BUSY_STARTING/BUSY_WARMING "Lots of people are using this voice ...
 replies can be slower" (usable); LIMIT/BUSY_LIMIT every GPU in use.

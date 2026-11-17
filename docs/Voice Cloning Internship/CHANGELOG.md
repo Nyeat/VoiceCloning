@@ -2221,4 +2221,41 @@
   (client/src/lib/pageVisibility.js), so the dwell means time on the tab.
 - Tests: coordinator npm test 65/65 (+1 boot-completion test); client 537/537; builds chatbot/gi/training/
   live-fast ok. Not tested: prepare flow end-to-end on a real fleet.
+- Training badge reads "Training GPU" and is hidden (with its wait popup) on Test your voice.
+- Coordinator `bootLooksLost`: a PENDING boot >90 s old while desired <= READY workers is released and
+  retried (staging 11:21 SGT: legacy alarm vcs-staging-inference-no-traffic-15m, still in ALARM after a
+  scale-in, reverted desired 0->1; the stranded marker said "GPU starting" for 15 min).
+- Commits 4ba636c + ae6b58b on both branches. Deployed: dev + staging Lambdas and coordinators; clients dev
+  training/live-fast/chatbot, staging training/live-fast/chatbot/chatbot-text/mc. Verified new strings in the
+  live App chunks of 6 sites. Tests: lambda 366/366, coordinator 66/66, client 537/537.
+  Later 2026-11-17: alarm actions disabled on vcs-staging-inference-no-traffic-15m (ActionsEnabled=False,
+  reversible with enable-alarm-actions); coordinator per-GPU scale-in is now the only idle scale-in.
+- 28e4e66 (deployed dev + staging, all clients, both Lambdas/coordinators): coordinator only adds/switches
+  a GPU on a FULL queue (11:45 SGT a lone user's queued sentence during a switch bought a 2nd GPU);
+  bootLooksLost now uses the marker's targetDesired and skips claimed boots (it misfired at 11:42 on a
+  booting GPU, which then came up with a default voice). Profile/config saves strip presigned clip URLs and
+  per-clip scoring (client/src/lib/stripSignedUrls.js; staging cs-tengyu-liu_5 default config 21.5 KB ->
+  5.8 KB, the "too long to send" banner). All chatbots default to Live MC Medium mic preset (useLiveSpeech).
+  Engine label hidden; GPU-offline text neutral. Tests: client 539/539, coordinator 66/66.
+  Not tested: a live voice chat after deploy (my browser cannot pass NTU SSO).
+- 413fd18 (deployed with aa6442a): overflow = both slots taken -> switch an idle GPU or add one
+  while requests queue (reverts 28e4e66's queue-full-only rule); per-GPU idle scale-in 40 min
+  (MODEL_SCALE_IN_IDLE_MS=2400000, code default too); LivePage re-checks /voice-profile/capacity every
+  15 s while busy/last-slot so "replies may be slower" shows mid-conversation, like lectures.
+- aa6442a (deployed 2026-11-17 dev + staging: both Lambdas/coordinators, all clients; staging
+  coordinator MODEL_SCALE_IN_IDLE_MS=2400000 confirmed, capacity re-check in 5 live bundles): one reference-clip selector. client/src/lib/referenceSelection.js moved to
+  lambda/shared/referenceSelection.js (client file re-exports; vite server.fs.allow adds lambda/shared);
+  lambda/shared/modelSelection.js uses it and its drifted scoring copy is removed.
+  Tests: lambda 366/366, coordinator 66/66, client 539/539, 5 builds ok.
+- Training pipeline: same code and request defaults on dev and staging (batch 2, SoVITS 20, GPT 25);
+  deployed worker versions on each GPU not checked (needs AWS).
+- 1a8126f + e18e0b2 (deployed dev + staging Lambdas/coordinators; training sites): NTU-style login (photo
+  panel uses client/src/assets/login-hero.* if present, gradient fallback; NTU logo + LKCMedicine sign-in
+  panel; preview-checked locally with staging config). Scale-in: a spare copy of a voice idles by its own
+  activity (voice demand keeps only the last copy). Scheduled /instance/idle-check now also invokes the
+  coordinator sweep (scale-in otherwise ran only after requests). Tests: lambda 367/367, coordinator 67/67.
+  Spare staging GPU i-0da90372f6ef160d6 last active 04:45 UTC: removable from ~05:25 UTC by the sweep.
+- f84faa0 (deployed dev + staging training sites): login photo client/src/assets/login-hero.jpg
+  (LKCMedicine building, user-supplied, 1313x876, 273 KB), left-weighted overlay, stacked steps so the sign
+  stays visible. Preview-checked locally; photo served on both domains.
 

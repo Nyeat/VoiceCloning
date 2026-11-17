@@ -1,19 +1,23 @@
 # Voice Cloning Project Handoff
 
-Last updated: 2026-11-16
+Last updated: 2026-11-17
 
 ## Current State
 
-- 2026-11-16: commits a2afc88 + 0b017da pushed to both branches; all dev/staging bundles, both Lambdas and
-  coordinators deployed. New training site (SSO, consent, guide, Test your voice); one training at a time; Faculty +
-  Test your voice lock chat like lectures while a voice starts/switches; dev GPU manual-start only; staging fixed GPU
-  30-min idle stop (training + open chats + optional ASG inference); staging ASG min 0 / max 3; per-voice boots.
-  Worker+gateway deployed both (idle stop live). d1a0b35: 3 min switch grace, 8 s selection dwell, per-GPU scale-in.
-  SSO + domain live (staging only; dev + staging CloudFront sign in too). Staging training GPU auto-starts; consent modal + tour.
+- 2026-11-17: deployed f84faa0 (both branches) to dev + staging: both Lambdas/coordinators, all clients. Training
+  login redesigned (LKCMedicine photo, privacy popup on arrival); "Training GPU" badge hidden on Test your voice;
+  dismissible GPU wait popup with estimates on every site. Coordinator: overflow = all slots taken -> switch/add while
+  queueing ("may be slower"); 8 s visible-tab dwell before any switch or boot (Dev too); boot done when READY with the
+  voice; lost boots retried; 40 min per-GPU scale-in, spare copies by own activity, swept from idle-check too; legacy
+  `no-traffic-15m` alarm actions disabled. One reference selector (lambda/shared). All chatbots use Live MC Medium mic
+  preset. Profile/config saves strip presigned URLs (8 KB WAF). Spare staging GPU i-0da90372f6ef160d6 should scale in
+  after ~05:25 UTC — confirm.
 
-- 2026-10-23: Seoul zero-shot lab running with ten working models (Fish Drama 3 and S2-Pro added); FireRed needs a <=12 s reference ending on a full sentence. Emotion panel live for IndexTTS 2.5, VoxCPM2, Fish S2-Pro/Drama 3; only IndexTTS shifts emotion strongly from a calm reference. Raon blocked by vocabulary mismatch. Lab instance stopped 2026-10-23. See docs/deployment.md.
-- 2026-10-26/30: Singapore (Tong Yee). Commit e3ab580 (staging branch 32f6011): Live Full length check uses the voice's reference pace; TTS page clears/guards refs on voice switch. Baked into staging AMI ami-0642b66fa3ae46b4f (30234eb + patch), LT v41 default (not yet boot-tested on a fresh GPU). Training audio cleaned locally (Demucs voice isolation, natural pauses kept) -> cs-tengyu-liu_5: Live Fast 0.948 / WER 6%, Live Full 0.947 / WER 2% (best-effort chunks), above every zero-shot model on whole-set match. _4 (pauses squeezed to 0.35 s) rushed and failed Live Full. Shootout v7 https://claude.ai/artifact/HErgzdxhtLM6YRamR2rd3E. Staging left running (ASG 1/1/1, fixed EC2 on).
-- 2026-11-03: audit + hardening + coordinator robustness, all deployed from one commit (dev = staging branch). Lambda URLs AWS_IAM, ALB needs X-VCS-Origin-Verify, CF 60 s. Voice switching proven: worker restart reclaims its voice (boot residency), warm switch hints 5 s, clients poll 5 s and never sleep >15 s, coordinator calls end by 55 s, pages no longer change the default voice. Browser-verified dev+staging TTS/Full/chat/lectures/faculty; 5-way burst route/route/queue/queue/queue-full on one GPU. GPUs stopped at end (ASG 0/0/1).
+- 2026-11-16: training site launched (SSO + domain, consent, guide, Test your voice); staging fixed GPU 30-min
+  idle stop; staging ASG min 0 / max 3; per-voice boots (d1a0b35). Superseded where 2026-11-17 differs.
+- 2026-10-23: Seoul zero-shot lab: ten models, lab stopped; details in docs/deployment.md and CHANGELOG.
+- 2026-10-26/30: Demucs-cleaned training audio made cs-tengyu-liu_5 the best voice (Live Fast 0.948 / WER 6%); staging AMI LT v41. Details in CHANGELOG.
+- 2026-11-03: audit, hardening and coordinator robustness deployed (Lambda URLs AWS_IAM, ALB origin header, voice switching proven). Details in CHANGELOG.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
@@ -52,12 +56,8 @@ FAILED LIVE ON THE CURRENT DEPLOYMENT — do not call it fixed yet:
   GPUs stacked five onto the oldest worker, briefly exceeded the configured queue ceiling, returned
   one capacity-starting response, and unnecessarily scaled 4 -> 5 while two matching GPUs were idle.
 
-FIXED LOCALLY, NOT DEPLOYED:
-- A scoped DynamoDB lease plus expiring request rows serializes fleet selection. Tests pack six
-  requests 2/2/2, spread queues across workers, stop at depth two, and automatically retry preserved
-  queue/lease codes. Both local branches share one commit; AWS deployment/live proof is blocked by
-  expired `VCS_AWS_*`, and remote push is blocked by unavailable GitHub authentication.
-- Still not isolated end to end: frontend 15-second retry and Faculty Dev/Staging publish mirroring.
+DEPLOYED SINCE (2026-11-03 onward): the scoped lease + request rows (6 requests pack 2/2/2, queues spread,
+depth 2). The burst above has not been re-run live on it.
 
 CONTRADICTION: the lecture badge showed `cs-nathanael-ng` while `client/env/staging/gi.env` pins
 `deanvoice-v1`. Settle which wins after a faculty publish.

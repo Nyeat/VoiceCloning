@@ -4,7 +4,10 @@
   bursts need scheduled prewarm or deficit-based batch scale-out; per-GPU idle scale-in built (d1a0b35) — confirm the Lambda role
   has autoscaling:TerminateInstanceInAutoScalingGroup (logs show AccessDenied otherwise); add the fixed staging GPU as a permanent inference worker (check VRAM beside
   training); let lectures send text while STARTING; server-side owner check for cloned-voice synthesis; live-prove
-  scale-from-0 and the six-request/three-GPU burst; delete or wire the inert ASG policies/alarms.
+  the six-request/three-GPU burst (scale-from-0 seen live 2026-11-17); delete the other inert ASG policies/alarms.
+  Confirm idle-check logs `removedInferenceWorker` and the spare staging GPU scales in after 40 idle min.
+- [ ] Decide whether Test your voice should stop marking the tested voice as the system-wide active profile
+  (`makeActive: !canEditInstructions`); it can change other sites' default voice.
 
 - [ ] Training site (2026-11-16): Entra redirect URIs, domain DNS, cert and alias done; SSO verified on
   voicecloning.lkcmedicine.org, staging and dev CloudFront (all reach consent). Staging TRAINING_PUBLIC_URL now the
