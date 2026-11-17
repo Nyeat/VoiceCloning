@@ -165,26 +165,31 @@ function TrainingLogin() {
             <div className="absolute -bottom-40 -left-24 h-[30rem] w-[30rem] rounded-full bg-indigo-400/20 blur-3xl" aria-hidden="true" />
           </>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0b1430]/90 via-[#0b1430]/35 to-transparent" aria-hidden="true" />
-        <div className="relative flex h-full flex-col justify-end p-12 text-white xl:p-16">
+        {/* Darken from the left so the text reads while the building and the
+            LKCMedicine sign (centre of the photo) stay visible. */}
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0b1430]/90 via-[#0b1430]/55 to-transparent" aria-hidden="true" />
+        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#0b1430]/50 to-transparent" aria-hidden="true" />
+        <div className="relative flex h-full max-w-md flex-col justify-end p-12 text-white xl:max-w-lg xl:p-16">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">Lee Kong Chian School of Medicine</p>
-          <h1 className="mt-3 max-w-xl text-4xl font-semibold leading-tight tracking-tight xl:text-[2.75rem]">
+          <h1 className="mt-3 text-4xl font-semibold leading-tight tracking-tight xl:text-[2.6rem]">
             Your teaching voice, ready whenever students ask.
           </h1>
-          <p className="mt-4 max-w-lg text-base leading-7 text-white/80">
+          <p className="mt-4 text-base leading-7 text-white/85">
             Train a private voice model from your own recordings, test it here, and choose where it is used.
           </p>
-          <ol className="mt-10 grid max-w-3xl gap-3 sm:grid-cols-3">
+          <ol className="mt-8 space-y-2.5">
             {LOGIN_STEPS.map(([Icon, title, detail], index) => (
-              <li key={title} className="rounded-xl border border-white/15 bg-white/10 p-4 backdrop-blur-md">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15">
-                    <Icon size={15} aria-hidden="true" />
-                  </span>
-                  <span className="text-xs font-semibold text-white/60">Step {index + 1}</span>
+              <li key={title} className="flex gap-3 rounded-xl border border-white/15 bg-[#0b1430]/45 p-3.5 backdrop-blur-md">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15">
+                  <Icon size={16} aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold">
+                    <span className="mr-1.5 text-white/55">{index + 1}.</span>
+                    {title}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-5 text-white/75">{detail}</p>
                 </div>
-                <p className="mt-3 text-sm font-semibold">{title}</p>
-                <p className="mt-1 text-xs leading-5 text-white/70">{detail}</p>
               </li>
             ))}
           </ol>
