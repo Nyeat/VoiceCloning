@@ -228,10 +228,20 @@ export function chooseScaleInCandidate({
   lastDemandByModel = {},
 } = {}) {
   if (Number(desired) - 1 < Number(minSize)) return null;
+  const holders = new Map();
+  for (const worker of workers) {
+    if (worker.state === 'READY' && worker.reachable !== false && worker.modelKey) {
+      holders.set(worker.modelKey, (holders.get(worker.modelKey) || 0) + 1);
+    }
+  }
+  // Demand for a voice keeps its LAST GPU warm, not every copy of it. Routing
+  // packs requests onto the oldest matching GPU, so a spare overflow copy goes
+  // idle by its own activity; counting the voice's demand against it meant it
+  // never scaled in while anyone used that voice (2026-11-17 staging).
   const idleSince = (worker) => Math.max(
     Number(worker.lastActivityAt || 0),
     Number(worker.firstSeenAt || 0),
-    Number(lastDemandByModel[worker.modelKey] || 0),
+    (holders.get(worker.modelKey) || 0) > 1 ? 0 : Number(lastDemandByModel[worker.modelKey] || 0),
   );
   return workers
     .filter((worker) => (

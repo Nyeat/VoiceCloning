@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
-  AudioWaveform, CircleHelp, Headphones, Loader2, Lock, LogOut, Mic, ShieldCheck, Trash2, X,
+  AudioWaveform, CircleHelp, Headphones, Loader2, LogOut, Mic, ShieldCheck, X,
 } from 'lucide-react';
 import ntuLogo from '@/assets/ntu-logo.png';
 import { useAuth } from '@/auth/useAuth';
@@ -119,11 +119,14 @@ function LoginNoticeDialog({ onClose }) {
   );
 }
 
-const LOGIN_ASSURANCES = [
-  [Lock, 'Private to you', 'Only your NTU account can see and test your voices.'],
-  [ShieldCheck, 'Your choice', 'Nothing is used with students until you choose it.'],
-  [Trash2, 'Delete any time', 'Ask and we remove your recordings and voices.'],
-];
+// Optional campus photo for the sign-in page: drop an image at
+// client/src/assets/login-hero.(jpg|jpeg|png|webp) and it is used automatically.
+// Without one the panel falls back to the NTU navy gradient.
+const LOGIN_HERO_IMAGE = Object.values(
+  import.meta.glob('../assets/login-hero.{jpg,jpeg,png,webp}', { eager: true, import: 'default' }),
+)[0] || '';
+
+const LOGIN_ACCOUNT_FORMATS = ['username@staff.main.ntu.edu.sg', 'username@assoc.main.ntu.edu.sg'];
 
 function TrainingLogin() {
   const location = useLocation();
@@ -150,101 +153,98 @@ function TrainingLogin() {
   const working = busy || auth.isLoading;
 
   return (
-    <div className="grid min-h-screen bg-slate-50 lg:grid-cols-[1.05fr_1fr]">
-      {/* Story panel */}
-      <section className="relative overflow-hidden bg-[#0f1b3d] px-6 py-10 text-white sm:px-12 lg:py-14">
-        <div className="absolute inset-x-0 top-0 h-1 bg-[#d71440]" aria-hidden="true" />
-        <div
-          className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-[#d71440]/20 blur-3xl"
-          aria-hidden="true"
-        />
-        <div
-          className="pointer-events-none absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-indigo-400/20 blur-3xl"
-          aria-hidden="true"
-        />
-        <div className="relative flex h-full max-w-xl flex-col">
-          <div className="inline-flex w-fit rounded-md bg-white px-3 py-2">
-            <BrandMark />
-          </div>
-          <p className="mt-10 text-xs font-semibold uppercase tracking-[0.2em] text-white/60 lg:mt-14">For LKCMedicine faculty</p>
-          <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight sm:text-[2.6rem]">
+    <div className="grid min-h-screen bg-white lg:grid-cols-[minmax(0,1.6fr)_minmax(420px,1fr)]">
+      {/* Photo panel */}
+      <section className="relative hidden overflow-hidden bg-[#0f1b3d] lg:block">
+        {LOGIN_HERO_IMAGE ? (
+          <img src={LOGIN_HERO_IMAGE} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-br from-[#0f1b3d] via-[#16285a] to-[#3a1230]" aria-hidden="true" />
+            <div className="absolute -right-32 -top-32 h-[28rem] w-[28rem] rounded-full bg-[#d71440]/25 blur-3xl" aria-hidden="true" />
+            <div className="absolute -bottom-40 -left-24 h-[30rem] w-[30rem] rounded-full bg-indigo-400/20 blur-3xl" aria-hidden="true" />
+          </>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0b1430]/90 via-[#0b1430]/35 to-transparent" aria-hidden="true" />
+        <div className="relative flex h-full flex-col justify-end p-12 text-white xl:p-16">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">Lee Kong Chian School of Medicine</p>
+          <h1 className="mt-3 max-w-xl text-4xl font-semibold leading-tight tracking-tight xl:text-[2.75rem]">
             Your teaching voice, ready whenever students ask.
           </h1>
-          <p className="mt-5 max-w-md text-base leading-7 text-white/75">
-            Train a private voice model from your own recordings. It can read lecture answers aloud in your voice
-            — and nothing is used until you have tested it here.
+          <p className="mt-4 max-w-lg text-base leading-7 text-white/80">
+            Train a private voice model from your own recordings, test it here, and choose where it is used.
           </p>
-          <ol className="relative mt-10 space-y-6">
-            <span className="absolute bottom-5 left-5 top-5 w-px bg-white/15" aria-hidden="true" />
+          <ol className="mt-10 grid max-w-3xl gap-3 sm:grid-cols-3">
             {LOGIN_STEPS.map(([Icon, title, detail], index) => (
-              <li key={title} className="relative flex gap-4">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-[#18264d]">
-                  <Icon size={18} aria-hidden="true" />
-                </span>
-                <div>
-                  <p className="text-sm font-semibold">
-                    <span className="mr-2 text-white/50">Step {index + 1}</span>
-                    {title}
-                  </p>
-                  <p className="mt-0.5 text-sm leading-6 text-white/65">{detail}</p>
+              <li key={title} className="rounded-xl border border-white/15 bg-white/10 p-4 backdrop-blur-md">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15">
+                    <Icon size={15} aria-hidden="true" />
+                  </span>
+                  <span className="text-xs font-semibold text-white/60">Step {index + 1}</span>
                 </div>
+                <p className="mt-3 text-sm font-semibold">{title}</p>
+                <p className="mt-1 text-xs leading-5 text-white/70">{detail}</p>
               </li>
             ))}
           </ol>
-          <p className="mt-auto pt-12 text-xs text-white/50">
-            Lee Kong Chian School of Medicine · Nanyang Technological University
-          </p>
         </div>
       </section>
 
       {/* Sign-in panel */}
-      <section className="flex items-center justify-center px-4 py-10 sm:px-8">
-        <div className="w-full max-w-md">
-          <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-900/5">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Welcome</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Sign in to Voice Cloning</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Use your NTU staff account. You will be taken to Microsoft and brought straight back.
-            </p>
+      <section className="flex min-h-screen flex-col px-6 py-8 sm:px-12">
+        <div className="h-1 w-16 rounded-full bg-[#d71440]" aria-hidden="true" />
+        <div className="flex flex-1 flex-col justify-center py-10">
+          <div className="mx-auto w-full max-w-sm">
+            <div className="flex items-center gap-4">
+              <img src={ntuLogo} alt="Nanyang Technological University" className="h-12 w-auto" />
+              <span className="h-10 w-px bg-slate-200" aria-hidden="true" />
+              <p className="text-sm font-semibold leading-tight text-slate-700">
+                Lee Kong Chian<br />School of Medicine
+              </p>
+            </div>
+
+            <h2 className="mt-10 text-3xl font-semibold tracking-tight text-slate-900">Voice Cloning</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Sign in with your NTU organisational account.</p>
+
             <button
               type="button"
               onClick={signIn}
               disabled={working}
-              className="mt-7 flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-primary px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60"
+              className="mt-8 flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-primary px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60"
             >
               {working ? <Loader2 size={18} className="animate-spin" /> : <MicrosoftMark />}
               {working ? 'Opening Microsoft…' : 'Sign in with Microsoft'}
             </button>
-            <p className="mt-3 text-center text-xs text-slate-500">
-              staff.main.ntu.edu.sg and assoc.main.ntu.edu.sg accounts only
-            </p>
             {visibleError ? (
               <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{visibleError}</p>
             ) : null}
 
-            <ul className="mt-7 space-y-3 border-t border-slate-100 pt-6">
-              {LOGIN_ASSURANCES.map(([Icon, title, detail]) => (
-                <li key={title} className="flex gap-3">
-                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                    <Icon size={14} aria-hidden="true" />
-                  </span>
-                  <p className="text-sm leading-6 text-slate-600">
-                    <span className="font-medium text-slate-900">{title}.</span> {detail}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </div>
+            <div className="mt-8">
+              <p className="text-xs font-medium text-slate-500">Sign in using your network account, e.g.</p>
+              <ul className="mt-2 space-y-1">
+                {LOGIN_ACCOUNT_FORMATS.map((format) => (
+                  <li key={format} className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="h-1 w-1 rounded-full bg-slate-400" aria-hidden="true" />
+                    {format}
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setNoticeOpen(true)}
-            className="mx-auto mt-5 flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-primary"
-          >
-            <ShieldCheck size={15} aria-hidden="true" />
-            Read the privacy notice again
-          </button>
+            <div className="mt-8 flex items-start gap-3 rounded-lg bg-slate-50 p-4">
+              <ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+              <p className="text-xs leading-5 text-slate-600">
+                Your recordings and voices are private to your account, used only where you choose, and deleted on
+                request.{' '}
+                <button type="button" onClick={() => setNoticeOpen(true)} className="font-medium text-primary hover:underline">
+                  Privacy notice
+                </button>
+              </p>
+            </div>
+          </div>
         </div>
+        <p className="text-xs text-slate-400">Lee Kong Chian School of Medicine · Nanyang Technological University</p>
       </section>
       {noticeOpen ? <LoginNoticeDialog onClose={closeNotice} /> : null}
     </div>

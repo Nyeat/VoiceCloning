@@ -507,3 +507,19 @@ test('per-GPU scale-in respects the group minimum, event locks and recent voice 
     workers: [{ ...idle, instanceId: 'a', modelKey: 'tom' }], now, desired: 2, lastDemandByModel: { tom: now - 60_000 },
   }), null);
 });
+
+test('a spare copy of a voice in use scales in by its own idleness; the last copy stays', async () => {
+  const { chooseScaleInCandidate } = await import('./decision.js');
+  const now = 10 * 60 * 60_000;
+  const hour = 60 * 60_000;
+  const workers = [
+    { instanceId: 'i-old', state: 'READY', modelKey: 'voice', firstSeenAt: now - 3 * hour, lastActivityAt: now - 1_000, active: 0, queued: 0 },
+    { instanceId: 'i-spare', state: 'READY', modelKey: 'voice', firstSeenAt: now - 2 * hour, lastActivityAt: now - hour, active: 0, queued: 0 },
+  ];
+  const lastDemandByModel = { voice: now - 1_000 };
+  const pick = chooseScaleInCandidate({ workers, now, idleMs: 40 * 60_000, minSize: 0, desired: 2, lastDemandByModel });
+  assert.equal(pick?.instanceId, 'i-spare');
+  // Once it is the only copy, the voice's demand keeps it.
+  const alone = chooseScaleInCandidate({ workers: [workers[0]], now, idleMs: 40 * 60_000, minSize: 0, desired: 1, lastDemandByModel });
+  assert.equal(alone, null);
+});
