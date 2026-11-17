@@ -13,6 +13,7 @@ import {
   getVoiceProfileConfigs,
   saveVoiceProfileConfig,
   selectModels,
+  prepareVoiceCapacity,
   startGeneration,
   getCurrentInference,
   getGenerationResultSource,
@@ -94,7 +95,7 @@ import { getStorageMode } from '@/lib/runtimeConfig';
 import { useGpuStatus } from '@/lib/gpuStatus.jsx';
 import { isTransientBackendError, sanitizeBackendError } from '@/lib/backendErrors';
 import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
-import { voiceCapacityNotice } from '@/lib/voiceCapacity';
+import { normalizeVoiceCapacity, voiceCapacityNotice } from '@/lib/voiceCapacity';
 import FloatingNotice from '@/components/FloatingNotice';
 import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
 import { runWhenPageVisible } from '@/lib/pageVisibility';
@@ -419,6 +420,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
   const [modelsFetched, setModelsFetched] = useState(false);
   const [modelError, setModelError] = useState('');
   const [gpuNotice, setGpuNotice] = useState(null);
+  // True while the selected voice is busy or down to its last slot: keep
+  // re-checking like the lecture page so "replies may be slower" appears (and
+  // clears) during a conversation, and overflow can switch/add a GPU.
+  const [capacityWatch, setCapacityWatch] = useState(false);
   // Shared GPU lifecycle: don't hit model/status endpoints until the worker is
   // ready (otherwise a cold GPU answers with 503/404 pages). When no instance is
   // configured (local dev) the backend is always considered queryable.
@@ -1560,6 +1565,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
       }
       preparingPollCountRef.current = 0;
       const coordinatorState = String(coordinatorCapacity?.state || '').toUpperCase();
+      setCapacityWatch(Boolean(coordinatorCapacity?.capacityTight) || /^BUSY_/u.test(coordinatorState));
       if (coordinatorCapacity?.simulated || ['SIMULATED', 'ON_DEMAND'].includes(coordinatorState)) {
         setGpuNotice({
           tone: 'info',
@@ -4158,6 +4164,33 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     autoSyncRequestFingerprint,
     selectedProfile,
   ]);
+
+  useEffect(() => {
+    if (!capacityWatch || !selectedVoiceProfileId || usingStandardVoice) return undefined;
+    let cancelled = false;
+    let timer = null;
+    const check = async () => {
+      try {
+        const res = await prepareVoiceCapacity(selectedVoiceProfileId);
+        if (cancelled) return;
+        const next = normalizeVoiceCapacity(res?.data || {});
+        if (/^BUSY_/u.test(next.state)) {
+          setGpuNotice({ tone: 'info', title: 'Voice is heavily loaded', message: voiceCapacityNotice(next) });
+        } else {
+          setGpuNotice((current) => (current?.title === 'Voice is heavily loaded' ? null : current));
+        }
+        if (/^BUSY_/u.test(next.state) || next.capacityTight) {
+          timer = window.setTimeout(() => runWhenPageVisible(() => { if (!cancelled) void check(); }), 15_000);
+        } else {
+          setCapacityWatch(false);
+        }
+      } catch {
+        if (!cancelled) timer = window.setTimeout(() => runWhenPageVisible(() => { if (!cancelled) void check(); }), 15_000);
+      }
+    };
+    timer = window.setTimeout(() => runWhenPageVisible(() => { if (!cancelled) void check(); }), 15_000);
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
+  }, [capacityWatch, selectedVoiceProfileId, usingStandardVoice]);
 
   useEffect(() => {
     async function handleGpuReady() {

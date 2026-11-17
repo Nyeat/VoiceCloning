@@ -59,7 +59,7 @@ const pendingTtlMs = Math.max(120_000, Number(process.env.MODEL_PENDING_TTL_MS) 
 // held up by it. Real synthesis is not subject to it.
 // Per-GPU scale-in: a GPU idle this long (and whose voice nobody is using or
 // selecting) is terminated individually, longest-idle first, one per sweep.
-const scaleInIdleMs = Math.max(60_000, Number(process.env.MODEL_SCALE_IN_IDLE_MS) || 15 * 60_000);
+const scaleInIdleMs = Math.max(60_000, Number(process.env.MODEL_SCALE_IN_IDLE_MS) || 40 * 60_000);
 const scaleInSweepMs = 60_000;
 const preflightDwellMs = Math.max(0, Number(process.env.MODEL_PREFLIGHT_DWELL_MS) || 8_000);
 // A gap longer than this restarts the dwell (the page was closed).
@@ -931,22 +931,6 @@ async function prepareCapacity(event) {
   // reassignable, and therefore scaling. A selection waits for capacity already
   // in motion instead of buying more. Real synthesis is unaffected and still
   // scales on real overlapping demand.
-  if (readyMatching.length > 0) {
-    console.log('[model-coordinator][decision]', JSON.stringify({
-      request: 'prepare', source, decision: 'resident-busy', allowScale,
-      voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
-      matchingWorkers: readyMatching.length, desiredCapacity: group.DesiredCapacity,
-    }));
-    return capacityResponse({
-      state: 'READY',
-      canStartConversation: true,
-      model,
-      availableSlots: 0,
-      matchingWorkers: readyMatching.length,
-      capacityAction: 'none',
-    });
-  }
-
   const fleetInMotion = preflightScaleBlocked({
     coordinationItems: existing.filter((item) => itemInScope(item)),
     workers,
@@ -1182,9 +1166,7 @@ async function synthesize(event) {
         } else {
           queueFull = true;
         }
-        if (!queueFull) {
-          capacityAction = null;
-        } else if (action.capacityAction.type === 'reassign') {
+        if (action.capacityAction.type === 'reassign') {
           const result = await scheduleReassignment(action.capacityAction.worker, modelKey, body, Date.now());
           capacityAction = { type: 'reassign', started: result.started };
         } else {
