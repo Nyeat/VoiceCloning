@@ -1,3 +1,4 @@
+import { chooseBestReferenceSet as chooseSharedReferenceSet, describeReferenceCandidate } from './referenceSelection.js';
 import path from 'path';
 import { getObject, listObjects, uploadBuffer } from './s3.js';
 import { loadClipQualityMetrics } from './clipScores.js';
@@ -16,133 +17,13 @@ export function useGpuWorkerModels() {
   return ['gpu-worker', 'gpu', 'local', 'gpt-sovits'].includes(modelSource());
 }
 
-const GOOD_NAME_RE = /(^|[_\-\s])(clean|clear|best|reference|ref|neutral|steady|natural)([_\-\s]|\d|$)/i;
-const RISKY_NAME_RE = /(^|[_\-\s])(noisy|noise|music|bgm|silence|silent|long|bad|test)([_\-\s]|\d|$)/i;
-const GOOD_AUDIO_EXTENSIONS = new Set(['.wav', '.flac']);
-const OK_AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.ogg', '.webm', '.mp4']);
-
 function getBasename(filePath = '') {
   return String(filePath || '').replace(/\\/g, '/').split('/').pop() || '';
 }
 
-function extensionOf(filename = '') {
-  const dot = filename.lastIndexOf('.');
-  return dot === -1 ? '' : filename.slice(dot).toLowerCase();
-}
-
-function normalizeLang(lang = '') {
-  return String(lang || '').trim().toLowerCase();
-}
-
-function transcriptScore(transcript = '') {
-  const clean = String(transcript || '').replace(/\s+/g, ' ').trim();
-  if (!clean) return -12;
-
-  const wordCount = clean.split(' ').filter(Boolean).length;
-  if (wordCount < 3) return 4;
-  if (wordCount <= 5) return 22;
-  if (wordCount <= 18) return 42;
-  if (wordCount <= 24) return 36;
-  if (wordCount <= 45) return 24;
-  return 8;
-}
-
-function langScore(lang = '') {
-  const normalized = normalizeLang(lang);
-  if (normalized === 'en' || normalized === 'eng') return 14;
-  if (normalized === 'auto' || !normalized) return 3;
-  return 0;
-}
-
-function scoreReferenceClip(file) {
-  const audioScore = Number(file?.qualityScore);
-  if (Number.isFinite(audioScore)) {
-    // Audio quality dominates; transcript + language guard so the PRIMARY
-    // (whose transcript becomes prompt_text) isn't a clean clip with no text.
-    return audioScore + 0.3 * (transcriptScore(file?.transcript) + langScore(file?.lang));
-  }
-
-  const filename = file?.filename || getBasename(file?.path);
-  const ext = extensionOf(filename);
-
-  let score = transcriptScore(file?.transcript);
-
-  if (GOOD_AUDIO_EXTENSIONS.has(ext)) score += 18;
-  else if (OK_AUDIO_EXTENSIONS.has(ext)) score += 6;
-
-  score += langScore(file?.lang);
-
-  if (GOOD_NAME_RE.test(filename)) score += 14;
-  if (/(^|[_\-\s])(reference|ref)([_\-\s]|\d|$)/i.test(filename)) score += 8;
-  if (/(^|[_\-\s])(aux|auxiliary)([_\-\s]|\d|$)/i.test(filename)) score -= 4;
-  if (RISKY_NAME_RE.test(filename)) score -= 32;
-
-  return score;
-}
-
-// GPT-SoVITS slicer names each clip "..._<startSample>_<endSample>.<ext>" at 32 kHz,
-// so we can recover the clip duration from the filename without any audio analysis.
-const REF_SAMPLE_RATE_HZ = 32000;
-const STRICT_MIN_DURATION_SECONDS = 3;
-const STRICT_MAX_DURATION_SECONDS = 9;
-
-function durationSecondsFromFilename(filename = '') {
-  const match = String(filename).match(/_(\d+)_(\d+)\.[a-z0-9]+$/i);
-  if (!match) return null;
-  const start = Number(match[1]);
-  const end = Number(match[2]);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-  return (end - start) / REF_SAMPLE_RATE_HZ;
-}
-
-function hasSentenceEnding(transcript = '') {
-  return /[.!?。！？]\s*$/u.test(String(transcript || '').trim());
-}
-
-function transcriptWordCount(transcript = '') {
-  const clean = String(transcript || '').replace(/\s+/g, ' ').trim();
-  return clean ? clean.split(' ').filter(Boolean).length : 0;
-}
-
-function transcriptTokenSet(transcript = '') {
-  return new Set(String(transcript || '').toLowerCase().match(/[\p{L}\p{N}']+/gu) || []);
-}
-
-function jaccardSimilarity(left, right) {
-  if (!left.size || !right.size) return 0;
-  let intersection = 0;
-  for (const value of left) if (right.has(value)) intersection += 1;
-  return intersection / (left.size + right.size - intersection);
-}
-
-function clipStartSeconds(filename = '') {
-  const match = String(filename).match(/_(\d+)_(\d+)\.[a-z0-9]+$/i);
-  return match ? Number(match[1]) / REF_SAMPLE_RATE_HZ : null;
-}
-
-// Mirrors the frontend's describeReferenceCandidate eligibility (referenceSelection.js):
-// a clip only qualifies as a STRICT reference if it is a known 3-9s slice with a
-// complete-sentence transcript, a preferred audio type, and no risky-name hints.
-// We never freeze a non-strict pick onto a profile, so a cold start with no eligible
-// clip yet (e.g. ASR/duration metadata still landing) waits instead of poisoning it.
+// Strict eligibility is the shared selector's verdict (shared/referenceSelection.js).
 function isStrictReferenceCandidate(file) {
-  const filename = file?.filename || getBasename(file?.path);
-  if (!file?.path || !filename) return false;
-  const seconds = durationSecondsFromFilename(filename);
-  if (seconds == null || seconds < STRICT_MIN_DURATION_SECONDS || seconds > STRICT_MAX_DURATION_SECONDS) {
-    return false;
-  }
-  if (transcriptWordCount(file?.transcript) < 3) return false;
-  if (!hasSentenceEnding(file?.transcript)) return false;
-  if (RISKY_NAME_RE.test(filename)) return false;
-  const ext = extensionOf(filename);
-  if (!GOOD_AUDIO_EXTENSIONS.has(ext) && !OK_AUDIO_EXTENSIONS.has(ext)) return false;
-  if (file?.singleSpeaker === false) return false;
-  if (file?.clean === false) return false;
-  if (file?.stableLoudness === false) return false;
-  if (file?.steadyStyle === false) return false;
-  if (file?.qualityMetrics?.eligible === false) return false;
-  return true;
+  return describeReferenceCandidate(withFilename(file)).eligible;
 }
 
 // Measured audio quality (SNR/clarity) from score_clips.py lands in clip-scores.json
@@ -163,63 +44,16 @@ function isScoredStrictSelectionReady(files) {
     && files.some((file) => isStrictReferenceCandidate(file));
 }
 
+// The same selector the pages use (shared/referenceSelection.js), so every
+// surface picks the same clips for a voice. Callers only persist or use it once
+// isScoredStrictSelectionReady(files) holds, when it always has a primary.
 function chooseBestReferenceSet(files, { maxAux = 5 } = {}) {
-  const candidates = Array.isArray(files)
-    ? files.filter((file) => file?.path && (file?.filename || getBasename(file?.path)))
-    : [];
+  const selection = chooseSharedReferenceSet((Array.isArray(files) ? files : []).map(withFilename), { maxAux });
+  return { primary: selection.primary || null, aux: selection.aux || [] };
+}
 
-  if (candidates.length === 0) {
-    return { primary: null, aux: [] };
-  }
-
-  // Prefer strictly-eligible clips when any exist (mirrors the frontend), so a high
-  // audio score on an out-of-spec clip can't outrank a clean 3-9s reference.
-  const strict = candidates.filter((file) => isStrictReferenceCandidate(file));
-  const pool = strict.length > 0 ? strict : candidates;
-
-  const ranked = pool
-    .map((file) => ({ file, score: scoreReferenceClip(file) }))
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return (a.file.filename || getBasename(a.file.path))
-        .localeCompare(b.file.filename || getBasename(b.file.path));
-    });
-
-  const primary = ranked[0];
-  const remaining = ranked.slice(1);
-  const selected = [];
-  const covered = transcriptTokenSet(primary.file?.transcript);
-  const selectedTokenSets = [covered];
-  const selectedStarts = [clipStartSeconds(primary.file?.filename)].filter(Number.isFinite);
-  while (selected.length < maxAux && remaining.length > 0) {
-    let bestIndex = 0;
-    let bestUtility = -Infinity;
-    for (let index = 0; index < remaining.length; index += 1) {
-      const candidate = remaining[index];
-      const tokens = transcriptTokenSet(candidate.file?.transcript);
-      const novel = [...tokens].filter((token) => !covered.has(token)).length;
-      const noveltyRatio = tokens.size ? novel / tokens.size : 0;
-      const similarity = Math.max(...selectedTokenSets.map((set) => jaccardSimilarity(tokens, set)));
-      const start = clipStartSeconds(candidate.file?.filename);
-      const distance = Number.isFinite(start) && selectedStarts.length
-        ? Math.min(...selectedStarts.map((value) => Math.abs(value - start)))
-        : 0;
-      const utility = candidate.score + noveltyRatio * 35 - similarity * 30 + Math.min(distance / 30, 1) * 12;
-      if (utility > bestUtility) {
-        bestUtility = utility;
-        bestIndex = index;
-      }
-    }
-    const [winner] = remaining.splice(bestIndex, 1);
-    selected.push(winner.file);
-    const tokens = transcriptTokenSet(winner.file?.transcript);
-    selectedTokenSets.push(tokens);
-    for (const token of tokens) covered.add(token);
-    const start = clipStartSeconds(winner.file?.filename);
-    if (Number.isFinite(start)) selectedStarts.push(start);
-  }
-
-  return { primary: primary.file, aux: selected };
+function withFilename(file) {
+  return file && !file.filename && file.path ? { ...file, filename: getBasename(file.path) } : file;
 }
 
 function extractExpNameFromModelRef(modelRef = '') {

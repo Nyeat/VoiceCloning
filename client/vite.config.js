@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5174,
+      // The reference-clip selector is shared with the Lambda (lambda/shared).
+      fs: { allow: [__dirname, path.resolve(__dirname, '../lambda/shared')] },
       proxy: {
         '/api': {
           target: proxyTarget,
