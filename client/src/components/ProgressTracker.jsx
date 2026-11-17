@@ -96,9 +96,12 @@ export default function ProgressTracker({ steps }) {
                   <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-slate-400 lg:text-[10px] lg:tracking-[0.28em]">
                     {String(index + 1).padStart(2, '0')}
                   </p>
+                  {/* Nine columns are narrow: long words ("Recognition", "Verification")
+                      must hyphenate/wrap inside their column instead of spilling into the next. */}
                   <p
+                    lang="en"
                     className={cn(
-                      'mt-2 text-[9px] font-semibold uppercase leading-4 tracking-[0.14em] sm:text-[10px] lg:text-[11px] lg:leading-5 lg:tracking-[0.16em]',
+                      'mt-2 hyphens-auto break-words px-0.5 text-[10px] font-semibold leading-tight [overflow-wrap:anywhere] lg:text-[11px]',
                       isDone && 'text-emerald-700',
                       isRunning && 'text-sky-700',
                       isError && 'text-rose-700',
@@ -107,7 +110,7 @@ export default function ProgressTracker({ steps }) {
                   >
                     {step.name}
                   </p>
-                  <p className={cn('mt-1.5 text-[8px] font-medium uppercase tracking-[0.16em] sm:text-[9px] lg:text-[10px] lg:tracking-[0.18em]', meta.textClass)}>
+                  <p className={cn('mt-1.5 text-[8px] font-medium uppercase tracking-[0.08em] sm:text-[9px] lg:text-[10px]', meta.textClass)}>
                     {meta.label}
                   </p>
                 </div>

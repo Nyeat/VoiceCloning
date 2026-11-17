@@ -28,7 +28,8 @@ const BUSY_POLL_MS = 15000;
 const SHOW_ADVANCED_SETTINGS = import.meta.env.VITE_SHOW_ADVANCED_SETTINGS !== 'false';
 // Must match the Lambda presign allow-list (lambda/upload/index.js).
 const ACCEPTED_EXTENSIONS = ['.wav', '.flac', '.mp3', '.m4a', '.ogg'];
-const MAX_FILE_BYTES = 200 * 1024 * 1024;
+// Browser PUTs straight to S3 (single PUT allows 5 GB); a 30-60 min WAV is 0.4-1 GB.
+const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024;
 
 const UPLOAD_TIPS = [
   '10–30 minutes of your own speech in total',
@@ -81,7 +82,7 @@ function Dropzone({ onAdd, disabled }) {
     >
       <Upload size={20} className="text-slate-500" aria-hidden="true" />
       <p className="mt-3 text-sm text-slate-800"><span className="font-semibold">Choose files</span> or drag them here</p>
-      <p className="mt-1 text-xs text-slate-500">WAV or FLAC preferred · MP3, M4A, OGG accepted · up to 200 MB each</p>
+      <p className="mt-1 text-xs text-slate-500">WAV or FLAC preferred · MP3, M4A, OGG accepted · up to 2 GB each</p>
       <input
         ref={inputRef}
         type="file"
@@ -242,7 +243,7 @@ export default function TrainingPage({ consent = null }) {
     const rejected = list.filter((file) => !hasAcceptedExtension(file.name) || file.size > MAX_FILE_BYTES);
     const accepted = list.filter((file) => !rejected.includes(file));
     setFileError(rejected.length
-      ? `${rejected.map((file) => file.name).join(', ')} ${rejected.length === 1 ? 'was' : 'were'} skipped (unsupported type or over 200 MB).`
+      ? `${rejected.map((file) => file.name).join(', ')} ${rejected.length === 1 ? 'was' : 'were'} skipped (unsupported type or over 2 GB).`
       : '');
     setFiles((current) => [...current, ...accepted]);
   }

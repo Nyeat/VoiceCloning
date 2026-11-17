@@ -12,6 +12,7 @@ Last updated: 2026-11-17
   `no-traffic-15m` alarm actions disabled. One reference selector (lambda/shared). All chatbots use Live MC Medium mic
   preset. Profile/config saves strip presigned URLs (8 KB WAF). Spare staging GPU i-0da90372f6ef160d6 should scale in
   after ~05:25 UTC — confirm.
+- 2026-11-17 later: training sites take 2 GB uploads, tracker overlap fixed (worker s3Sync not deployed).
 
 - 2026-11-16: training site launched (SSO + domain, consent, guide, Test your voice); staging fixed GPU 30-min
   idle stop; staging ASG min 0 / max 3; per-voice boots (d1a0b35). Superseded where 2026-11-17 differs.

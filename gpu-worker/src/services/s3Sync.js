@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { pipeline } from 'stream/promises';
 import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { S3_BUCKET, S3_REGION, S3_PREFIX } from '../config.js';
 
@@ -48,11 +49,8 @@ export async function downloadPrefix(s3Prefix, localDir) {
           Key: obj.Key,
         }));
 
-        const chunks = [];
-        for await (const chunk of getRes.Body) {
-          chunks.push(chunk);
-        }
-        fs.writeFileSync(localPath, Buffer.concat(chunks));
+        // Stream to disk: training uploads can be 1-2 GB each.
+        await pipeline(getRes.Body, fs.createWriteStream(localPath));
         count += 1;
       }
     }
@@ -102,11 +100,7 @@ export async function downloadFile(s3Key, localPath) {
     Bucket: S3_BUCKET,
     Key: fullKey(s3Key),
   }));
-  const chunks = [];
-  for await (const chunk of response.Body) {
-    chunks.push(chunk);
-  }
-  fs.writeFileSync(localPath, Buffer.concat(chunks));
+  await pipeline(response.Body, fs.createWriteStream(localPath));
 }
 
 // Lists the immediate "subdirectory" names under an S3 prefix (one level deep)

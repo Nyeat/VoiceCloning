@@ -2259,3 +2259,10 @@
   (LKCMedicine building, user-supplied, 1313x876, 273 KB), left-weighted overlay, stacked steps so the sign
   stays visible. Preview-checked locally; photo served on both domains.
 
+- Training upload fix (deployed dev + staging training sites only): training upload limit 200 MB -> 2 GB per file
+  (client-only cap; browser PUTs straight to S3) in TrainingPage.jsx + AudioUploader.jsx hint. Progress
+  tracker step names no longer uppercase/wide-tracked and hyphenate/wrap in their column (ProgressTracker.jsx;
+  "Recognition"/"Verification" overlapped). gpu-worker s3Sync.js streams S3 downloads to disk instead of
+  buffering (NOT deployed to any GPU). Deploy role: assume Liu_Teng_Yu_Intern2026 (acct 329599637774); the
+  Identity-Switch SSO creds alone lack S3. Tests: client 539/539, worker 25/25, build:training ok; new text
+  verified in both live bundles. Not tested: a real >200 MB upload end to end; tracker layout not viewed.

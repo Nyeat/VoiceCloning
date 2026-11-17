@@ -46,7 +46,7 @@ export default function AudioUploader({ files, onFilesChange, disabled }) {
         <p className="text-sm text-slate-700">
           <span className="font-semibold">Click to upload</span> or drag &amp; drop
         </p>
-        <p className="mt-1 text-xs text-slate-400">WAV, MP3, FLAC, M4A, OGG, WEBM, MP4 up to 200MB</p>
+        <p className="mt-1 text-xs text-slate-400">WAV, MP3, FLAC, M4A, OGG, WEBM, MP4 up to 2 GB</p>
         <input
           ref={inputRef}
           type="file"
