@@ -5,6 +5,7 @@ import {
   acquireAdmissionLease,
   applyAdmissionReservations,
   bootAssignmentClaimable,
+  bootLooksLost,
   capacityStartingMessage,
   consumeCompletedBoot,
   pendingWorkerMatchesBoot,
@@ -231,4 +232,15 @@ test('a different instance may claim after the prior lease expires', () => {
     claimedBy: 'i-original',
     claimExpiresAt: now - 1,
   }), 'i-other', now), true);
+});
+
+test('a boot whose desired-capacity bump was reverted is treated as lost', () => {
+  const marker = { requestedAt: 0 };
+  // 2 min later, desired back to 0 and nothing READY: lost, retry.
+  assert.equal(bootLooksLost(marker, { DesiredCapacity: 0 }, [], 120_000), true);
+  // Group still adding a GPU (desired above READY count): not lost.
+  assert.equal(bootLooksLost(marker, { DesiredCapacity: 1 }, [], 120_000), false);
+  // Too early to judge.
+  assert.equal(bootLooksLost(marker, { DesiredCapacity: 0 }, [], 30_000), false);
+  assert.equal(bootLooksLost(null, { DesiredCapacity: 0 }, [], 120_000), false);
 });

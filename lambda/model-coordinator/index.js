@@ -825,6 +825,18 @@ export function capacityRetryAfterSeconds({ booting = false } = {}) {
   return booting ? bootEstimateSeconds : REASSIGN_RETRY_SECONDS;
 }
 
+// A boot request whose GPU never materialised: the marker is older than
+// `lostAfterMs` yet the group is not adding capacity (desired <= READY workers).
+// 2026-11-17 staging: a legacy idle scale-in alarm still in ALARM reverted the
+// desired 0->1 bump at once, and the stranded marker made every poll answer
+// "GPU starting" for the full 15-minute TTL while nothing launched.
+export function bootLooksLost(pending, group, workers = [], now = Date.now(), lostAfterMs = 90_000) {
+  if (!pending) return false;
+  if (now - Number(pending.requestedAt || 0) < lostAfterMs) return false;
+  const ready = workers.filter((worker) => worker.reachable !== false && worker.state === 'READY').length;
+  return Number(group?.DesiredCapacity || 0) <= ready;
+}
+
 export function capacityStartingMessage({ booting = false } = {}) {
   return booting
     ? 'A new GPU is starting and loading this voice. Please wait a moment.'
@@ -855,6 +867,15 @@ async function prepareCapacity(event) {
     item.id === coordinationKey('PENDING', modelKey) && now - item.requestedAt < pendingTtlMs
   ));
   if (await consumeCompletedBoot(booting, workers, modelKey)) booting = null;
+  if (!routingOnly() && bootLooksLost(booting, group, workers, now)) {
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'prepare', source, decision: 'boot-lost-retry', allowScale,
+      voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
+      desiredCapacity: group.DesiredCapacity,
+    }));
+    await document.send(new DeleteCommand({ TableName: tableName, Key: { id: booting.id } })).catch(() => {});
+    booting = null;
+  }
   if (freeSlots > 0) {
     console.log('[model-coordinator][decision]', JSON.stringify({
       request: 'prepare', source, decision: 'route', allowScale, voiceProfileId: clean(model.voiceProfileId),
