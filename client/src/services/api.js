@@ -8,6 +8,7 @@ import { isGpuOfflineResponse, synthesisResponseError } from '../lib/synthesisRe
 import { API_BASE_URL, resolveApiPath, getStorageMode, isS3Mode } from '@/lib/runtimeConfig';
 import { APP_MODE_CONFIG } from '@/lib/appMode';
 import { isWafBlockResponse, oversizedRequestError, OVERSIZED_REQUEST_MESSAGE } from '@/lib/requestSizeGuard';
+import { stripSignedUrls } from '@/lib/stripSignedUrls';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -20,9 +21,11 @@ const METHODS_REQUIRING_PAYLOAD_HASH = new Set(['post', 'put', 'patch', 'delete'
 // (App.jsx gives it neither the Start GPU button nor the starting overlay), so
 // telling a student to press a button that isn't on their screen is a dead end —
 // there the instance auto-starts and waiting is the actual remedy.
-export const GPU_OFFLINE_MESSAGE = APP_MODE_CONFIG.gi
-  ? 'The voice engine is still starting up — please try again in a moment.'
-  : 'GPU not started — press Start GPU to begin.';
+// The same status also covers a queued sentence timing out while a voice GPU
+// starts or switches, where "press Start GPU" is wrong (no such button exists
+// for voice GPUs), so every build uses the neutral wording. Dev's header badge
+// still says "GPU stopped · Start" when the GPU really is off.
+export const GPU_OFFLINE_MESSAGE = 'The voice engine is not ready yet — it may be starting. Please try again in a moment.';
 
 export { isGpuOfflineResponse };
 
@@ -351,7 +354,7 @@ export function activateVoiceProfile(profile) {
   });
   writeVoiceProfileBrowserDebug('activate request', requestDebug);
 
-  return api.post('/voice-profile/activate', profile)
+  return api.post('/voice-profile/activate', stripSignedUrls(profile))
     .then((response) => {
       writeVoiceProfileBrowserDebug('activate response', createVoiceProfileBrowserDebugSummary({
         context: 'activate response',
@@ -417,7 +420,7 @@ export function getVoiceProfileConfigs(voiceProfileId) {
 export function saveVoiceProfileConfig(voiceProfileId, configId, config) {
   return api.post(
     `/voice-profile/configs/${encodeURIComponent(voiceProfileId)}/${encodeURIComponent(configId)}`,
-    config,
+    stripSignedUrls(config),
   );
 }
 

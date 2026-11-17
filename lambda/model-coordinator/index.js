@@ -536,6 +536,7 @@ export async function requestScale(
     modelKey,
     synthesisBody,
     requestedAt: now,
+    targetDesired: desired + 1,
     expiresAt: Math.floor((now + pendingTtlMs) / 1_000),
   };
   try {
@@ -831,10 +832,13 @@ export function capacityRetryAfterSeconds({ booting = false } = {}) {
 // desired 0->1 bump at once, and the stranded marker made every poll answer
 // "GPU starting" for the full 15-minute TTL while nothing launched.
 export function bootLooksLost(pending, group, workers = [], now = Date.now(), lostAfterMs = 90_000) {
-  if (!pending) return false;
+  if (!pending || pending.claimedBy) return false;
   if (now - Number(pending.requestedAt || 0) < lostAfterMs) return false;
-  const ready = workers.filter((worker) => worker.reachable !== false && worker.state === 'READY').length;
-  return Number(group?.DesiredCapacity || 0) <= ready;
+  const desired = Number(group?.DesiredCapacity || 0);
+  const target = Number(pending.targetDesired || 0);
+  if (target > 0) return desired < target;
+  // Markers written before targetDesired existed: only the unambiguous case.
+  return desired === 0 && workers.length === 0;
 }
 
 export function capacityStartingMessage({ booting = false } = {}) {
@@ -1178,7 +1182,9 @@ async function synthesize(event) {
         } else {
           queueFull = true;
         }
-        if (action.capacityAction.type === 'reassign') {
+        if (!queueFull) {
+          capacityAction = null;
+        } else if (action.capacityAction.type === 'reassign') {
           const result = await scheduleReassignment(action.capacityAction.worker, modelKey, body, Date.now());
           capacityAction = { type: 'reassign', started: result.started };
         } else {

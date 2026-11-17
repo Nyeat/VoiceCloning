@@ -235,12 +235,14 @@ test('a different instance may claim after the prior lease expires', () => {
 });
 
 test('a boot whose desired-capacity bump was reverted is treated as lost', () => {
-  const marker = { requestedAt: 0 };
-  // 2 min later, desired back to 0 and nothing READY: lost, retry.
+  const marker = { requestedAt: 0, targetDesired: 1 };
+  // 2 min later the group is back at 0: the launch was undone, retry.
   assert.equal(bootLooksLost(marker, { DesiredCapacity: 0 }, [], 120_000), true);
-  // Group still adding a GPU (desired above READY count): not lost.
-  assert.equal(bootLooksLost(marker, { DesiredCapacity: 1 }, [], 120_000), false);
-  // Too early to judge.
+  // Still booting (desired held at 1, worker not READY yet): not lost.
+  assert.equal(bootLooksLost(marker, { DesiredCapacity: 1 }, [{ state: 'STARTING', reachable: false }], 120_000), false);
+  // A worker already claimed it: never lost.
+  assert.equal(bootLooksLost({ ...marker, claimedBy: 'i-new' }, { DesiredCapacity: 0 }, [], 120_000), false);
+  // Too early to judge, or no marker.
   assert.equal(bootLooksLost(marker, { DesiredCapacity: 0 }, [], 30_000), false);
   assert.equal(bootLooksLost(null, { DesiredCapacity: 0 }, [], 120_000), false);
 });

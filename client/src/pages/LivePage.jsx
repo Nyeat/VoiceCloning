@@ -4482,7 +4482,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
 
   // Live Fast / Live Full engine toggle — shared so it can render in both the
   // full-app top bar and the kiosk (where the rest of the top-bar chrome is hidden).
-  const engineToggle = (
+  // While Live Full stays hidden there is nothing to choose, so no "Engine:
+  // Live Fast" label is shown at all (set LIVE_FULL_HIDDEN false to bring it back).
+  const LIVE_FULL_HIDDEN = true;
+  const engineToggle = LIVE_FULL_HIDDEN ? null : (
     <div className="flex items-center gap-2">
       <span className="shrink-0 text-[11px] font-semibold uppercase tracking-widest text-slate-400">Engine</span>
       <div className="inline-flex rounded-xl border border-slate-200 bg-white p-0.5">
@@ -4490,7 +4493,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
           { value: 'fast', label: 'Live Fast' },
           // Live Full is kept wired up but hidden from the UI for now — flip
           // hidden to false to expose it again.
-          { value: 'full', label: 'Live Full', hidden: true },
+          { value: 'full', label: 'Live Full', hidden: LIVE_FULL_HIDDEN },
         ].filter((option) => !option.hidden).map((option) => (
           <button
             key={option.value}

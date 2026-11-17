@@ -19,6 +19,15 @@ import {
   sanitizeBackendError,
 } from '../lib/backendErrors.js';
 import { runSynthesisWithRetry } from '../lib/synthesisRetry.js';
+import { MC_DEFAULT_CAPTURE, mcMicConstraints, mcSessionOptions } from '../lib/mcSession.js';
+
+// One microphone/turn-taking setup for every chatbot: Live MC's recommended
+// "Medium" preset (server VAD 0.65, 0.7 s end-of-turn pause, far-field noise
+// reduction, browser noise suppression). Live MC alone overrides it from its
+// sliders. Before 2026-11-17 the other chatbots sent nothing and got the
+// gateway's semantic VAD, which can wait ~4 s to end a turn.
+const DEFAULT_SESSION_OPTIONS = Object.freeze(mcSessionOptions(MC_DEFAULT_CAPTURE));
+const DEFAULT_MIC_CONSTRAINTS = Object.freeze(mcMicConstraints(MC_DEFAULT_CAPTURE));
 import {
   VIDEO_POSITION_SYNC_INTERVAL_MS,
   shouldSendVideoPosition,
@@ -210,8 +219,8 @@ export function useLiveSpeech({
   const fullDuplexRef = useRef(fullDuplex);
   fullDuplexRef.current = fullDuplex;
   const micCaptureRef = useRef(null);
-  const micConstraintsRef = useRef(micConstraints);
-  micConstraintsRef.current = micConstraints;
+  const micConstraintsRef = useRef(micConstraints || DEFAULT_MIC_CONSTRAINTS);
+  micConstraintsRef.current = micConstraints || DEFAULT_MIC_CONSTRAINTS;
   // OpenAI's VAD says the user is talking right now (between speech events).
   const userSpeakingRef = useRef(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
@@ -1939,7 +1948,7 @@ export function useLiveSpeech({
     socket = createLiveChatSocket({
       language: liveLanguage,
       systemPrompt: prompt,
-      sessionOptions,
+      sessionOptions: sessionOptions || DEFAULT_SESSION_OPTIONS,
       // Same gate the REST client uses, so the socket and the API agree on
       // whether this build authenticates at all.
       getAuthToken: shouldAttachApiToken() ? acquireApiToken : null,
