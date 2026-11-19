@@ -5,7 +5,11 @@
   has autoscaling:TerminateInstanceInAutoScalingGroup (logs show AccessDenied otherwise); add the fixed staging GPU as a permanent inference worker (check VRAM beside
   training); let lectures send text while STARTING; server-side owner check for cloned-voice synthesis; live-prove
   the six-request/three-GPU burst (scale-from-0 seen live 2026-11-17); delete the other inert ASG policies/alarms.
-  Confirm idle-check logs `removedInferenceWorker` and the spare staging GPU scales in after 40 idle min.
+- [ ] Boot-warm gate (2026-11-19) releases ~2 min late on the current AMI: add SG ingress tcp 3103 on
+  sg-03a2f3dddf4eff21c from coordinator SG sg-0acbdd24318784b70 (auto-mode blocked Claude), or rebake the AMI
+  so workers report residencySource. Re-check a scale-from-0 releases at warm completion.
+- [ ] Admin: add https://d3k2rz0hqm8nxi.cloudfront.net as SPA redirect URI on Entra app 9b5c52c0 (Faculty).
+- [ ] Owner: accept Training-site consent, then browser-test upload/train/Test your voice on staging.
 - [ ] Decide whether Test your voice should stop marking the tested voice as the system-wide active profile
   (`makeActive: !canEditInstructions`); it can change other sites' default voice.
 

@@ -1,7 +1,16 @@
 # Bugs
 
-- Open 2026-11-16: training sites sign-in fails AADSTS50011 (redirect URIs not registered on Entra app 9b5c52c0);
-  Lambda already requires sign-in, so training is unusable on dev and staging until an admin adds them.
+- Open 2026-11-19: Faculty Voice Assistant (staging d3k2rz0hqm8nxi) sign-in fails AADSTS50011 — its URL is not
+  a redirect URI on Entra app 9b5c52c0 (training sites were fixed 11-16). Admin: add it as an SPA redirect URI.
+- Open 2026-11-19: Live MC (d32nzk2gacfhag) now has a hand-added CloudFront `/api/*` behaviour, so
+  `scripts/test-staging-mc.mjs` fails its "no admin API" check. Exposure equals the GI site (instance/status,
+  instance/start, voice-profile/active answer unsigned on both); decide whether to remove it or update the test.
+- Open 2026-11-19: Live MC and chatbot voice chat need the FIXED staging GPU (gateway tg-3002 has only
+  i-0f0da8be59367f7a8, 30-min idle stop); Live MC has no start API, so it 503s whenever that GPU is stopped.
+- Fixed 2026-11-19: staging GPUs never scaled in — coordinator role lacked TerminateInstanceInAutoScalingGroup.
+- Fixed 2026-11-19: a new ASG GPU was routed users ~4 min before its boot warm finished (bounced 503s, a needless
+  extra GPU, and a risk of failing the script's /coordinator/register). Gate in coordinator; see CHANGELOG.
+- Fixed 2026-11-19: the idle spare copy of a busy voice could not be switched to another voice.
 - Open 2026-11-16: synthesis is not owner-checked server-side — any signed-in user can speak any cloned voice id
   (Faculty and Test-your-voice only filter in the UI).
 - Open 2026-11-16: from 0 GPUs a lecture blocks the whole composer (typing too) for ~10 min while the voice starts.

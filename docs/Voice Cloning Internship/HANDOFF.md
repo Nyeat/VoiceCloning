@@ -1,6 +1,6 @@
 # Voice Cloning Project Handoff
 
-Last updated: 2026-11-17
+Last updated: 2026-11-19
 
 ## Current State
 
@@ -10,9 +10,9 @@ Last updated: 2026-11-17
   queueing ("may be slower"); 8 s visible-tab dwell before any switch or boot (Dev too); boot done when READY with the
   voice; lost boots retried; 40 min per-GPU scale-in, spare copies by own activity, swept from idle-check too; legacy
   `no-traffic-15m` alarm actions disabled. One reference selector (lambda/shared). All chatbots use Live MC Medium mic
-  preset. Profile/config saves strip presigned URLs (8 KB WAF). Spare staging GPU i-0da90372f6ef160d6 should scale in
-  after ~05:25 UTC — confirm.
-- 2026-11-17 later: training sites take 2 GB uploads, tracker overlap fixed (worker s3Sync not deployed).
+  preset. Profile/config saves strip presigned URLs (8 KB WAF). 11-17 later: 2 GB training uploads (s3Sync undeployed).
+- 2026-11-19: 26c0f1a deployed dev + staging Lambdas/coordinators. Scale-in IAM granted; new GPUs stay STARTING
+  until boot warm ends; idle spare copies switch voices. Faculty sign-in broken (AADSTS50011). See CHANGELOG/BUGS.
 
 - 2026-11-16: training site launched (SSO + domain, consent, guide, Test your voice); staging fixed GPU 30-min
   idle stop; staging ASG min 0 / max 3; per-voice boots (d1a0b35). Superseded where 2026-11-17 differs.
@@ -37,8 +37,7 @@ PROVEN LIVE, 2026-08-31:
   `queuedAdmission: true`), and exactly one overflow GPU is prepared
   (route -> route -> queue -> post-admission scale).
 - Concurrent different-voice selections during an in-flight switch neither scale nor thrash.
-- Natural scale-in 2 -> 1 on the 15-minute no-traffic alarm; Dev routing-only simulation message,
-  then a real reassign and a real WAV on the fixed GPU.
+- Dev routing-only simulation message, then a real reassign and a real WAV on the fixed GPU.
 
 PROVEN LIVE/DEPLOYED, 2026-09-01:
 

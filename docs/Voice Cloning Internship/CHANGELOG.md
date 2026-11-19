@@ -2266,3 +2266,26 @@
   buffering (NOT deployed to any GPU). Deploy role: assume Liu_Teng_Yu_Intern2026 (acct 329599637774); the
   Identity-Switch SSO creds alone lack S3. Tests: client 539/539, worker 25/25, build:training ok; new text
   verified in both live bundles. Not tested: a real >200 MB upload end to end; tracker layout not viewed.
+
+## 2026-11-19 (scale-in IAM, boot-warm gate, spare-copy switching; deployed dev + staging)
+
+- Root cause of GPUs never scaling in (11-17): staging coordinator role was denied
+  `autoscaling:TerminateInstanceInAutoScalingGroup` (21 failed sweeps). Admin granted it 11-19. Note: stopping an
+  ASG instance in the EC2 console makes the ASG replace it; lower desired capacity instead.
+- 8e95a4c + 8001a93 lambda/model-coordinator/index.js: a newly booted ASG GPU reported READY with the voice ~4 min
+  before warm-staging-deanvoice.sh finished its slot-filling rounds; the coordinator also ran /coordinator/assign in
+  parallel with the script, routed users into busy slots (503 MODEL_QUEUE_TIMEOUT) and scaled out a needless 2nd
+  GPU. Booted workers now stay STARTING until warmed: residencySource 'coordinator' (newer workers), TCP connect
+  to Target Optimizer :3103 (needs SG rule, see TODO), else 15 min from first answer (MODEL_BOOT_WARM_GRACE_MS).
+- 26c0f1a decision.js: reassignment counted a voice's demand against every copy, so the idle spare copy of a
+  busy voice could not switch to another voice (TTS page waited 3+ min on await-reassign-grace). Demand now
+  protects only the last copy, as scale-in does.
+- 8e95a4c scripts/load-test-staging-{tts,chatbot}.mjs send `x-amz-content-sha256` (AWS_IAM Lambda URLs 403'd
+  every load test); TTS load test takes optional VCS_LOAD_TEST_ENTRA_TOKEN.
+- Tests: lambda 373/373, coordinator 73/73, client 539/539, inference worker 268/268, gateway 185/185.
+  Live staging: scale 0->1 once on prepare; READY ~11 min; warm synth 5 s; gate held i-00e124c5568a7e290
+  STARTING through its warm (released 07:55, warm done 07:53); GI lecture chatbot answer + Dean voice, all
+  sentences routed to the oldest GPU; Live Fast idle spare switched to cs-tengyu-liu_5, chat + Live Fast +
+  Full Inference audio; Live MC smoke (2 turns, context kept) passes except its stale "no admin API" check.
+  Dev coordinator status + site OK. Not tested: Training site (consent is the owner's to accept), Faculty
+  (sign-in broken, see BUGS), microphone input, burst/overflow tests.
