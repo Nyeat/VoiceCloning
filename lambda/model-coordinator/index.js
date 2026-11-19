@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import net from 'node:net';
 import {
   AutoScalingClient,
   DescribeAutoScalingGroupsCommand,
@@ -185,21 +186,40 @@ async function probeWorker(worker) {
   }
 }
 
+// Boot warm is done when the worker registers (newer workers report
+// residencySource 'coordinator'), or when the AMI's Target Optimizer on 3103
+// accepts connections: systemd starts it only after the warm ExecStartPost
+// exits. The grace runs from the worker's first answer, so a failed script
+// cannot strand a GPU; once released, a worker is never gated again.
 export function gateBootWarm(worker, now = Date.now(), {
   enabled = true,
   graceMs = bootWarmGraceMs,
 } = {}) {
-  const bootRegistered = worker.bootRegistered === true || worker.residencySource === 'coordinator';
-  const bootWarming = enabled
-    && !bootRegistered
-    && worker.reachable !== false
-    && now - Number(worker.firstSeenAt || 0) < graceMs;
+  const reachableSince = Number(worker.firstReachableAt || 0);
+  const signalled = worker.residencySource === 'coordinator' || worker.warmPortOpen === true;
+  const graceOver = reachableSince > 0 && now - reachableSince >= graceMs;
+  const bootRegistered = !enabled || worker.bootRegistered === true || signalled || graceOver;
+  const bootWarming = !bootRegistered && worker.reachable !== false;
+  const { warmPortOpen, ...rest } = worker;
   return {
-    ...worker,
+    ...rest,
     bootRegistered,
     bootWarming,
     ...(bootWarming && worker.state === 'READY' ? { state: 'STARTING' } : {}),
   };
+}
+
+function tcpPortOpen(host, port, timeoutMs = 800) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port });
+    const done = (open) => {
+      socket.destroy();
+      resolve(open);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
 }
 
 async function refreshFleet(existingItems, now = Date.now()) {
@@ -241,7 +261,16 @@ async function refreshFleet(existingItems, now = Date.now()) {
       firstSeenAt: prior.firstSeenAt || now,
       updatedAt: now,
     });
-    return gateBootWarm(probed, now, { enabled: !routingOnly() });
+    // A worker already serving before this field existed keeps its old start.
+    probed.firstReachableAt = prior.firstReachableAt
+      || (prior.reachable === true ? prior.firstSeenAt : 0)
+      || (probed.reachable ? now : 0);
+    const gateEnabled = !routingOnly();
+    if (gateEnabled && probed.reachable && prior.bootRegistered !== true
+      && probed.residencySource !== 'coordinator') {
+      probed.warmPortOpen = await tcpPortOpen(probed.privateIp, 3103);
+    }
+    return gateBootWarm(probed, now, { enabled: gateEnabled });
   }));
   await Promise.all(workers.map((worker) => document.send(new PutCommand({
     TableName: tableName,
