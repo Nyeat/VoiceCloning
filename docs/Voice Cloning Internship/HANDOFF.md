@@ -8,7 +8,7 @@ Last updated: 2026-11-19
   login redesigned (LKCMedicine photo, privacy popup on arrival); "Training GPU" badge hidden on Test your voice;
   dismissible GPU wait popup with estimates on every site. Coordinator: overflow = all slots taken -> switch/add while
   queueing ("may be slower"); 8 s visible-tab dwell before any switch or boot (Dev too); boot done when READY with the
-  voice; lost boots retried; 40 min per-GPU scale-in, spare copies by own activity, swept from idle-check too; legacy
+  voice; lost boots retried; 30 min per-GPU scale-in (fixed GPU idle-off 40, since 11-19), spare copies by own activity, swept from idle-check too; legacy
   `no-traffic-15m` alarm actions disabled. One reference selector (lambda/shared). All chatbots use Live MC Medium mic
   preset. Profile/config saves strip presigned URLs (8 KB WAF). 11-17 later: 2 GB training uploads (s3Sync undeployed).
 - 2026-11-19: 26c0f1a deployed dev + staging Lambdas/coordinators. Scale-in IAM granted; new GPUs stay STARTING

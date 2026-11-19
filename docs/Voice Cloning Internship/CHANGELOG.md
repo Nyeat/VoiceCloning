@@ -2320,3 +2320,6 @@
   Email history (staging journal since 25 Aug): 8 trainings, 8 "Notification email sent" (5 to cs-tengyu.liu@);
   Dev worker journal (since 21 Aug) has no training at all. Sending works; any loss is after Gmail accepts it
   (NTU filtering). One test email sent 17:56 SGT to cs-tengyu.liu@assoc.main.ntu.edu.sg — delivery unconfirmed.
+- 54ca01a (deployed dev + staging Lambdas, training clients): timers swapped per owner — fixed GPU idle-off
+  GPU_IDLE_STOP_MINUTES 30 -> 40 (dev + staging), voice-GPU scale-in MODEL_SCALE_IN_IDLE_MS 40 -> 30 min
+  (staging coordinator; code default 30). Guided tour says 40 idle minutes. Live env read back: 40 / 40 / 1800000.
