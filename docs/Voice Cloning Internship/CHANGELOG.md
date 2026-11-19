@@ -2313,3 +2313,10 @@
 - a2ab6cd training email sender shows "LKCMedicine Voice Cloning" (Gmail account unchanged; EMAIL_FROM_NAME
   overrides). Workers redeployed on both training GPUs (were 23 commits behind; also delivers the s3Sync
   streaming fix); all three services healthy. Sending itself already worked (logs 11-17). No test email sent.
+- Evening 11-19 (deployed): 4e3c32d Live MC gets the shared GPU popups (fixed-GPU start/off screens, Dean voice
+  Starting/Switching wait, heavily-loaded notice) and a locked Start until ready; /api/voice-profile/capacity now
+  accepts LIVE_AUTH_EXEMPT_ORIGINS (MC 200, other unsigned 401, verified live). aeca659 training worker logs an
+  SMTP login check at startup: both training GPUs "SMTP login OK — training emails are ON" (17:47/17:51 SGT).
+  Email history (staging journal since 25 Aug): 8 trainings, 8 "Notification email sent" (5 to cs-tengyu.liu@);
+  Dev worker journal (since 21 Aug) has no training at all. Sending works; any loss is after Gmail accepts it
+  (NTU filtering). One test email sent 17:56 SGT to cs-tengyu.liu@assoc.main.ntu.edu.sg — delivery unconfirmed.
