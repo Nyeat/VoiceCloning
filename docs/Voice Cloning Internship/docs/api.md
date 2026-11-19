@@ -114,6 +114,9 @@ Notes:
   another owner's voice. Stored at `voice-labels/<voiceName>.json`; `/mine` returns it as `label`. Display only.
 - `POST /api/voice-profile/capacity` — authenticated lecture-voice preflight (also unsigned for
   LIVE_AUTH_EXEMPT_ORIGINS, i.e. Live MC). STARTING/WARMING answers carry `waitStartedAt` (ms) for the popup timer.
+  `{ "voiceProfileId", "peek": true }` is read-only (coordinator action `peek`: saved worker rows, no probe, no
+  selection record, never scales) and returns `{ state: READY|BUSY_QUEUED|BUSY_STARTING|BUSY_WARMING|UNKNOWN, busy }`;
+  every page on a voice polls it every 20 s. Prepare can also answer BUSY_QUEUED (loaded voice, slots full: no scale).
   - Request: `{ "voiceProfileId": "<safe saved profile ID>" }`. Lambda loads the
     saved profile and sends its immutable GPT/SoVITS snapshot to the staging model
     coordinator.

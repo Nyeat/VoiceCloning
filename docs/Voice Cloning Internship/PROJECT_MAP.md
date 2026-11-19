@@ -19,8 +19,9 @@
 - `src/App.jsx` — routes per build; training mode renders `src/training/TrainingApp.jsx` (SSO, consent, guide,
   tabs `/` and `/test-voice`). GPU badge `components/GpuInstanceControl.jsx`, rules `lib/gpuStatusModel.js`.
 - `src/training/GuidedTour.jsx` — spotlight tour from the header "?" (steps target `data-tour` attributes).
-- `src/components/GpuWaitDialog.jsx` — dismissible GPU/voice wait popup (estimate + timer), all builds.
-- `src/pages/TrainingPage.jsx` — Train tab: upload, start/stop, busy banner, own voices. Test tab = `LivePage variant="voice-test"`.
+- `src/components/GpuWaitDialog.jsx` — GPU/voice wait popup, all builds; closed = "Show" pill; survives reload.
+- `src/pages/TrainingPage.jsx` — Train tab (progress: `components/SimpleTrainingProgress.jsx`; script: `training/readingScript.js`,
+  `ReadingScriptDialog.jsx`; entry prewarm: `training/useInferencePrewarm.js`). Test tab = `LivePage variant="voice-test"`.
 - `src/pages/LivePage.jsx`; `src/pages/McSessionPage.jsx` (+ `src/lib/mcSession.js`) — staging-only Live MC page, build mode `mc`
   - Live chatbot UI, model selection, trained reference selection, cloned voice playback, Text to Speech tab, pronunciation admin panel.
 - `src/pages/SupervisorDashboardPage.jsx` — dev `/admin` graph ranking and learner evidence; S3 index/evidence replays: `scripts/backfill-analytics-user-index.mjs`, `scripts/backfill-learner-evidence.mjs`.
@@ -38,8 +39,7 @@
   - Auto-picks primary and auxiliary reference clips from training audio.
   - Scoring now prefers clean names/transcripts and ideal clip length (~3-9s).
 - `src/lib/pronunciationCsv.js` — Pronunciation dictionary CSV import/export.
-- `vite.config.js`
-  - Local dev server and proxy rules for `/api`, `/train/progress`, `/inference/progress`.
+- `vite.config.js` — dev server + proxy rules. `src/auth/tokenExpiry.js` — refresh expiring ID tokens.
 
 ## Lambda REST Backend (`lambda/`)
 

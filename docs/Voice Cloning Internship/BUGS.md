@@ -1,5 +1,13 @@
 # Bugs
 
+- Open 2026-11-19: intermittent "Sign in to …" on staging; likely cause an expired cached MSAL ID token (now
+  force-refreshed, 056dd32) but NOT confirmed: the Lambda does not log 401s. Screenshot the exact wording if seen again.
+- Fixed 2026-11-19 (127deed): queued-while-scaling replies failed "The voice engine is not ready yet" — live and
+  /inference routes dropped MODEL_QUEUE_FULL/TIMEOUT codes (bare 503, no client retry). One shared forwarder now.
+- Fixed 2026-11-19 (056dd32): "No reference audio configured" right after picking a voice (Send enabled before
+  page refs loaded; the chat refused). A saved voice now sends its id and the server resolves the refs.
+- Fixed 2026-11-19 (289832d): Test your voice stayed locked after returning to an already-loaded voice (a
+  superseded load left loadingModel true). Selection now releases the lock and always re-prepares.
 - Open 2026-11-19: Faculty Voice Assistant (staging d3k2rz0hqm8nxi) sign-in fails AADSTS50011 — its URL is not
   a redirect URI on Entra app 9b5c52c0 (training sites were fixed 11-16). Admin: add it as an SPA redirect URI.
 - Fixed 2026-11-19 19:0x SGT: training uploads failed "Failed to fetch" on voicecloning.lkcmedicine.org — origin was
