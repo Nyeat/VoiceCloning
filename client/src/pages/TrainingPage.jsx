@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertCircle, AudioLines, CheckCircle2, ChevronDown, Clock3, Play, Square, Upload, X } from 'lucide-react';
 import FloatingNotice from '../components/FloatingNotice.jsx';
 import SimpleTrainingProgress from '../components/SimpleTrainingProgress.jsx';
+import ReadingScriptButton from '../training/ReadingScriptDialog.jsx';
 import Spinner from '../components/Spinner.jsx';
 import {
   allocateTrainingVoiceName,
@@ -558,6 +559,7 @@ export default function TrainingPage({ consent = null }) {
               ))}
             </ul>
             <p className="mt-3 text-xs leading-5 text-slate-500">A recorded lecture with student questions cut out is ideal.</p>
+            <ReadingScriptButton />
           </section>
 
           {config.authEnabled ? (

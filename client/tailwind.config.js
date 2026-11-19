@@ -93,6 +93,10 @@ export default {
           from: { opacity: "0", transform: "translateY(9px)" },
           to: { opacity: "1", transform: "none" },
         },
+        shine: {
+          "0%": { transform: "translateX(-120%)" },
+          "60%, 100%": { transform: "translateX(220%)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.4s ease",
@@ -106,6 +110,7 @@ export default {
         "pulse-ring": "pulse-ring 1.6s ease-out infinite",
         "pulse-ring-fast": "pulse-ring 0.8s ease-out infinite",
         "rise-in": "rise-in 0.52s cubic-bezier(0.16, 1, 0.3, 1) both",
+        shine: "shine 3.2s ease-in-out infinite",
       },
     },
   },
