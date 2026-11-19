@@ -293,6 +293,8 @@ These live in runtime configuration and will not appear in any branch diff:
 - Every chatbot uses Live MC's Medium mic preset unless Live MC's sliders override it.
 
 ## 2026-11-19 — Switch vs add a GPU
-- A GPU belongs to whoever messaged it (or switched it) in the last 10 min on staging: another voice gets a new
-  GPU rather than taking it. An open page that sends nothing is not use. A loaded voice adds GPUs only through
-  real queue overflow, never on page open. Fixed-GPU Dev keeps 3 min and waits instead of adding.
+- A GPU belongs to whoever messaged, switched or selected its voice in the last 10 min on staging: another
+  voice gets a new GPU rather than taking it (selection protects only the voice's last copy). A loaded voice
+  adds GPUs only through real queue overflow, never on page open. Fixed-GPU Dev keeps 3 min and waits.
+- Every coordinator capacity code must reach the browser unchanged (one shared Lambda helper); a bare 503
+  reads as "engine not ready" and is not auto-retried.

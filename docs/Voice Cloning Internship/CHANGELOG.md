@@ -2358,3 +2358,18 @@
   training/live-fast/chatbot/chatbot-text/mc, dev training/live-fast/chatbot; new strings verified in 4 live App
   chunks. Tests: client 546, lambda 381, coordinator 76. Not live-tested: the multi-tab switch/add scenarios,
   BUSY_QUEUED, the prewarm boot.
+
+## 2026-11-19 (night) — queue codes, selection protection, reload persistence (127deed, deployed)
+
+- Root cause of "Voice reply failed: The voice engine is not ready yet" during a three-tab spam test: live
+  (/live/tts-sentence) and /inference forwarded only MODEL_CAPACITY_STARTING/LIMIT codes, so the coordinator's
+  MODEL_QUEUE_FULL/TIMEOUT (fleet at max 3, voice 4 overflow) reached the browser as a bare 503 and was not
+  auto-retried. Shared `capacityErrorResponse` (lambda/shared/modelCoordinator.js) forwards every coded answer.
+  Live log 22:08-22:45 SGT: voice 4 GPU, then voice 3 and voice 5 each scaled (10-min rule), desired 3 = max.
+- Selection counts as use again for a voice's last GPU (lastDemandByModel); spare copies idle by own activity.
+- Reload keeps: fixed-GPU wait timer (instance status `launchedAt` = EC2 LaunchTime while not ready), closed
+  popups (sessionStorage list), selected voice (`?voice=`). Chat transcript is NOT restored (audio blobs and the
+  realtime session do not survive a reload). Busy voice after a queued reply shows "Voice is heavily loaded".
+- Deployed dev + staging Lambdas/coordinators and all 8 clients; new code verified in 4 live App chunks, staging
+  /api/instance/status 200. Tests: client 546, lambda 383, coordinator 76. Not live-tested: queue-code retry path,
+  launchedAt during a real fixed-GPU start.
