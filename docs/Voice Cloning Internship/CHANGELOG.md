@@ -2374,7 +2374,7 @@
   /api/instance/status 200. Tests: client 546, lambda 383, coordinator 76. Not live-tested: queue-code retry path,
   launchedAt during a real fixed-GPU start.
 
-## 2026-11-19 (late night) — reference/sign-in errors, shared busy notice, simple training progress (056dd32, NOT deployed)
+## 2026-11-19 (late night) — reference/sign-in errors, shared busy notice, simple training progress (056dd32, deployed)
 
 - "No reference audio configured" on Test your voice: a saved voice counted ready (server resolves refs by id) before
   page refs loaded, but useLiveSpeech refused to open; createLiveSynthesisSnapshot now sends `{ voiceProfileId }`.
@@ -2385,4 +2385,6 @@
   no demand/selection record, never scales); POST /api/voice-profile/capacity `{peek:true}`; LivePage polls every
   20 s while visible (replaces capacityWatch). WORKER rows now carry coordinatorScope. Lectures (GI) not covered.
 - Training page: one bar + three stages (lib/trainingProgress.js, SimpleTrainingProgress.jsx); ProgressTracker removed.
-- Tests: client 550, lambda 385, coordinator 77; all 5 client builds pass. Deploy pending fresh VCS_AWS_* credentials.
+- Tests: client 550, lambda 385, coordinator 77; all 5 client builds pass. Deployed dev + staging
+  Lambdas/coordinators and all 8 clients; new code verified in 4 live sites; staging coordinator `peek` answers.
+  Sign-in cause still unconfirmed: the Lambda does not log 401s and gateway logs are not in CloudWatch.
