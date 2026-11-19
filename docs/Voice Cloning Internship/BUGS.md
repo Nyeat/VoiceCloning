@@ -2,6 +2,9 @@
 
 - Open 2026-11-19: Faculty Voice Assistant (staging d3k2rz0hqm8nxi) sign-in fails AADSTS50011 — its URL is not
   a redirect URI on Entra app 9b5c52c0 (training sites were fixed 11-16). Admin: add it as an SPA redirect URI.
+- Open 2026-11-19: training-complete emails to SSO addresses (@assoc/staff/student.main.ntu.edu.sg) bounce
+  "Address not found" — those domains have no public MX (Microsoft 365 internal only); Gmail SMTP cannot reach
+  them. Needs an NTU Office 365 sender (shared mailbox + SMTP AUTH, or Graph Mail.Send) from NTU IT.
 - Open 2026-11-19: Live MC (d32nzk2gacfhag) now has a hand-added CloudFront `/api/*` behaviour, so
   `scripts/test-staging-mc.mjs` fails its "no admin API" check. Exposure equals the GI site (instance/status,
   instance/start, voice-profile/active answer unsigned on both); decide whether to remove it or update the test.

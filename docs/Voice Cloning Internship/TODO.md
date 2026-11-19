@@ -8,6 +8,7 @@
 - [ ] Boot-warm gate (2026-11-19) releases ~2 min late on the current AMI: add SG ingress tcp 3103 on
   sg-03a2f3dddf4eff21c from coordinator SG sg-0acbdd24318784b70 (auto-mode blocked Claude), or rebake the AMI
   so workers report residencySource. Re-check a scale-from-0 releases at warm completion.
+- [ ] NTU IT: shared mailbox with SMTP AUTH (or Graph Mail.Send) for training emails; then set EMAIL_HOST=smtp.office365.com etc. on both training GPUs.
 - [ ] Admin: add https://d3k2rz0hqm8nxi.cloudfront.net as SPA redirect URI on Entra app 9b5c52c0 (Faculty).
 - [ ] Admin: grant autoscaling:TerminateInstanceInAutoScalingGroup on ASG vcs-staging-gpu-inference to
   Liu_Teng_Yu_Intern2026-LambdaExecutionRole (the 11-19 grant was a different permission). Check with
