@@ -78,3 +78,13 @@ test('the sender shows a service name instead of a bare personal address', async
   });
   assert.equal(sent.from, '"LKCMedicine Voice Cloning" <someone@gmail.com>');
 });
+
+test('startup email check reports a working, failing or missing SMTP login without sending', async () => {
+  const { checkEmailLogin } = await import('./emailService.js');
+  const logs = [];
+  const log = { log: (m) => logs.push(m), warn: (m) => logs.push(m), error: (m) => logs.push(m) };
+  assert.equal(await checkEmailLogin({ transport: { verify: async () => true }, log }), true);
+  assert.equal(await checkEmailLogin({ transport: { verify: async () => { throw new Error('535 bad password'); } }, log }), false);
+  assert.equal(await checkEmailLogin({ transport: null, log }), false);
+  assert.match(logs.join('\n'), /login OK[\s\S]*FAILED.*535[\s\S]*OFF/);
+});

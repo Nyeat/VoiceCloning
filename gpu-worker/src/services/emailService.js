@@ -76,3 +76,20 @@ export async function sendTrainingCompleteEmail(email, expName, {
         : ''),
   });
 }
+
+// Logs once at startup whether the SMTP login works, without sending mail, so a
+// revoked password shows up immediately instead of after an hour of training.
+export async function checkEmailLogin({ transport = createTransport(), log = console } = {}) {
+  if (!transport) {
+    log.warn('[gpu-worker][email] EMAIL_USER/EMAIL_PASS not set — training emails are OFF');
+    return false;
+  }
+  try {
+    await transport.verify();
+    log.log('[gpu-worker][email] SMTP login OK — training emails are ON');
+    return true;
+  } catch (error) {
+    log.error(`[gpu-worker][email] SMTP login FAILED — training emails will not send: ${error.message}`);
+    return false;
+  }
+}

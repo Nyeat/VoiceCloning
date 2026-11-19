@@ -7,6 +7,7 @@ import artifactRoutes from './routes/artifacts.js';
 import activityRoutes from './routes/activity.js';
 import { processManager } from './services/processManager.js';
 import { recordTrainingLog } from './services/trainingLogger.js';
+import { checkEmailLogin } from './services/emailService.js';
 import { buildCorsOriginOption } from './services/corsOrigin.js';
 import {
   clearStartupModelCache,
@@ -35,6 +36,7 @@ app.use('/', artifactRoutes);
 app.use('/', activityRoutes);
 
 const server = app.listen(WORKER_PORT, WORKER_HOST, () => {
+  void checkEmailLogin();
   console.log(`[gpu-worker] Running on http://${WORKER_HOST}:${WORKER_PORT}`);
 });
 
