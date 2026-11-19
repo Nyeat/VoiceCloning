@@ -61,7 +61,7 @@ const pendingTtlMs = Math.max(120_000, Number(process.env.MODEL_PENDING_TTL_MS) 
 // held up by it. Real synthesis is not subject to it.
 // Per-GPU scale-in: a GPU idle this long (and whose voice nobody is using or
 // selecting) is terminated individually, longest-idle first, one per sweep.
-const scaleInIdleMs = Math.max(60_000, Number(process.env.MODEL_SCALE_IN_IDLE_MS) || 40 * 60_000);
+const scaleInIdleMs = Math.max(60_000, Number(process.env.MODEL_SCALE_IN_IDLE_MS) || 30 * 60_000);
 const scaleInSweepMs = 60_000;
 // A newly booted autoscaled GPU runs warm-staging-deanvoice.sh as its
 // ExecStartPost: model load, then ten rounds that fill every slot, then

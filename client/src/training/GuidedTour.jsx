@@ -30,7 +30,7 @@ export const TOUR_STEPS = [
   {
     route: '/', selector: '[data-tour="gpu"]',
     title: 'GPU status',
-    body: 'Training and testing run on a GPU. It starts automatically when you are here and switches off after 30 idle minutes.',
+    body: 'Training and testing run on a GPU. It starts automatically when you are here and switches off after 40 idle minutes.',
   },
   {
     route: '/test-voice', selector: '[data-tour="voice-picker"]',

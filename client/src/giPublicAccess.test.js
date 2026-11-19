@@ -222,7 +222,7 @@ test("the dev client sends a token type both dev backends verify", () => {
 
 test("Dev keeps activity shutdown separate from its routing-only coordinator", () => {
   assert.match(devBackendEnvs.lambda, /^GPU_SCHEDULE_ENABLED=false$/m);
-  assert.match(devBackendEnvs.lambda, /^GPU_IDLE_STOP_MINUTES=30$/m);
+  assert.match(devBackendEnvs.lambda, /^GPU_IDLE_STOP_MINUTES=40$/m);
   assert.match(devBackendEnvs.lambda, /^GPU_INSTANCE_ID=i-03f258d470a2fa73f$/m);
   assert.doesNotMatch(devBackendEnvs.lambda, /^GPU_INFERENCE_ASG_NAME=/m);
   assert.match(devBackendEnvs.lambda, /^MODEL_COORDINATOR_FUNCTION_NAME=.+-dev-coordinator$/m);
