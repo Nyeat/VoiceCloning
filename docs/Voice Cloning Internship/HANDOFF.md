@@ -14,7 +14,7 @@ Last updated: 2026-11-19
 - 2026-11-19 (7d22b21, all deployed dev + staging): scale-in IAM still MISSING (fallback: all-idle fleet shrinks);
   new GPUs released at warm registration; same GPU popups/off screen on every site (GPU_PAUSED switch); idle-off 40
   / scale-in 30 min; voice names. Late (289832d+127deed): switch only a GPU unused/unselected 10 min, else add;
-  queue codes reach the browser; waits/popups/voice survive reload; training prewarm. 056dd32 deployed. 11-20: ASG GPUs on c4d928a; LT v42 NOT default; test GPU i-0d4172 running (see TODO).
+  queue codes reach the browser; waits/popups/voice survive reload; training prewarm. 056dd32 deployed. 11-20: ASG GPUs + LT default v42 on c4d928a (v41 rollback); admin cleanup in TODO.
 - 2026-11-16: training site launched (SSO + domain, consent, guide, Test your voice); staging fixed GPU 30-min
   idle stop; staging ASG min 0 / max 3; per-voice boots (d1a0b35). Superseded where 2026-11-17 differs.
 - 2026-10-26/30: Demucs-cleaned training audio made cs-tengyu-liu_5 the best voice (Live Fast 0.948 / WER 6%); staging AMI LT v41. Details in CHANGELOG.

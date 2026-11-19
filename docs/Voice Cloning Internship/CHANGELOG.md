@@ -2419,3 +2419,7 @@
   ec2:TerminateInstances (old stopped canary i-0f6c399842bd8cc38 + 500 GB disk, and the v42 test GPU above),
   ec2:DeleteLaunchTemplateVersions (v1-39); all 23 orphan 500 GB snapshots from deleted Jul-Aug images also
   failed to delete (reason not captured before expiry). Dev GPU backup snap-08ec74499a13176f7 kept on purpose.
+- 2026-11-20 later: LT lt-07728350a25e691a4 default = **v42** (ami-0acc935a0205d142c, c4d928a); ASG uses $Default, so new
+  GPUs boot current code; v41 (ami-0642b66fa3ae46b4f) kept as rollback. Test GPU i-0d4172699706f7121 STOPPED
+  (vol-049cb9e93a4b088f0 remains). Deregistered v40 image ami-07236b80dcdb93bcb; its snapshot snap-03997dabc64f1d8c0
+  remains (role lacks ec2:DeleteSnapshot/DeleteVolume/TerminateInstances/DeleteLaunchTemplateVersions).

@@ -1,7 +1,7 @@
 # Active TODO
 
-- [ ] Finish image rollout: v42 verified on fresh boot (2026-11-20); set LT default 42, then have an admin terminate it (role lacks ec2:TerminateInstances). Then deregister ami-07236b80dcdb93bcb (v40). Update dev GPUs next time they run.
-- [ ] Admin cleanup: terminate stopped i-0f6c399842bd8cc38 (+500 GB disk), delete LT versions 1-39, delete 23 orphan 500 GB snapshots of deleted Jul-Aug staging images (list in CHANGELOG 2026-11-20; keep snap-08ec74499a13176f7).
+- [ ] Admin cleanup (role lacks the permissions): terminate stopped i-0f6c399842bd8cc38 and i-0d4172699706f7121 (v42 test GPU) with their 500 GB disks; delete LT versions 1-40; delete 24 orphan 500 GB snapshots of deleted staging images incl. snap-03997dabc64f1d8c0 (v40), list in CHANGELOG 2026-11-20; KEEP snap-08ec74499a13176f7 (dev backup).
+- [ ] Update dev GPUs to HEAD the next time they run (stopped during the 2026-11-20 audit).
 - [ ] Coordinator review (2026-11-16), in priority order (max raised to 3): class-start
   bursts need scheduled prewarm or deficit-based batch scale-out; per-GPU idle scale-in built (d1a0b35) — confirm the Lambda role
   has autoscaling:TerminateInstanceInAutoScalingGroup (logs show AccessDenied otherwise); add the fixed staging GPU as a permanent inference worker (check VRAM beside
