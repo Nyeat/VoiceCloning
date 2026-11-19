@@ -17,7 +17,6 @@ Last updated: 2026-11-19
 
 - 2026-11-16: training site launched (SSO + domain, consent, guide, Test your voice); staging fixed GPU 30-min
   idle stop; staging ASG min 0 / max 3; per-voice boots (d1a0b35). Superseded where 2026-11-17 differs.
-- 2026-10-23: Seoul zero-shot lab: ten models, lab stopped; details in docs/deployment.md and CHANGELOG.
 - 2026-10-26/30: Demucs-cleaned training audio made cs-tengyu-liu_5 the best voice (Live Fast 0.948 / WER 6%); staging AMI LT v41. Details in CHANGELOG.
 - 2026-11-03: audit, hardening and coordinator robustness deployed (Lambda URLs AWS_IAM, ALB origin header, voice switching proven). Details in CHANGELOG.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
