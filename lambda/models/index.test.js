@@ -510,3 +510,15 @@ test('models select warms reference audio after S3 model load when refs are prov
     globalThis.fetch = previousFetch;
   }
 });
+
+test('models select with no voice and no model paths is a 400, not a 500', async () => {
+  const localHandler = createHandler({
+    loadPair: async () => { throw new Error('direct model load must not run'); },
+  });
+  const response = await localHandler({
+    requestContext: { http: { method: 'POST' } },
+    rawPath: '/api/models/select',
+    body: '{}',
+  });
+  assert.equal(response.statusCode, 400);
+});

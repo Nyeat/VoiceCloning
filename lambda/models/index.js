@@ -129,6 +129,9 @@ export function createHandler({
             coordinatorCapacity,
           });
         }
+        if (!String(body.gptPath || body.gptKey || body.sovitsPath || body.sovitsKey || '').trim()) {
+          return err(400, 'voiceProfileId, gptPath or sovitsPath is required');
+        }
         return ok(await loadPair(body));
       }
 
