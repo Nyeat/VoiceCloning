@@ -88,6 +88,9 @@ export function shouldLoadSelectedProfile({
   loadedSoVITSPath,
   isConversationActive,
   loadingModel,
+  // A fresh selection: the shared GPUs may have switched this voice away since
+  // this page last loaded it, so ask again even when the paths match.
+  force = false,
 }) {
   const gptPath = selectedProfile?.gptModel?.path || '';
   const sovitsPath = selectedProfile?.sovitsModel?.path || '';
@@ -98,7 +101,7 @@ export function shouldLoadSelectedProfile({
       && sovitsPath
       && !isConversationActive
       && !loadingModel
-      && (!sameLoadedWeights(gptPath, loadedGPTPath) || !sameLoadedWeights(sovitsPath, loadedSoVITSPath))
+      && (force || !sameLoadedWeights(gptPath, loadedGPTPath) || !sameLoadedWeights(sovitsPath, loadedSoVITSPath))
   );
 }
 

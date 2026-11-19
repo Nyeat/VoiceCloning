@@ -15,6 +15,7 @@ import TrainingPage from '@/pages/TrainingPage.jsx';
 import LivePage from '@/pages/LivePage.jsx';
 import { getCurrentTraining } from '@/services/api.js';
 import GuidedTour from './GuidedTour.jsx';
+import { useInferencePrewarm } from './useInferencePrewarm.js';
 import { hasSeenHelp, markHelpSeen, readConsent, saveConsent } from './consent.js';
 
 // Dev runs training and inference on the same GPU; staging trains on its own
@@ -544,6 +545,8 @@ function SignedInShell() {
   const [helpSeen, setHelpSeen] = useState(() => hasSeenHelp());
 
   useEffect(() => { setConsent(readConsent(email)); }, [email]);
+  // After consent, so someone who declines never starts a GPU.
+  useInferencePrewarm(Boolean(consent));
 
   const [tourOpen, setTourOpen] = useState(false);
 

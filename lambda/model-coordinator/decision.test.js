@@ -88,15 +88,23 @@ test('assigns a base-ready worker that has no resident model yet', () => {
   assert.equal(result.worker.instanceId, 'i-unassigned');
 });
 
-test('a positive event residency window can protect a recently demanded voice', () => {
-  const result = chooseCapacityAction({
+test('a GPU used within the idle window is protected; an open page alone is not use', () => {
+  const used = chooseCapacityAction({
     requestedModelKey: 'dean-v2',
     now,
-    reassignIdleMs: 300_000,
-    lastDemandByModel: { dean: now - 30_000 },
-    workers: [worker({ modelKey: 'dean' })],
+    reassignIdleMs: 600_000,
+    workers: [worker({ modelKey: 'dean', lastActivityAt: now - 3 * 60_000 })],
   });
-  assert.equal(result.type, 'scale');
+  assert.equal(used.type, 'scale');
+  // Selection demand (a page polling the voice) without messages does not pin it.
+  const onlyOpen = chooseCapacityAction({
+    requestedModelKey: 'dean-v2',
+    now,
+    reassignIdleMs: 600_000,
+    lastDemandByModel: { dean: now - 5_000 },
+    workers: [worker({ modelKey: 'dean', lastActivityAt: now - 11 * 60_000 })],
+  });
+  assert.equal(onlyOpen.type, 'reassign');
 });
 
 test('does not reassign busy or queued workers', () => {
@@ -525,7 +533,7 @@ test('a spare copy of a voice in use scales in by its own idleness; the last cop
   assert.equal(alone, null);
 });
 
-test('a spare copy of a busy voice can switch to another voice; the last copy cannot', () => {
+test('a GPU switches by its own message activity, never by its voice being selected', () => {
   const now = 10_000_000;
   const oldest = {
     instanceId: 'i-old', state: 'READY', modelKey: 'dean', active: 0, queued: 0, maxSlots: 2,
@@ -545,7 +553,11 @@ test('a spare copy of a busy voice can switch to another voice; the last copy ca
   const lastCopy = chooseCapacityAction({
     workers: [{ ...spare }], requestedModelKey: 'tengyu', lastDemandByModel, now, reassignIdleMs: 180_000,
   });
-  assert.equal(lastCopy.type, 'scale');
+  assert.equal(lastCopy.type, 'reassign');
+  const recentlyUsed = chooseCapacityAction({
+    workers: [{ ...oldest }], requestedModelKey: 'tengyu', lastDemandByModel, now, reassignIdleMs: 180_000,
+  });
+  assert.equal(recentlyUsed.type, 'scale');
 });
 
 test('scale-in candidates cover the whole fleet only when every GPU is idle', () => {

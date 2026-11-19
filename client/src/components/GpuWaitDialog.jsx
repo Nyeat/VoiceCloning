@@ -81,17 +81,37 @@ export default function GpuWaitDialog({ wait }) {
   const [dismissedKey, setDismissedKey] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const open = Boolean(wait) && wait.key !== dismissedKey;
+  // Dismissed but still waiting: a small pill brings the popup back.
+  const minimized = Boolean(wait) && !open;
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!wait) return undefined;
     setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
+    if (!open) return () => window.clearInterval(id);
     const onKey = (event) => { if (event.key === 'Escape') setDismissedKey(wait.key); };
     window.addEventListener('keydown', onKey);
     return () => { window.clearInterval(id); window.removeEventListener('keydown', onKey); };
   }, [open, wait?.key]);
 
-  if (!open) return null;
+  if (!wait) return null;
+
+  if (minimized) {
+    const waited = Math.max(0, (now - (Number(wait.startedAt) || now)) / 1000);
+    return (
+      <button
+        type="button"
+        onClick={() => setDismissedKey('')}
+        className="fixed bottom-4 right-4 z-[95] inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-800 shadow-lg hover:bg-slate-50"
+        aria-label={`${wait.title}. Show GPU status`}
+      >
+        <Loader2 size={15} className="animate-spin text-primary" aria-hidden="true" />
+        <span>{wait.title}</span>
+        <span className="tabular-nums text-slate-500">{formatDuration(waited)}</span>
+        <span className="text-primary">Show</span>
+      </button>
+    );
+  }
 
   const estimate = Math.max(1, Number(wait.estimateSeconds) || 60);
   const max = Math.max(estimate, Number(wait.maxSeconds) || estimate);

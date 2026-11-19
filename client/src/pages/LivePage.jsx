@@ -540,6 +540,8 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
   const liveFullPreviewAudioRef = useRef(null);
   const autoReferenceKeyRef = useRef('');
   const autoLoadAttemptKeyRef = useRef('');
+  // Set by a voice selection: prepare it even if this page loaded it earlier.
+  const forcePrepareRef = useRef(false);
   const urlVoiceKeyRef = useRef('');
   const restoredActiveVoiceProfileKeyRef = useRef('');
   const previewRequestRef = useRef(0);
@@ -1500,6 +1502,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     const activeRequestVersion = requestVersion ?? (modelLoadVersionRef.current + 1);
     if (requestVersion == null) modelLoadVersionRef.current = activeRequestVersion;
     const selectionChanged = () => activeRequestVersion !== modelLoadVersionRef.current;
+    // A poll scheduled for a voice the user has since left must not touch the
+    // shared loading flag: it set it and returned, leaving the new voice locked.
+    if (selectionChanged()) return;
+    forcePrepareRef.current = false;
     setLoadingModel(true); setModelError('');
     try {
       const rankOneConfig = voiceConfigsRef.current[0] || null;
@@ -2631,6 +2637,13 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     autoReferenceKeyRef.current = '';
     autoLoadAttemptKeyRef.current = '';
     modelLoadVersionRef.current += 1;
+    // The previous voice's wait/lock belongs to that voice. Release it and ask
+    // the coordinator about the new one even if this page loaded it before:
+    // its GPU may have been switched away since.
+    forcePrepareRef.current = true;
+    setLoadingModel(false);
+    setVoiceCapacityBlocked(false);
+    setGpuNotice((current) => (CAPACITY_NOTICE_TITLES.has(current?.title) || current?.wait ? null : current));
     pendingAutoSyncFingerprintRef.current = '';
     autoSyncRequestFingerprintRef.current = '';
     startTransition(() => {
@@ -3752,7 +3765,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     // a model this session is not going to use.
     if (usingStandardVoice) return;
     if (loadedVoiceConfigsProfileId !== selectedVoiceProfileId) return;
-    if (!shouldLoadSelectedProfile({ serverReady, selectedProfile, loadedGPTPath, loadedSoVITSPath, isConversationActive, loadingModel })) return;
+    if (!shouldLoadSelectedProfile({
+      serverReady, selectedProfile, loadedGPTPath, loadedSoVITSPath, isConversationActive, loadingModel,
+      force: forcePrepareRef.current,
+    })) return;
     const loadKey = `${selectedProfile.gptModel.path}::${selectedProfile.sovitsModel.path}`;
     if (autoLoadAttemptKeyRef.current === loadKey) return;
     autoLoadAttemptKeyRef.current = loadKey;

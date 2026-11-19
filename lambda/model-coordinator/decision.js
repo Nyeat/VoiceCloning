@@ -33,24 +33,16 @@ export function chooseCapacityAction({
     ));
   if (matching.length > 0) return { type: 'route', worker: matching[0] };
 
-  // Demand for a voice protects its LAST GPU, not every copy: routing packs
-  // onto the oldest copy, so a spare copy idles by its own activity. Counting
-  // the voice's demand against it meant no other voice could take it while
-  // anyone used that voice (2026-11-19 staging, same rule as scale-in).
-  const holders = new Map();
-  for (const worker of ready) {
-    if (worker.modelKey) holders.set(worker.modelKey, (holders.get(worker.modelKey) || 0) + 1);
-  }
+  // A GPU is "in use" by its own messages (synthesis, plus the switch that
+  // loaded its voice), not by pages that merely have the voice open: an open
+  // tab nobody types in must not pin a GPU (2026-11-19 staging feedback).
   const reassignable = available
     .filter((worker) => {
       if (worker.modelKey === requestedModelKey) return false;
       if (worker.residencyLocked === true) return false;
       if (promised.has(worker.instanceId)) return false;
       if (worker.active !== 0 || worker.queued !== 0) return false;
-      const spareCopy = (holders.get(worker.modelKey) || 0) > 1;
-      const modelLastDemand = spareCopy ? 0 : Number(lastDemandByModel[worker.modelKey] || 0);
-      const idleSince = Math.max(Number(worker.lastActivityAt || 0), modelLastDemand);
-      return now - idleSince >= reassignIdleMs;
+      return now - Number(worker.lastActivityAt || 0) >= reassignIdleMs;
     })
     .sort((a, b) => {
       const aDemand = Number(lastDemandByModel[a.modelKey] || 0);

@@ -38,13 +38,16 @@ export function voiceCapacityNotice(capacity = {}) {
     return 'Starting a GPU with this voice. This takes about 15 minutes (allow up to 20). Please wait — the chat unlocks automatically, or try another lecture or voice meanwhile.';
   }
   if (value.state === 'WARMING') {
-    return 'Switching a GPU to this voice. This usually takes under a minute (up to 3 minutes if that GPU was just in use). The chat unlocks automatically.';
+    return 'Switching an idle GPU to this voice. This usually takes under a minute. The chat unlocks automatically.';
   }
   if (value.state === 'BUSY_STARTING') {
     return 'Lots of people are using this voice. A new GPU is starting in the background, so you may be queued and replies can be slower. You can continue.';
   }
   if (value.state === 'BUSY_WARMING') {
     return 'Lots of people are using this voice. Another GPU is switching to it in the background, so replies can be slower. You can continue.';
+  }
+  if (value.state === 'BUSY_QUEUED') {
+    return 'Lots of people are using this voice, so replies may wait briefly. Another GPU is added automatically if messages start queueing. You can continue.';
   }
   if (value.state === 'BUSY_LIMIT') {
     return 'Lots of people are using this voice and every GPU is in use. You can continue, but replies may be slower.';
@@ -82,13 +85,21 @@ export function voiceCapacityWait(capacity = {}, previous = null, voiceId = '', 
   const value = normalizeVoiceCapacity(capacity);
   const timing = value.simulated || value.canStartConversation ? null : CAPACITY_WAITS[value.state];
   if (!timing) return null;
-  const same = previous && previous.voiceId === voiceId && previous.state === value.state;
-  // The coordinator's start time survives a page reload; the local one does not.
-  const startedAt = value.waitStartedAt
-    ? Math.min(value.waitStartedAt, now)
-    : same ? previous.startedAt : now;
+  // One wait per voice: a boot that ends in a switch (STARTING -> WARMING) is
+  // the same wait, so its timer, estimate and a dismissal carry over instead of
+  // restarting at 0s.
+  const same = previous && previous.voiceId === voiceId;
+  // The coordinator's start time is shared by every user waiting on this voice
+  // and survives a reload; the earliest known start wins.
+  const serverStart = value.waitStartedAt ? Math.min(value.waitStartedAt, now) : 0;
+  const startedAt = same
+    ? Math.min(previous.startedAt, serverStart || previous.startedAt)
+    : serverStart || now;
   return {
-    ...timing,
+    // A boot never shrinks to a switch estimate mid-wait; a failed switch that
+    // becomes a boot grows to the boot estimate.
+    estimateSeconds: Math.max(timing.estimateSeconds, same ? Number(previous.estimateSeconds) || 0 : 0),
+    maxSeconds: Math.max(timing.maxSeconds, same ? Number(previous.maxSeconds) || 0 : 0),
     title: voiceCapacityTitle(value),
     message: voiceCapacityNotice(value) || value.message,
     voiceId,

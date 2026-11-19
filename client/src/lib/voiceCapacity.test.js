@@ -30,7 +30,7 @@ test('a ready voice shows no warning, even with one slot left', () => {
 test('a switch says so and locks the chat until it finishes', () => {
   const capacity = { state: 'WARMING', canStartConversation: false };
   assert.equal(voiceCapacityBlocksConversation(capacity), true);
-  assert.match(voiceCapacityNotice(capacity), /Switching a GPU to this voice/i);
+  assert.match(voiceCapacityNotice(capacity), /Switching an idle GPU to this voice/i);
 });
 
 test('a ready voice with background scale-out shows no warning', () => {
@@ -71,10 +71,15 @@ test('voice wait popup: same titles/timings everywhere, stable across polls, non
   const again = voiceCapacityWait({ state: 'STARTING' }, starting, 'dean', 9_000);
   assert.equal(again.key, starting.key);
   assert.equal(again.startedAt, 1_000);
-  // A new phase is a new wait.
+  // A boot that becomes a switch is the same wait: the title follows the phase,
+  // but the timer, the larger estimate and a dismissal carry over.
   const switching = voiceCapacityWait({ state: 'WARMING' }, again, 'dean', 9_000);
   assert.equal(switching.title, 'Switching a GPU to this voice');
-  assert.notEqual(switching.key, starting.key);
+  assert.equal(switching.key, starting.key);
+  assert.equal(switching.startedAt, 1_000);
+  assert.equal(switching.estimateSeconds, 900);
+  // Another voice is a new wait.
+  assert.notEqual(voiceCapacityWait({ state: 'WARMING' }, switching, 'tom', 9_000).key, starting.key);
   // Usable, busy, simulated or unknown states never pop up.
   assert.equal(voiceCapacityWait({ state: 'READY', canStartConversation: true }), null);
   assert.equal(voiceCapacityWait({ state: 'BUSY_STARTING', canStartConversation: true }), null);

@@ -41,12 +41,13 @@ const authToken = String(process.env.MODEL_COORDINATOR_AUTH_TOKEN || '').trim();
 // that deliberately wants short-lived model residency, but staging uses zero
 // so scale-out is reserved for genuinely overlapping work.
 const reassignIdleMs = Math.max(0, Number(process.env.MODEL_REASSIGN_IDLE_MS) || 0);
-// Lecture pages poll capacity. A short preparation-only grace prevents two open
-// lectures with different voices from continuously switching the same idle GPU.
-// Real synthesis still uses reassignIdleMs and can claim a genuinely idle GPU.
+// Selecting a voice only switches a GPU whose last message (or switch) was at
+// least this long ago; a GPU used more recently than this is someone's and a
+// new GPU is added instead (autoscaled staging). Fixed-GPU Dev cannot add, so
+// there the grace only delays the switch. Real synthesis uses reassignIdleMs.
 const preflightReassignIdleMs = Math.max(
   reassignIdleMs,
-  Number(process.env.MODEL_PREFLIGHT_REASSIGN_IDLE_MS) || 30_000,
+  Number(process.env.MODEL_PREFLIGHT_REASSIGN_IDLE_MS) || 10 * 60_000,
 );
 const bootEstimateSeconds = Math.max(60, Number(process.env.MODEL_BOOT_ESTIMATE_SECONDS) || 360);
 const requestTimeoutMs = Math.max(5_000, Number(process.env.MODEL_WORKER_TIMEOUT_MS) || 110_000);
@@ -71,8 +72,10 @@ const scaleInSweepMs = 60_000;
 // it registers; the grace caps that wait if the script failed.
 const bootWarmGraceMs = Math.max(0, Number(process.env.MODEL_BOOT_WARM_GRACE_MS) || 15 * 60_000);
 const preflightDwellMs = Math.max(0, Number(process.env.MODEL_PREFLIGHT_DWELL_MS) || 8_000);
-// A gap longer than this restarts the dwell (the page was closed).
-const selectionGapMs = 30_000;
+// A gap longer than this restarts the dwell (the page was closed). Waiting
+// pages poll every 5-15 s but pause while hidden; a short gap restarted the
+// shared wait timer whenever the waiting tab was in the background.
+const selectionGapMs = 2 * 60_000;
 // Bounded overflow waiting per GPU. A burst spreads across matching workers up
 // to this depth; beyond it the request is retried by the caller instead of
 // queueing without limit behind work that has not started.
@@ -1029,6 +1032,23 @@ async function prepareCapacity(event) {
     });
   }
 
+  // The voice is already loaded and only its slots are full. Opening a page is
+  // not demand: messages that actually wait (synthesis queue overflow) add a
+  // GPU. Usable now, possibly queued.
+  if (readyMatching.length > 0) {
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'prepare', source, decision: 'busy-no-scale', allowScale,
+      voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
+      desiredCapacity: group.DesiredCapacity,
+    }));
+    return capacityResponse({
+      state: 'BUSY_QUEUED',
+      canStartConversation: true,
+      model,
+      matchingWorkers: readyMatching.length,
+    });
+  }
+
   // The reassign/boot short-circuits above are keyed to the REQUESTED model, so
   // they cannot see a transition running for a different one. That gap is what
   // produced the 1->2->3->4 incident: one person clicking through three voices,
@@ -1050,13 +1070,11 @@ async function prepareCapacity(event) {
     now,
     reassigningWorkerIds: promisedWorkerIds(existing, now),
   };
-  // The preflight grace exists to stop two open lectures from swapping one GPU
-  // back and forth. It must not turn into a reason to BUY a GPU: a worker that
-  // is idle now and merely inside its grace window is still an idle worker to
-  // switch, which is exactly the capacity the user expects to be reused. If the
-  // grace is the only thing blocking a reassignment, wait for it rather than
-  // scaling.
-  const gracedOnly = allowScale
+  // A GPU used within the grace belongs to whoever used it: autoscaled staging
+  // adds a GPU (2026-11-19 feedback: switching a voice someone just used is
+  // wrong). Fixed-GPU Dev cannot add, so there the grace only delays the switch.
+  const gracedOnly = routingOnly()
+    && allowScale
     && chooseCapacityAction({ ...capacityInput, reassignIdleMs: preflightReassignIdleMs }).type === 'scale'
     && chooseCapacityAction({ ...capacityInput, reassignIdleMs: 0 }).type === 'reassign';
   const action = choosePreparationAction({
@@ -1093,6 +1111,8 @@ async function prepareCapacity(event) {
       model,
       matchingWorkers: readyMatching.length,
       capacityAction: 'reassign',
+      // Shared per voice, so every user waiting on it sees the same timer.
+      startedAt: now - selectionDwellMs,
       message: 'GPU capacity is already being prepared. This voice will be ready shortly without starting another GPU.',
     });
   }
