@@ -40,6 +40,27 @@ To shut staging GPU compute down (account 329599637774, region ap-northeast-2):
    the env map; optional `GPU_PAUSED_MESSAGE`). Without it the next visitor restarts the fixed GPU and a
    voice selection scales the ASG. Every site then shows "Voice features are off"; unset to reopen.
 
+### GPU idle rules (2026-11-19)
+
+- Fixed GPU (training + live gateway): EC2 stop after 40 idle minutes (`GPU_IDLE_STOP_MINUTES=40`). Training,
+  synthesis on it, or an open voice chat resets the countdown; a site visit starts it again.
+- Voice GPUs (ASG `vcs-staging-gpu-inference`): idle = no synthesis AND voice not opened/selected for 30 min
+  (`MODEL_SCALE_IN_IDLE_MS=1800000`). Swept about every 5 min (idle-check) and on coordinator traffic.
+- With `autoscaling:TerminateInstanceInAutoScalingGroup` on the Lambda role (intended): each GPU is judged on its
+  own and removed at 30 idle minutes even if others are busy; not-yet-30 GPUs stay; down to 0 when unused.
+- Without it (current workaround, a9c202f): GPUs are removed only when every voice GPU is 30+ min idle, then one
+  by one to 0. If any GPU is busy or under 30 min, none is removed, not even an idle one.
+
+| GPU A + GPU B | Now | After admin grant |
+|---|---|---|
+| A idle 35, B idle 35 | both removed (one by one) -> 0 | both removed -> 0 |
+| A idle 35, B idle 10 | nothing removed (A waits) | A removed, B stays |
+| A idle 35, B in use | nothing removed (A waits) | A removed, B stays |
+| A idle 20, B idle 20 | nothing (not 30 yet) | nothing (not 30 yet) |
+
+- Never set ASG desired by hand while the coordinator runs: it keeps desired >= GPUs in use (edc264a). To stop
+  everything use `GPU_PAUSED=true` or min/desired/max 0 (above).
+
 Historical cause: 2026-10-06 19:00 SGT daily-stop and 2026-10-07 07:00 daily-start
 restored min 1/max 192 and launched GPUs after manual zeroing. Minimum 1 is a floor,
 not a request to reduce a fleet to one; traffic is not required for scheduled starts.
