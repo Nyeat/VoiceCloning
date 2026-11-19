@@ -13,17 +13,23 @@ export function createLiveSynthesisSnapshot({
 } = {}) {
   const activeEngine = engine === 'full' ? 'full' : 'fast';
   const activeRefParams = activeEngine === 'full' ? (fullRefParams || refParams) : refParams;
+  if (!activeRefParams) {
+    // A saved voice profile carries its own references and the server resolves
+    // them per request (lambda/shared/voiceProfileRuntime.js), which is why the
+    // page counts such a voice ready before its own reference clip has loaded.
+    // Refusing here contradicted that: Send was enabled right after a voice
+    // was picked, then failed with "No reference audio configured".
+    return { engine: activeEngine, refParams: voiceProfileId ? { voiceProfileId } : null };
+  }
   return {
     engine: activeEngine,
-    refParams: activeRefParams
-      ? {
-          ...activeRefParams,
-          ...(voiceProfileId ? { voiceProfileId } : {}),
-          ...(voiceModel?.gptRef && voiceModel?.sovitsRef
-            ? { voice_model: { ...voiceModel } }
-            : {}),
-        }
-      : activeRefParams,
+    refParams: {
+      ...activeRefParams,
+      ...(voiceProfileId ? { voiceProfileId } : {}),
+      ...(voiceModel?.gptRef && voiceModel?.sovitsRef
+        ? { voice_model: { ...voiceModel } }
+        : {}),
+    },
   };
 }
 

@@ -357,6 +357,27 @@ test('an authenticated lecture capacity preflight resolves the pinned model befo
   });
 });
 
+test('a capacity peek is read-only: it never prepares (switches/scales) the voice', async () => {
+  const peeked = [];
+  const handler = createHandler({
+    authGuard: { authorize: async () => ({ oid: 'student-1' }) },
+    resolveCapacityBody: async (body) => ({ ...body, voice_model: { voiceProfileId: body.voiceProfileId, gptRef: 'g', sovitsRef: 's' } }),
+    prepareModelCapacity: async () => { throw new Error('a peek must not prepare capacity'); },
+    peekModelCapacity: async (body) => {
+      peeked.push(body.voiceProfileId);
+      return { state: 'BUSY_QUEUED', busy: true };
+    },
+  });
+  const response = await handler(createEvent({
+    method: 'POST',
+    path: '/api/voice-profile/capacity',
+    body: { voiceProfileId: 'deanvoice-v1', peek: true },
+  }));
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(peeked, ['deanvoice-v1']);
+  assert.deepEqual(JSON.parse(response.body), { state: 'BUSY_QUEUED', busy: true });
+});
+
 test('lecture capacity preflight rejects an unsigned caller before resolving a model', async () => {
   const handler = createHandler({
     authGuard: { authorize: async () => { throw new Error('missing token'); } },

@@ -9,6 +9,7 @@ import {
   chooseSynthesisAdmission,
   fleetIsInMotion,
   matchingFreeSlots,
+  peekVoiceLoad,
 } from './decision.js';
 
 const now = 1_000_000;
@@ -557,6 +558,20 @@ test('a spare copy of a busy voice can switch to another voice; the last copy ca
     workers: [{ ...spare }], requestedModelKey: 'tengyu', lastDemandByModel, now, reassignIdleMs: 180_000,
   });
   assert.equal(lastCopy.type, 'scale');
+});
+
+test('peek: a voice is heavily loaded when its slots are full, someone queues, or a GPU is being added', () => {
+  const t = 50_000_000;
+  const gpu = (overrides) => ({
+    instanceId: 'g', state: 'READY', reachable: true, modelKey: 'v', active: 0, queued: 0, maxSlots: 2, updatedAt: t - 5_000, ...overrides,
+  });
+  assert.equal(peekVoiceLoad({ workers: [gpu({ active: 1 })], modelKey: 'v', now: t }).state, 'READY');
+  assert.equal(peekVoiceLoad({ workers: [gpu({ active: 2 })], modelKey: 'v', now: t }).state, 'BUSY_QUEUED');
+  assert.equal(peekVoiceLoad({ workers: [gpu({ active: 1, queued: 1 })], modelKey: 'v', now: t }).busy, true);
+  assert.equal(peekVoiceLoad({ workers: [gpu({ active: 1 })], modelKey: 'v', pendingBoot: true, now: t }).state, 'BUSY_STARTING');
+  // Stale rows (no coordinator traffic for a while) and other voices are not evidence.
+  assert.equal(peekVoiceLoad({ workers: [gpu({ active: 2, updatedAt: t - 600_000 })], modelKey: 'v', now: t }).busy, false);
+  assert.equal(peekVoiceLoad({ workers: [gpu({ active: 2, modelKey: 'other' })], modelKey: 'v', now: t }).state, 'UNKNOWN');
 });
 
 test('scale-in candidates cover the whole fleet only when every GPU is idle', () => {

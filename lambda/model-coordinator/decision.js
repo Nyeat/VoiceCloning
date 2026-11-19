@@ -153,6 +153,35 @@ export function preflightScaleBlocked({
   return booting > livePending.length;
 }
 
+// Read-only "is this voice heavily loaded right now?" for every page using it.
+// Works from the worker rows the coordinator saved on its last request (no
+// probes), so it is cheap to poll; rows older than `freshMs` count as unknown
+// (not busy). Busy = no free slot on any of its GPUs, someone queued, or a GPU
+// being added for it while it already has one.
+export function peekVoiceLoad({
+  workers = [],
+  modelKey = '',
+  pendingBoot = false,
+  reassigning = false,
+  now = Date.now(),
+  freshMs = 90_000,
+} = {}) {
+  const matching = workers.filter((worker) => (
+    worker.state === 'READY'
+    && worker.reachable !== false
+    && worker.modelKey === modelKey
+    && now - Number(worker.updatedAt || 0) <= freshMs
+  ));
+  if (matching.length === 0) return { state: 'UNKNOWN', busy: false, matchingWorkers: 0 };
+  const free = matchingFreeSlots(matching, modelKey);
+  const queued = matching.reduce((total, worker) => total + Number(worker.queued || 0), 0);
+  const busy = free === 0 || queued > 0 || pendingBoot || reassigning;
+  const state = !busy
+    ? 'READY'
+    : pendingBoot ? 'BUSY_STARTING' : reassigning ? 'BUSY_WARMING' : 'BUSY_QUEUED';
+  return { state, busy, matchingWorkers: matching.length, availableSlots: free, queued };
+}
+
 export function matchingFreeSlots(workers = [], requestedModelKey = '') {
   return workers
     .filter((worker) =>

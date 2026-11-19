@@ -120,6 +120,16 @@ test('createLiveSynthesisSnapshot freezes Live Full engine and config for a queu
   });
 });
 
+test('a saved voice with no page references yet still speaks, resolved server-side by id', () => {
+  const snapshot = createLiveSynthesisSnapshot({ engine: 'fast', refParams: null, voiceProfileId: 'cs-tengyu-liu_4-v1' });
+  assert.deepEqual(snapshot, { engine: 'fast', refParams: { voiceProfileId: 'cs-tengyu-liu_4-v1' } });
+  const body = JSON.parse(JSON.stringify(buildLiveSentenceParams('Hello.', snapshot.refParams)));
+  assert.equal(body.voiceProfileId, 'cs-tengyu-liu_4-v1');
+  assert.equal('ref_audio_path' in body, false);
+  // Nothing to resolve without an id: still refused.
+  assert.equal(createLiveSynthesisSnapshot({ refParams: null }).refParams, null);
+});
+
 test('buildLiveSentenceParams can mark a clip to skip backend stutter verification', () => {
   // The first clip of a reply gates time-to-first-audio, so the client asks the
   // worker to skip ASR verification for it; every later clip is verified.

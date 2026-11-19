@@ -3,7 +3,7 @@ import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 import { isSafePathSegment } from '../shared/paths.js';
 import { inferencePost } from '../shared/gpuWorker.js';
 import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
-import { prepareCoordinatedModel } from '../shared/modelCoordinator.js';
+import { peekCoordinatedModel, prepareCoordinatedModel } from '../shared/modelCoordinator.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import { buildVoiceProfileId, isNtuEmail, normalizeEmail, ownsVoiceName } from '../shared/voiceIdentity.js';
 import { bestModelsForVoice, listTrainedVoiceNames } from '../shared/trainedVoices.js';
@@ -288,6 +288,7 @@ export function createHandler({
   authGuard = createLiveAuthGuard(),
   resolveCapacityBody = createVoiceProfileResolver(),
   prepareModelCapacity = prepareCoordinatedModel,
+  peekModelCapacity = peekCoordinatedModel,
 } = {}) {
   return async function handler(event) {
     if (event.requestContext?.http?.method === 'OPTIONS') {
@@ -555,6 +556,11 @@ export function createHandler({
           voiceProfileId,
           text: 'Lecture voice capacity preflight.',
         });
+        // `peek`: every open page on a voice polls whether it is heavily loaded.
+        // Read-only, so a polling tab never counts as using (protecting) a GPU.
+        if (body.peek === true) {
+          return ok(await peekModelCapacity(resolvedBody), {}, event);
+        }
         // Opening a lecture prepares its voice. Warming/pending short-circuits
         // and the preflight reassignment grace keep polling lectures from
         // thrashing or purchasing duplicate GPUs.

@@ -399,6 +399,12 @@ export function prepareVoiceCapacity(voiceProfileId) {
   return api.post('/voice-profile/capacity', { voiceProfileId });
 }
 
+// Read-only: is this voice heavily loaded right now? Never prepares it, so
+// open pages can poll it without holding a GPU.
+export function peekVoiceCapacity(voiceProfileId) {
+  return api.post('/voice-profile/capacity', { voiceProfileId, peek: true });
+}
+
 // The voices the signed-in lecturer owns. The server resolves ownership from
 // the token's email — never from anything the browser sends — and only honours
 // scope=all for an admin.

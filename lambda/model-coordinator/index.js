@@ -27,6 +27,7 @@ import {
   chooseSynthesisAdmission,
   preflightScaleBlocked,
   matchingFreeSlots,
+  peekVoiceLoad,
 } from './decision.js';
 
 const region = process.env.AWS_REGION || 'ap-northeast-2';
@@ -285,6 +286,8 @@ async function refreshFleet(existingItems, now = Date.now()) {
       ...prior,
       entity: 'WORKER',
       id: `WORKER#${instance.InstanceId}`,
+      // Dev and staging share the table; peek reads rows without probing.
+      coordinatorScope,
       instanceId: instance.InstanceId,
       privateIp: instance.PrivateIpAddress,
       firstSeenAt: prior.firstSeenAt || now,
@@ -1188,6 +1191,33 @@ async function prepareCapacity(event) {
   });
 }
 
+// Read-only load check for every open page on a voice: one table scan, no
+// worker probes, no demand/selection record (a polling tab must not count as
+// someone using the voice), never switches or scales.
+async function peekCapacity(event) {
+  const body = event.body || {};
+  const modelKey = modelResidencyKey(body);
+  if (!modelKey) return { statusCode: 400, error: 'The request has no immutable GPT/SoVITS model pair.' };
+  const now = Date.now();
+  const items = (await scanState()).filter((item) => itemInScope(item));
+  const workers = applyAdmissionReservations(
+    items.filter((item) => item.entity === 'WORKER' && item.coordinatorScope === coordinatorScope),
+    items,
+    now,
+  );
+  const pendingBoot = items.some((item) => (
+    item.id === coordinationKey('PENDING', modelKey) && now - Number(item.requestedAt || 0) < pendingTtlMs
+  ));
+  const reassigning = items.some((item) => (
+    item.id === coordinationKey('REASSIGN', modelKey) && liveReassignment(item, now)
+  ));
+  return {
+    statusCode: 200,
+    ...peekVoiceLoad({ workers, modelKey, pendingBoot, reassigning, now }),
+    voiceProfileId: clean(body.voice_model?.voiceProfileId),
+  };
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1521,6 +1551,7 @@ export async function handler(event = {}) {
     if (event.action === 'lock-residency') return lockResidency(event);
     if (event.action === 'unlock-residency') return unlockResidency(event);
     if (event.action === 'prepare') return withSweep(await prepareCapacity(event));
+    if (event.action === 'peek') return peekCapacity(event);
     if (event.action === 'reassign') return runReassignment(clean(event.id));
     if (event.action === 'status') {
       const existing = await scanState();

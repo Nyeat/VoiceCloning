@@ -13,6 +13,7 @@ import {
   getVoiceProfileConfigs,
   saveVoiceProfileConfig,
   selectModels,
+  peekVoiceCapacity,
   prepareVoiceCapacity,
   startGeneration,
   getCurrentInference,
@@ -420,7 +421,6 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
   // True while the selected voice is busy or down to its last slot: keep
   // re-checking like the lecture page so "replies may be slower" appears (and
   // clears) during a conversation, and overflow can switch/add a GPU.
-  const [capacityWatch, setCapacityWatch] = useState(false);
   // Shared GPU lifecycle: don't hit model/status endpoints until the worker is
   // ready (otherwise a cold GPU answers with 503/404 pages). When no instance is
   // configured (local dev) the backend is always considered queryable.
@@ -1548,7 +1548,6 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
       }
       preparingPollCountRef.current = 0;
       const coordinatorState = String(coordinatorCapacity?.state || '').toUpperCase();
-      setCapacityWatch(Boolean(coordinatorCapacity?.capacityTight) || /^BUSY_/u.test(coordinatorState));
       if (coordinatorCapacity?.simulated || ['SIMULATED', 'ON_DEMAND'].includes(coordinatorState)) {
         setGpuNotice({
           tone: 'info',
@@ -4166,32 +4165,35 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     selectedProfile,
   ]);
 
+  // Everyone on a voice sees "heavily loaded" while it is, not only the person
+  // whose message queued. A read-only peek: polling never counts as using the
+  // voice (which would pin its GPU) and never switches or adds a GPU. Paused
+  // while the tab is hidden; a voice still being prepared has its own popup.
   useEffect(() => {
-    if (!capacityWatch || !selectedVoiceProfileId || usingStandardVoice) return undefined;
+    if (!selectedVoiceProfileId || usingStandardVoice || voiceCapacityBlocked) return undefined;
     let cancelled = false;
     let timer = null;
+    const schedule = (ms) => {
+      timer = window.setTimeout(() => runWhenPageVisible(() => { if (!cancelled) void check(); }), ms);
+    };
     const check = async () => {
       try {
-        const res = await prepareVoiceCapacity(selectedVoiceProfileId);
+        const res = await peekVoiceCapacity(selectedVoiceProfileId);
         if (cancelled) return;
         const next = normalizeVoiceCapacity(res?.data || {});
         if (/^BUSY_/u.test(next.state)) {
-          setGpuNotice({ tone: 'info', title: 'Voice is heavily loaded', message: voiceCapacityNotice(next) });
+          setGpuNotice((current) => (current?.wait ? current : {
+            tone: 'info', title: 'Voice is heavily loaded', message: voiceCapacityNotice(next),
+          }));
         } else {
           setGpuNotice((current) => (current?.title === 'Voice is heavily loaded' ? null : current));
         }
-        if (/^BUSY_/u.test(next.state) || next.capacityTight) {
-          timer = window.setTimeout(() => runWhenPageVisible(() => { if (!cancelled) void check(); }), 15_000);
-        } else {
-          setCapacityWatch(false);
-        }
-      } catch {
-        if (!cancelled) timer = window.setTimeout(() => runWhenPageVisible(() => { if (!cancelled) void check(); }), 15_000);
-      }
+      } catch { /* best effort; try again next round */ }
+      if (!cancelled) schedule(20_000);
     };
-    timer = window.setTimeout(() => runWhenPageVisible(() => { if (!cancelled) void check(); }), 15_000);
+    schedule(3_000);
     return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
-  }, [capacityWatch, selectedVoiceProfileId, usingStandardVoice]);
+  }, [selectedVoiceProfileId, usingStandardVoice, voiceCapacityBlocked]);
 
   // A message (not a voice selection) can find its GPU gone and start a new
   // one, mid-conversation, when the selection poll has already stopped. Ask
@@ -4219,7 +4221,6 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
         const state = String(capacity.state || '').toUpperCase();
         if (/^BUSY_/u.test(state)) {
           setGpuNotice({ tone: 'info', title: 'Voice is heavily loaded', message: voiceCapacityNotice(capacity) });
-          setCapacityWatch(true);
         }
         return;
       }

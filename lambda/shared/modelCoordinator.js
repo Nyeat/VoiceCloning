@@ -161,6 +161,17 @@ export async function getCoordinatedModelStatus(body = {}) {
   return invokeCoordinator({ action: 'status', body });
 }
 
+// Read-only load check (coordinator action 'peek'): never records a
+// selection, switches or scales, so open pages can poll it.
+export async function peekCoordinatedModel(body = {}) {
+  if (gpuPausedMessage() || !functionName()) {
+    return { statusCode: 200, state: 'UNKNOWN', busy: false };
+  }
+  const result = await invokeCoordinator({ action: 'peek', body });
+  if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
+  return result;
+}
+
 export async function prepareCoordinatedModel(body = {}, { allowScale = false, source = 'preflight' } = {}) {
   const pausedMessage = gpuPausedMessage();
   if (pausedMessage) {

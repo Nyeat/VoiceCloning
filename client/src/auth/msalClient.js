@@ -4,6 +4,7 @@ import {
 } from "@azure/msal-browser";
 import { config } from "@/config";
 import { POST_LOGIN_PATH_STORAGE_KEY } from "./constants";
+import { tokenNeedsRefresh } from "./tokenExpiry.js";
 import {
   ID_TOKEN,
   NO_TOKEN,
@@ -269,12 +270,17 @@ export async function acquireApiTokenSilent() {
   }
 
   try {
-    const tokenResult = await instance.acquireTokenSilent({
+    const request = {
       account,
       scopes: mode === ID_TOKEN ? MICROSOFT_LOGIN_SCOPES : getApiScopes(),
-    });
-
-    return (mode === ID_TOKEN ? tokenResult.idToken : tokenResult.accessToken) || "";
+    };
+    const pick = (result) => (mode === ID_TOKEN ? result.idToken : result.accessToken) || "";
+    let token = pick(await instance.acquireTokenSilent(request));
+    // A cached ID token may already be expired (see tokenExpiry.js).
+    if (mode === ID_TOKEN && tokenNeedsRefresh(token)) {
+      token = pick(await instance.acquireTokenSilent({ ...request, forceRefresh: true }));
+    }
+    return token;
   } catch {
     // Including InteractionRequiredAuthError: the caller does without a token
     // rather than seizing the page.
@@ -330,10 +336,19 @@ export async function acquireMicrosoftIdToken() {
   }
 
   try {
-    const tokenResult = await instance.acquireTokenSilent({
+    let tokenResult = await instance.acquireTokenSilent({
       account,
       scopes: MICROSOFT_LOGIN_SCOPES,
     });
+    // The cached ID token may already be expired; the server would then reject
+    // it ("Sign in to …"). Refresh it silently before it is sent.
+    if (tokenNeedsRefresh(tokenResult.idToken)) {
+      tokenResult = await instance.acquireTokenSilent({
+        account,
+        scopes: MICROSOFT_LOGIN_SCOPES,
+        forceRefresh: true,
+      });
+    }
 
     if (tokenResult.account) {
       instance.setActiveAccount(tokenResult.account);

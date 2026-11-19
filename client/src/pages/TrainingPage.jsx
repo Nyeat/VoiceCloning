@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle, AudioLines, CheckCircle2, ChevronDown, Clock3, Play, Square, Upload, X } from 'lucide-react';
 import FloatingNotice from '../components/FloatingNotice.jsx';
-import ProgressTracker from '../components/ProgressTracker.jsx';
+import SimpleTrainingProgress from '../components/SimpleTrainingProgress.jsx';
 import Spinner from '../components/Spinner.jsx';
 import {
   allocateTrainingVoiceName,
@@ -436,7 +436,7 @@ export default function TrainingPage({ consent = null }) {
                     </Link>
                   ) : null}
                 </div>
-                <ProgressTracker steps={steps} />
+                <SimpleTrainingProgress steps={steps} pipelineStatus={pipelineStatus} />
                 {isRunning ? (
                   <p className="mt-1 text-xs text-slate-500">
                     This usually takes 30–60 minutes. You can close this page — we email {email} when it finishes, with a link to test it.
