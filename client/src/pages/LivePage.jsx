@@ -2632,6 +2632,14 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     // Keep the visible selection urgent so Radix can close the menu immediately;
     // defer the many dependent reference-state resets to a transition.
     setSelectedPersonKey(value);
+    // The chosen voice survives a reload (and the link can be shared): the
+    // page already honours ?voice= on load, owner-checked on Test your voice.
+    try {
+      const url = new URL(window.location.href);
+      if (value) url.searchParams.set('voice', value);
+      else url.searchParams.delete('voice');
+      window.history.replaceState(window.history.state, '', url);
+    } catch { /* non-browser or locked history: selection still works */ }
     setModelSelectionOnly(false);
     setModelError('');
     autoReferenceKeyRef.current = '';
@@ -4205,7 +4213,16 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     const voiceId = selectedVoiceProfileId;
     prepareVoiceCapacity(voiceId).then((res) => {
       const capacity = res?.data || {};
-      if (capacity.canStartConversation) return;
+      if (capacity.canStartConversation) {
+        // Usable but busy (queued, or a GPU being added for it): say why the
+        // reply is slow instead of leaving only the retry banner.
+        const state = String(capacity.state || '').toUpperCase();
+        if (/^BUSY_/u.test(state)) {
+          setGpuNotice({ tone: 'info', title: 'Voice is heavily loaded', message: voiceCapacityNotice(capacity) });
+          setCapacityWatch(true);
+        }
+        return;
+      }
       setVoiceCapacityBlocked(true);
       setGpuNotice((current) => ({
         tone: 'warning',

@@ -186,8 +186,16 @@ function normalizeState(response) {
 }
 
 async function describeInstance(ec2, id) {
+  return (await describeInstanceDetail(ec2, id)).state;
+}
+
+// LaunchTime is reset by every start, so it is the one start time every
+// viewer shares and that survives a page reload (the wait popup's timer).
+async function describeInstanceDetail(ec2, id) {
   const response = await ec2.send(new DescribeInstancesCommand({ InstanceIds: [id] }));
-  return normalizeState(response);
+  const instance = response?.Reservations?.flatMap((reservation) => reservation.Instances || [])?.[0];
+  const launchedAt = Date.parse(instance?.LaunchTime || '') || 0;
+  return { state: normalizeState(response), launchedAt };
 }
 
 async function checkWorkerReady(requestedTarget = '') {
@@ -367,9 +375,14 @@ async function getStatus(target = '') {
   // The common path is an already-running GPU. Probe worker health in parallel with
   // EC2 state instead of paying those network latencies serially on every page load.
   const workerReadyPromise = checkWorkerReady(target);
-  const state = await describeInstance(ec2, id);
+  const { state, launchedAt } = await describeInstanceDetail(ec2, id);
   const workerReady = state === 'running' ? await workerReadyPromise : false;
-  return statusPayload({ id, state, workerReady, target });
+  const payload = statusPayload({ id, state, workerReady, target });
+  // Only while it is coming up: a ready or stopped GPU has no wait to time.
+  if (!payload.workerReady && ['pending', 'running'].includes(state) && launchedAt > 0) {
+    payload.launchedAt = launchedAt;
+  }
+  return payload;
 }
 
 async function startInstance() {

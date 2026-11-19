@@ -1,6 +1,6 @@
 import { generatePresignedGetUrl } from '../shared/s3.js';
 import { inferencePost, inferenceGet, inferencePostBinary, inferenceGetBinary, inferencePublicUrl } from '../shared/gpuWorker.js';
-import { coordinatedInferencePost, coordinatedInferencePostBinary } from '../shared/modelCoordinator.js';
+import { capacityErrorResponse, coordinatedInferencePost, coordinatedInferencePostBinary } from '../shared/modelCoordinator.js';
 import { useGpuWorkerArtifacts } from '../shared/artifacts.js';
 import { corsHeaders, ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 import { createVoiceProfileResolver, VoiceProfileResolutionError } from '../shared/voiceProfileRuntime.js';
@@ -228,10 +228,8 @@ export function createHandler({
       if (error instanceof VoiceProfileResolutionError) {
         return err(error.statusCode, error.message);
       }
-      if (error?.code === 'GPU_PAUSED') {
-        const paused = err(error.statusCode, error.message);
-        return { ...paused, body: JSON.stringify({ error: error.message, code: error.code }) };
-      }
+      const capacity = capacityErrorResponse(error, err(503, '').headers);
+      if (capacity) return capacity;
       if (Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode <= 599) {
         return err(error.statusCode, error.message);
       }

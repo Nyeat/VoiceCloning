@@ -1,5 +1,5 @@
 import { corsHeaders, err, ok, preflight, parseJsonBody } from '../shared/cors.js';
-import { coordinatedInferencePost, coordinatedInferencePostBinary } from '../shared/modelCoordinator.js';
+import { capacityErrorResponse, coordinatedInferencePost, coordinatedInferencePostBinary } from '../shared/modelCoordinator.js';
 import { createVoiceProfileResolver, VoiceProfileResolutionError } from '../shared/voiceProfileRuntime.js';
 import { isElevenLabsRequest, synthesizeElevenLabsSpeech } from '../shared/elevenLabs.js';
 import { demoHeaders, isDemoEvent } from '../shared/demoOrigin.js';
@@ -187,31 +187,9 @@ export function createHandler({
       if (error instanceof VoiceProfileResolutionError) {
         return err(error.statusCode, error.message);
       }
+      const capacity = capacityErrorResponse(error, corsHeaders);
+      if (capacity) return capacity;
       if (Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode <= 599) {
-        if (error.code === 'GPU_PAUSED') {
-          return {
-            statusCode: error.statusCode,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({ error: error.message, code: error.code }),
-          };
-        }
-        if (error.code === 'MODEL_CAPACITY_STARTING' || error.code === 'MODEL_CAPACITY_LIMIT') {
-          return {
-            statusCode: error.statusCode,
-            headers: {
-              'Content-Type': 'application/json',
-              'Retry-After': String(Math.max(1, Number(error.retryAfterSeconds) || 30)),
-              ...corsHeaders,
-            },
-            body: JSON.stringify({
-              error: error.message,
-              code: error.code,
-              retryAfterSeconds: error.retryAfterSeconds,
-              scaleStarted: error.scaleStarted === true,
-              voiceProfileId: error.voiceProfileId || '',
-            }),
-          };
-        }
         return err(error.statusCode, error.message);
       }
       return err(500, error.message);

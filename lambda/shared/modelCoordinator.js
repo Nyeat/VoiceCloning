@@ -60,6 +60,47 @@ function throwIfGpuPaused() {
   throw error;
 }
 
+// Every coordinator answer the browser must recognise to wait/retry instead of
+// failing. Must match client/src/lib/synthesisResponse.js CAPACITY_CODES (+
+// GPU_PAUSED). A route that forwards only some of them turns a queued-while-a-
+// GPU-is-added request into "The voice engine is not ready yet" (2026-11-19
+// staging: MODEL_QUEUE_FULL/TIMEOUT reached Test your voice as a bare 503).
+export const FORWARDED_CAPACITY_CODES = new Set([
+  'MODEL_CAPACITY_STARTING',
+  'MODEL_CAPACITY_LIMIT',
+  'DEV_CAPACITY_SIMULATED',
+  'MODEL_QUEUE_FULL',
+  'MODEL_QUEUE_TIMEOUT',
+  'MODEL_ADMISSION_BUSY',
+  'GPU_PAUSED',
+]);
+
+// The HTTP response for a coded coordinator error, or null for anything else.
+export function capacityErrorResponse(error, corsHeaders = {}) {
+  if (!FORWARDED_CAPACITY_CODES.has(error?.code)) return null;
+  const status = Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode <= 599
+    ? error.statusCode
+    : 503;
+  const retryAfter = Math.max(1, Number(error.retryAfterSeconds) || 0);
+  return {
+    statusCode: status,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(error.code === 'GPU_PAUSED' ? {} : { 'Retry-After': String(retryAfter) }),
+      ...corsHeaders,
+    },
+    body: JSON.stringify({
+      error: error.message,
+      code: error.code,
+      ...(error.code === 'GPU_PAUSED' ? {} : {
+        retryAfterSeconds: Number(error.retryAfterSeconds) || 0,
+        scaleStarted: error.scaleStarted === true,
+        voiceProfileId: error.voiceProfileId || '',
+      }),
+    }),
+  };
+}
+
 function throwCoordinatorError(result) {
   const error = new Error(result.error || `Model coordinator request failed (${result.statusCode || 500})`);
   error.statusCode = Number(result.statusCode) || 500;

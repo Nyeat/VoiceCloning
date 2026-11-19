@@ -88,23 +88,26 @@ test('assigns a base-ready worker that has no resident model yet', () => {
   assert.equal(result.worker.instanceId, 'i-unassigned');
 });
 
-test('a GPU used within the idle window is protected; an open page alone is not use', () => {
+test('a GPU messaged or selected within the idle window is protected; after it, it can switch', () => {
+  const base = { requestedModelKey: 'dean-v2', now, reassignIdleMs: 600_000 };
   const used = chooseCapacityAction({
-    requestedModelKey: 'dean-v2',
-    now,
-    reassignIdleMs: 600_000,
+    ...base,
     workers: [worker({ modelKey: 'dean', lastActivityAt: now - 3 * 60_000 })],
   });
   assert.equal(used.type, 'scale');
-  // Selection demand (a page polling the voice) without messages does not pin it.
-  const onlyOpen = chooseCapacityAction({
-    requestedModelKey: 'dean-v2',
-    now,
-    reassignIdleMs: 600_000,
+  // Someone selected the voice 5 s ago without typing yet: still theirs.
+  const selected = chooseCapacityAction({
+    ...base,
     lastDemandByModel: { dean: now - 5_000 },
     workers: [worker({ modelKey: 'dean', lastActivityAt: now - 11 * 60_000 })],
   });
-  assert.equal(onlyOpen.type, 'reassign');
+  assert.equal(selected.type, 'scale');
+  const idle = chooseCapacityAction({
+    ...base,
+    lastDemandByModel: { dean: now - 11 * 60_000 },
+    workers: [worker({ modelKey: 'dean', lastActivityAt: now - 11 * 60_000 })],
+  });
+  assert.equal(idle.type, 'reassign');
 });
 
 test('does not reassign busy or queued workers', () => {
@@ -533,7 +536,7 @@ test('a spare copy of a voice in use scales in by its own idleness; the last cop
   assert.equal(alone, null);
 });
 
-test('a GPU switches by its own message activity, never by its voice being selected', () => {
+test('a spare copy of a busy voice can switch to another voice; the last copy cannot', () => {
   const now = 10_000_000;
   const oldest = {
     instanceId: 'i-old', state: 'READY', modelKey: 'dean', active: 0, queued: 0, maxSlots: 2,
@@ -553,11 +556,7 @@ test('a GPU switches by its own message activity, never by its voice being selec
   const lastCopy = chooseCapacityAction({
     workers: [{ ...spare }], requestedModelKey: 'tengyu', lastDemandByModel, now, reassignIdleMs: 180_000,
   });
-  assert.equal(lastCopy.type, 'reassign');
-  const recentlyUsed = chooseCapacityAction({
-    workers: [{ ...oldest }], requestedModelKey: 'tengyu', lastDemandByModel, now, reassignIdleMs: 180_000,
-  });
-  assert.equal(recentlyUsed.type, 'scale');
+  assert.equal(lastCopy.type, 'scale');
 });
 
 test('scale-in candidates cover the whole fleet only when every GPU is idle', () => {

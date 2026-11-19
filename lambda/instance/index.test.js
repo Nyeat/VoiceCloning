@@ -105,6 +105,37 @@ test('instance status keeps the fixed worker health probe by default', async () 
   }
 });
 
+test('instance status reports the power-on time only while the GPU is coming up', async () => {
+  const previousFetch = globalThis.fetch;
+  let healthy = false;
+  globalThis.fetch = async () => new Response('{}', { status: healthy ? 200 : 503 });
+  globalThis.__voiceCloningEc2Client = {
+    async send() {
+      return {
+        Reservations: [{ Instances: [{ State: { Name: 'running' }, LaunchTime: new Date('2026-11-19T14:00:00Z') }] }],
+      };
+    },
+  };
+  const { handler } = await import(`./index.js?launchedAt=${Date.now()}`);
+  const status = async () => JSON.parse((await handler({
+    requestContext: { http: { method: 'GET' } },
+    rawPath: '/api/instance/status',
+  })).body);
+
+  try {
+    await withEnv({ GPU_INSTANCE_ID: 'i-dev-fixed', GPU_WORKER_URL: 'http://fixed-worker.test' }, async () => {
+      const warming = await status();
+      assert.equal(warming.workerReady, false);
+      assert.equal(warming.launchedAt, Date.parse('2026-11-19T14:00:00Z'));
+      healthy = true;
+      assert.equal((await status()).launchedAt, undefined);
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+    delete globalThis.__voiceCloningEc2Client;
+  }
+});
+
 test('instance status can require the inference fleet endpoint to be reachable', async () => {
   const previousFetch = globalThis.fetch;
   const urls = [];

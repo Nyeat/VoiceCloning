@@ -16,6 +16,7 @@ function sameStatus(a, b) {
     && a.workerReady === b.workerReady
     && a.startable === b.startable
     && (a.closed || '') === (b.closed || '')
+    && Number(a.launchedAt || 0) === Number(b.launchedAt || 0)
     && (a.message || '') === (b.message || '');
 }
 

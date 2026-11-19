@@ -183,6 +183,29 @@ test('live tts preserves worker busy status for multi-user feedback', async () =
   }
 });
 
+test('a queued-while-scaling coordinator answer reaches the browser with its code, not as a bare 503', async () => {
+  for (const code of ['MODEL_QUEUE_FULL', 'MODEL_QUEUE_TIMEOUT', 'MODEL_ADMISSION_BUSY', 'MODEL_CAPACITY_STARTING']) {
+    const handler = createHandler({
+      resolveSynthesisBody: async (body) => ({ ...body, ref_audio_path: 'training/datasets/a/ref.wav' }),
+      postBinary: async () => {
+        const error = new Error('This voice is busy and its waiting list is full.');
+        error.statusCode = 503;
+        error.code = code;
+        error.retryAfterSeconds = 5;
+        throw error;
+      },
+    });
+    const response = await handler({
+      requestContext: { http: { method: 'POST' } },
+      rawPath: '/api/live/tts-sentence',
+      body: JSON.stringify({ text: 'Hello there.' }),
+    });
+    assert.equal(response.statusCode, 503);
+    assert.equal(JSON.parse(response.body).code, code);
+    assert.equal(response.headers['Retry-After'], '5');
+  }
+});
+
 test('barge-in cancel forwards the reply token to the worker without resolving a voice profile', async () => {
   const calls = [];
   const handler = createHandler({

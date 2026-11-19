@@ -3,33 +3,59 @@ import { Clock, Cpu, Loader2, PowerOff, X } from 'lucide-react';
 import { useGpuStatus } from '@/lib/gpuStatus.jsx';
 import { describeGpuStatus } from '@/lib/gpuStatusModel';
 
-// Rough timings for a stopped fixed GPU: EC2 power-on, then the worker loading
-// its engine. Shown as estimates only; the dialog closes on the real ready flag.
+// Rough timings for a stopped fixed GPU, both measured from the moment it was
+// powered on (EC2 power-on, then the worker loading its engine). Estimates
+// only; the dialog closes on the real ready flag.
 const INSTANCE_WAIT = {
-  starting: { title: 'Starting the GPU', estimateSeconds: 180, maxSeconds: 360,
+  starting: { title: 'Starting the GPU', estimateSeconds: 240, maxSeconds: 480,
     message: 'The GPU was off to save cost and is powering on now. Everything unlocks automatically once it is ready — you can keep browsing meanwhile.' },
-  warming: { title: 'GPU warming up', estimateSeconds: 90, maxSeconds: 240,
+  warming: { title: 'GPU warming up', estimateSeconds: 240, maxSeconds: 480,
     message: 'The GPU is on and its voice engine is loading. Everything unlocks automatically once it is ready.' },
 };
+
+// Waits and dismissals survive a page reload in this tab. Storage can be
+// blocked (private mode, previews), so every access is best effort.
+const EPISODE_STORAGE_KEY = 'vcs-gpu-wait-episode';
+const DISMISSED_STORAGE_KEY = 'vcs-gpu-wait-dismissed';
+
+function readStored(key) {
+  try { return JSON.parse(window.sessionStorage.getItem(key) || 'null'); } catch { return null; }
+}
+
+function writeStored(key, value) {
+  try {
+    if (value == null) window.sessionStorage.removeItem(key);
+    else window.sessionStorage.setItem(key, JSON.stringify(value));
+  } catch { /* storage unavailable: the wait still works, it just restarts on reload */ }
+}
 
 // One wait per not-ready episode of the shared GPU (stopped → starting →
 // warming → ready). Dismissing it covers the whole episode; a later idle stop
 // and restart is a new episode and shows again. A stopped GPU nobody is
-// starting (dev manual mode) is not a wait, so nothing shows.
+// starting (dev manual mode) is not a wait, so nothing shows. The timer runs
+// from the GPU's real power-on time (shared by everyone, survives a reload);
+// before the GPU reports it, from when this tab first saw the wait.
 export function useGpuInstanceWait() {
   const { status, checking, starting, autoStart } = useGpuStatus();
   const view = describeGpuStatus({ status, checking, starting, autoStart });
   const episodeRef = useRef(null);
   const waiting = view.phase === 'starting' || view.phase === 'warming';
   if (!waiting) {
-    if (view.phase === 'ready' || view.phase === 'stopped') episodeRef.current = null;
+    if (view.phase === 'ready' || view.phase === 'stopped') {
+      episodeRef.current = null;
+      writeStored(EPISODE_STORAGE_KEY, null);
+    }
     return null;
   }
   if (!episodeRef.current) {
-    const startedAt = Date.now();
-    episodeRef.current = { key: `gpu-${startedAt}`, startedAt };
+    const stored = readStored(EPISODE_STORAGE_KEY);
+    const firstSeenAt = Number(stored?.startedAt) > 0 ? Number(stored.startedAt) : Date.now();
+    episodeRef.current = { key: stored?.key || `gpu-${firstSeenAt}`, startedAt: firstSeenAt };
+    writeStored(EPISODE_STORAGE_KEY, episodeRef.current);
   }
-  return { ...INSTANCE_WAIT[view.phase], ...episodeRef.current };
+  const launchedAt = Number(status?.launchedAt) || 0;
+  const startedAt = launchedAt > 0 ? Math.min(launchedAt, Date.now()) : episodeRef.current.startedAt;
+  return { ...INSTANCE_WAIT[view.phase], key: episodeRef.current.key, startedAt };
 }
 
 // The GPU is turned off on purpose (administrator pause, or outside the GPU
@@ -78,9 +104,26 @@ export function GpuInstanceWaitDialog() {
 }
 
 export default function GpuWaitDialog({ wait }) {
-  const [dismissedKey, setDismissedKey] = useState('');
+  // Keys are stable across a reload (server start times), so a popup closed
+  // before a refresh stays closed (shown as the pill) after it.
+  // A list, since a page can show more than one wait (GPU start + voice switch).
+  const [dismissedKeys, setDismissedKeys] = useState(() => {
+    const stored = readStored(DISMISSED_STORAGE_KEY);
+    return Array.isArray(stored) ? stored : [];
+  });
+  const setDismissedKey = (key) => {
+    setDismissedKeys((current) => {
+      // Merge with storage: another dialog on the page keeps its own list.
+      const stored = readStored(DISMISSED_STORAGE_KEY);
+      const base = Array.from(new Set([...(Array.isArray(stored) ? stored : []), ...current]));
+      const others = base.filter((item) => item !== wait?.key);
+      const next = key ? [...others, key].slice(-10) : others;
+      writeStored(DISMISSED_STORAGE_KEY, next);
+      return next;
+    });
+  };
   const [now, setNow] = useState(() => Date.now());
-  const open = Boolean(wait) && wait.key !== dismissedKey;
+  const open = Boolean(wait) && !dismissedKeys.includes(wait.key);
   // Dismissed but still waiting: a small pill brings the popup back.
   const minimized = Boolean(wait) && !open;
 
