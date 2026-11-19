@@ -878,6 +878,7 @@ function capacityResponse({
   atMaximum = false,
   simulated = false,
   message = '',
+  startedAt = 0,
 } = {}) {
   const waiting = ['STARTING', 'WARMING'].includes(state);
   return {
@@ -895,6 +896,9 @@ function capacityResponse({
       ? 'Dev routing simulation: staging would prepare another GPU, but Dev autoscaling is disabled.'
       : ''),
     retryAfterSeconds: waiting ? bootEstimateSeconds : 0,
+    // When this boot/switch really began, so a page reload keeps the true
+    // elapsed time instead of restarting the wait timer at zero.
+    ...(waiting && Number(startedAt) > 0 ? { waitStartedAt: Number(startedAt) } : {}),
     voiceProfileId: clean(model?.voiceProfileId),
   };
 }
@@ -996,6 +1000,7 @@ async function prepareCapacity(event) {
       model,
       matchingWorkers: readyMatching.length,
       capacityAction: 'reassign',
+      startedAt: reassigning.requestedAt,
     });
   }
   if (booting) {
@@ -1010,6 +1015,7 @@ async function prepareCapacity(event) {
       model,
       matchingWorkers: readyMatching.length,
       capacityAction: 'scale',
+      startedAt: booting.requestedAt,
     });
   }
 

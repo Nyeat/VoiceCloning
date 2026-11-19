@@ -11,6 +11,7 @@ export function normalizeVoiceCapacity(value = {}) {
     capacityAction: String(value?.capacityAction || 'none').trim().toLowerCase(),
     simulated: value?.simulated === true,
     message: String(value?.message || '').trim(),
+    waitStartedAt: Math.max(0, Number(value?.waitStartedAt) || 0),
   };
 }
 
@@ -82,7 +83,10 @@ export function voiceCapacityWait(capacity = {}, previous = null, voiceId = '', 
   const timing = value.simulated || value.canStartConversation ? null : CAPACITY_WAITS[value.state];
   if (!timing) return null;
   const same = previous && previous.voiceId === voiceId && previous.state === value.state;
-  const startedAt = same ? previous.startedAt : now;
+  // The coordinator's start time survives a page reload; the local one does not.
+  const startedAt = value.waitStartedAt
+    ? Math.min(value.waitStartedAt, now)
+    : same ? previous.startedAt : now;
   return {
     ...timing,
     title: voiceCapacityTitle(value),

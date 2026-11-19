@@ -81,3 +81,14 @@ test('voice wait popup: same titles/timings everywhere, stable across polls, non
   assert.equal(voiceCapacityWait({ state: 'STARTING', simulated: true }), null);
   assert.equal(voiceCapacityWait({ state: 'LIMIT' }), null);
 });
+
+test('a reloaded page keeps the real boot start time from the coordinator', async () => {
+  const { voiceCapacityWait } = await import('./voiceCapacity.js');
+  const bootedAt = 1_000_000;
+  const now = bootedAt + 7 * 60_000;
+  const wait = voiceCapacityWait({ state: 'STARTING', waitStartedAt: bootedAt }, null, 'v', now);
+  assert.equal(wait.startedAt, bootedAt);
+  // A later poll keeps it; a future timestamp is clamped to now.
+  assert.equal(voiceCapacityWait({ state: 'STARTING', waitStartedAt: bootedAt }, wait, 'v', now + 5_000).key, wait.key);
+  assert.equal(voiceCapacityWait({ state: 'STARTING', waitStartedAt: now + 60_000 }, null, 'v', now).startedAt, now);
+});
