@@ -4,8 +4,13 @@ import { MC_INSTRUCTIONS_MAX, MC_SYSTEM_PROMPT, NOISE_LEVELS, PAUSE_RANGE, mcMic
 import { nextAudioErrorAction } from '../hooks/liveConversation.js';
 import ntuLogo from '../assets/ntu-logo.png';
 import { Maximize2, Mic, MicOff, Minimize2, Phone, PhoneOff } from 'lucide-react';
+import { GpuStatusProvider, useGpuStatus } from '../lib/gpuStatus.jsx';
+import GpuWaitDialog, { GpuClosedNotice, GpuInstanceWaitDialog } from '../components/GpuWaitDialog.jsx';
+import { DismissibleNotice } from '../components/FloatingNotice.jsx';
+import { useVoiceCapacityWatch } from '../hooks/useVoiceCapacityWatch.js';
 
 const REFERENCE_PARAMS = {};
+const MC_VOICE_PROFILE_ID = 'deanvoice-v1';
 const CAPTURE_STORAGE_KEY = 'mc-capture-settings-v2';
 const INSTRUCTIONS_STORAGE_KEY = 'mc-instructions-v1';
 const CONSOLE_TABS = [['transcript', 'Transcript'], ['capture', 'Voice capture'], ['instructions', 'Instructions']];
@@ -26,7 +31,20 @@ function loadSavedInstructions() {
   }
 }
 
-export default function McSessionPage() {
+// The same GPU notices as every other site: the fixed GPU (it hosts the live
+// gateway) starting or turned off, and the Dean voice GPU starting, switching
+// or heavily loaded. Starting a session waits until both are ready.
+export default function McSessionRoot() {
+  return (
+    <GpuStatusProvider autoStart>
+      <McSessionPage />
+      <GpuInstanceWaitDialog />
+      <GpuClosedNotice />
+    </GpuStatusProvider>
+  );
+}
+
+function McSessionPage() {
   const [savedInstructions, setSavedInstructions] = useState(loadSavedInstructions);
   const [instructions, setInstructions] = useState(savedInstructions);
   const [saveError, setSaveError] = useState('');
@@ -66,12 +84,15 @@ export default function McSessionPage() {
   const transcriptRef = useRef(null);
   const live = useLiveSpeech({
     refParams: REFERENCE_PARAMS,
-    voiceProfileId: 'deanvoice-v1',
+    voiceProfileId: MC_VOICE_PROFILE_ID,
     engine: 'fast', replyMode: 'phrases', language: 'en',
     systemPrompt: instructions, listeningMode: sessionMode, autoReconnect: true, noiseGate: false, fullDuplex: true,
     sessionOptions: mcSessionOptions(sessionCapture), micConstraints: mcMicConstraints(sessionCapture),
   });
   const active = live.isConversationActive;
+  const { workerReady } = useGpuStatus();
+  const voice = useVoiceCapacityWatch(MC_VOICE_PROFILE_ID);
+  const startLocked = !workerReady || voice.blocked;
   const pendingChanges = active && applied
     && (applied.mode !== listeningMode || !sameCaptureSettings(applied.capture, captureSettings));
   // Clears the started-with settings when a session ends on its own (errors,
@@ -177,6 +198,8 @@ export default function McSessionPage() {
 
   return (
     <div className="min-h-[100dvh] bg-[#faf9f7] text-[#252b3a]">
+      <GpuWaitDialog wait={voice.wait} />
+      <DismissibleNotice notice={voice.busy} />
       <header className="border-b border-[#e5e3df] bg-white">
         <div className="mx-auto flex max-w-[110rem] items-center justify-between gap-4 px-6 py-4 sm:px-10">
           <img src={ntuLogo} alt="Nanyang Technological University Singapore" className="h-auto w-40 sm:w-44" />
@@ -228,7 +251,7 @@ export default function McSessionPage() {
                     return <span key={index} className="h-full w-[3px] rounded-full bg-white/85" style={speaking ? { animation: `mc-wave ${0.7 + (index % 5) * 0.12}s ease-in-out ${index * 0.04}s infinite` } : { transform: `scaleY(${level})`, transition: 'transform 120ms ease-out' }} />;
                   })}
                 </div>
-                <button type="button" aria-label={active ? 'End session' : 'Start session'} onClick={() => { if (active) { setApplied(null); live.stop(); return; } setApplied({ mode: listeningMode, capture: captureSettings }); live.start(); }} disabled={!active && (!instructions.trim() || !live.speechApiAvailable)} className={`flex h-11 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-50 ${active ? 'w-11 bg-red-500 hover:bg-red-600' : 'bg-[#a6192e] px-5 hover:bg-[#861426]'}`}>
+                <button type="button" aria-label={active ? 'End session' : 'Start session'} onClick={() => { if (active) { setApplied(null); live.stop(); return; } setApplied({ mode: listeningMode, capture: captureSettings }); live.start(); }} disabled={!active && (!instructions.trim() || !live.speechApiAvailable || startLocked)} title={!active && startLocked ? (voice.message || 'The GPU is getting ready…') : undefined} className={`flex h-11 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-50 ${active ? 'w-11 bg-red-500 hover:bg-red-600' : 'bg-[#a6192e] px-5 hover:bg-[#861426]'}`}>
                   {active ? <PhoneOff size={19} /> : <><Phone size={17} />Start session</>}
                 </button>
               </div>

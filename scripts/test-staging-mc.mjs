@@ -101,11 +101,12 @@ try {
   assert.match(second.text, /Innovation Evening/i, 'Second turn must retain first-turn event context');
   const secondAudio = await synthesize(second.text, 2);
   console.log(JSON.stringify({ turn: 2, transcript: transcript.text, text: second.text, textMs: secondTextMs, audio: secondAudio }));
-  const denied = await fetch(`${origin}/api/instance/status`);
-  // The shared SPA rewrite returns index.html for unknown paths; it must never
-  // return the backend's JSON status from this distribution.
-  assert.ok(denied.status === 403 || denied.headers.get('content-type')?.includes('text/html'), 'MC distribution must not route administrative APIs');
-  console.log('PASS: same-session text + PCM speech -> OpenAI -> DeanVoice audio; administrative API unavailable.');
+  // Since 2026-11-19 the MC page shows the shared GPU notices, so it reads the
+  // GPU status (read-only) through this distribution.
+  const status = await fetch(`${origin}/api/instance/status`);
+  assert.equal(status.status, 200, 'MC must reach the GPU status for its notices');
+  assert.equal(typeof (await status.json()).workerReady, 'boolean');
+  console.log('PASS: same-session text + PCM speech -> OpenAI -> DeanVoice audio; GPU status reachable.');
 } finally {
   clearInterval(keepalive);
   socket.close();

@@ -936,3 +936,27 @@ test('an automatic profile sync saves the voice without changing the default voi
   assert.deepEqual(uploads, ['voice-profiles/michael-tan-v1.json']);
   assert.equal(JSON.parse(response.body).madeActive, false);
 });
+
+test('an auth-exempt origin (Live MC) may check its voice capacity unsigned; others may not', async () => {
+  const saved = process.env.LIVE_AUTH_EXEMPT_ORIGINS;
+  process.env.LIVE_AUTH_EXEMPT_ORIGINS = 'https://mc.example';
+  try {
+    const handler = createHandler({
+      authGuard: { authorize: async () => { throw new Error('missing token'); } },
+      resolveCapacityBody: async (body) => ({
+        ...body,
+        ref_audio_path: 'r.wav',
+        voice_model: { voiceProfileId: body.voiceProfileId, gptRef: 'g', sovitsRef: 's' },
+      }),
+      prepareModelCapacity: async () => ({ state: 'READY', canStartConversation: true }),
+    });
+    const event = (origin) => ({
+      ...createEvent({ method: 'POST', path: '/api/voice-profile/capacity', body: { voiceProfileId: 'deanvoice-v1' } }),
+      headers: { origin },
+    });
+    assert.equal((await handler(event('https://mc.example'))).statusCode, 200);
+    assert.equal((await handler(event('https://other.example'))).statusCode, 401);
+  } finally {
+    if (saved === undefined) delete process.env.LIVE_AUTH_EXEMPT_ORIGINS; else process.env.LIVE_AUTH_EXEMPT_ORIGINS = saved;
+  }
+});

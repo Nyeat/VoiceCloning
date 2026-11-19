@@ -2,7 +2,7 @@ import { uploadBuffer, getObject, headObject, listObjects } from '../shared/s3.j
 import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 import { isSafePathSegment } from '../shared/paths.js';
 import { inferencePost } from '../shared/gpuWorker.js';
-import { createLiveAuthGuard } from '../shared/liveAuth.js';
+import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
 import { prepareCoordinatedModel } from '../shared/modelCoordinator.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import { buildVoiceProfileId, isNtuEmail, normalizeEmail, ownsVoiceName } from '../shared/voiceIdentity.js';
@@ -471,11 +471,15 @@ export function createHandler({
       }
 
       if (method === 'POST' && CAPACITY_PROFILE_PATH.test(routePath)) {
-        if (!authGuard) return err(503, 'Voice capacity authentication is not configured', event);
-        try {
-          await authGuard.authorize(event);
-        } catch {
-          return err(401, 'Sign in to prepare the lesson voice', event);
+        // An origin allowed to synthesise unsigned (Live MC) may also ask
+        // whether its voice is ready: synthesis would start the same GPU.
+        if (!isAuthExemptOrigin(event)) {
+          if (!authGuard) return err(503, 'Voice capacity authentication is not configured', event);
+          try {
+            await authGuard.authorize(event);
+          } catch {
+            return err(401, 'Sign in to prepare the lesson voice', event);
+          }
         }
         let body;
         try {
