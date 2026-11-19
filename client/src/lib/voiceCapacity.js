@@ -1,4 +1,4 @@
-const BLOCKING_STATES = new Set(['CHECKING', 'STARTING', 'WARMING', 'LIMIT', 'ERROR']);
+const BLOCKING_STATES = new Set(['CHECKING', 'STARTING', 'WARMING', 'LIMIT', 'ERROR', 'PAUSED']);
 
 export function normalizeVoiceCapacity(value = {}) {
   const state = String(value?.state || 'CHECKING').trim().toUpperCase();
@@ -29,6 +29,9 @@ export function voiceCapacityNotice(capacity = {}) {
   }
   // One wording for lectures, Faculty and Test your voice. A ready voice gets no
   // notice at all, even with one slot left.
+  if (value.state === 'PAUSED') {
+    return value.message || 'The GPU has been turned off by an administrator, so voice features are unavailable for now.';
+  }
   if (value.state === 'CHECKING') return 'Getting this voice ready…';
   if (value.state === 'STARTING') {
     return 'Starting a GPU with this voice. This takes about 10 minutes (allow up to 15). Please wait — the chat unlocks automatically, or try another lecture or voice meanwhile.';
@@ -64,6 +67,7 @@ export const CAPACITY_WAITS = {
 export function voiceCapacityTitle(capacity = {}) {
   const value = normalizeVoiceCapacity(capacity);
   if (value.simulated) return 'Dev capacity simulation';
+  if (value.state === 'PAUSED') return 'Voice features are off';
   if (value.state === 'STARTING') return 'Starting a GPU with this voice';
   if (value.state === 'WARMING') return 'Switching a GPU to this voice';
   return 'Getting this voice ready';

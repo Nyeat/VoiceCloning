@@ -51,3 +51,11 @@ export default function FloatingNotice({ notice, onClose }) {
     </div>
   );
 }
+
+// A FloatingNotice the person can close; it stays closed for that notice's
+// `key` and shows again only for a new one.
+export function DismissibleNotice({ notice }) {
+  const [dismissedKey, setDismissedKey] = React.useState('');
+  const visible = notice && notice.key !== dismissedKey ? notice : null;
+  return <FloatingNotice notice={visible} onClose={() => setDismissedKey(notice?.key || '')} />;
+}

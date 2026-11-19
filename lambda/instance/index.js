@@ -71,6 +71,33 @@ function scheduleConfig() {
   };
 }
 
+// An administrator can take every GPU site out of use with GPU_PAUSED=true:
+// nothing starts a GPU, and every page shows the same "GPU is off" screen
+// instead of "Starting the GPU" forever. Outside a GPU schedule window a
+// stopped GPU is closed the same way. Returns null when the GPU may be used.
+export function gpuClosure(state, { env = process.env, now = new Date() } = {}) {
+  if (isTruthy(env.GPU_PAUSED)) {
+    return {
+      reason: 'paused',
+      message: String(env.GPU_PAUSED_MESSAGE || '').trim()
+        || 'The GPU has been turned off by an administrator, so voice features are unavailable for now. Please try again later.',
+    };
+  }
+  const enabled = isTruthy(env.GPU_SCHEDULE_ENABLED);
+  if (enabled && state === 'stopped') {
+    const startHour = Number.parseInt(env.GPU_SCHEDULE_START_HOUR || '7', 10);
+    const endHour = Number.parseInt(env.GPU_SCHEDULE_END_HOUR || '19', 10);
+    const timeZone = (env.GPU_SCHEDULE_TIMEZONE || 'Asia/Seoul').trim();
+    if (!withinWindow(localHour(timeZone, now), startHour, endHour)) {
+      return {
+        reason: 'schedule',
+        message: `The GPU is off outside its scheduled hours (${startHour}:00–${endHour}:00), so voice features are unavailable until then.`,
+      };
+    }
+  }
+  return null;
+}
+
 // Current hour (0-23) in the schedule's timezone. Lambda runs in UTC, so we
 // resolve the local hour via Intl rather than the runtime clock.
 function localHour(timeZone, now = new Date()) {
@@ -196,6 +223,15 @@ function statusPayload({ id, state, workerReady, started = false, previousState 
     // 0 = never stops on its own (manual capacity); null = schedule-controlled.
     autoStopMinutes: autoStopMinutes(),
   };
+
+  const closure = gpuClosure(state);
+  if (closure) {
+    // A paused GPU that is still running is not for use either.
+    payload.workerReady = false;
+    payload.startable = false;
+    payload.closed = closure.reason;
+    payload.message = closure.message;
+  }
 
   if (previousState) {
     payload.previousState = previousState;
@@ -348,17 +384,14 @@ async function startInstance() {
   const ec2 = createEc2Client();
   const state = await describeInstance(ec2, id);
 
-  // In schedule mode the window is the sole authority. Ignore activity-triggered
-  // starts outside the window so a person on the page can't wake the GPU off-hours.
-  const schedule = scheduleConfig();
-  if (schedule.enabled
-    && state === 'stopped'
-    && !withinWindow(localHour(schedule.timeZone), schedule.startHour, schedule.endHour)) {
+  // A paused GPU, or a stopped one outside its schedule window, is not started
+  // by page activity; the status says why so every site shows the same screen.
+  const closure = gpuClosure(state);
+  if (closure) {
     return {
       body: {
         ...statusPayload({ id, state, workerReady: false }),
-        scheduleBlocked: true,
-        message: 'GPU start is disabled outside the scheduled window.',
+        scheduleBlocked: closure.reason === 'schedule',
       },
     };
   }

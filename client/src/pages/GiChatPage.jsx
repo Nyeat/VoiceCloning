@@ -10,6 +10,7 @@ import { DisclaimerBanner } from '@/components/gi/DisclaimerBanner.jsx';
 import { VoiceIndicator } from '@/components/gi/VoiceIndicator.jsx';
 import { useGiChatEngine } from '@/hooks/useGiChatEngine.js';
 import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
+import { DismissibleNotice } from '@/components/FloatingNotice.jsx';
 import { nextAudioErrorAction } from '@/hooks/liveConversation.js';
 
 export default function GiChatPage() {
@@ -299,6 +300,7 @@ export default function GiChatPage() {
                     goes out amber and on the polite 'status' channel — 'alert'
                     cuts across whatever a student's screen reader is saying. */}
                 <GpuWaitDialog wait={chat.capacityWait} />
+                <DismissibleNotice notice={chat.capacityBusy} />
                 {chat.error && (
                   <p
                     className={cn(

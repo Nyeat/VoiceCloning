@@ -23,6 +23,7 @@ const RETRYABLE_SYNTHESIS_STATUSES = new Set([409, 425, 429, 502, 503, 504]);
 
 export function isRetryableSynthesisError(err) {
   if (CAPACITY_CODES.has(err?.code)) return false;
+  if (err?.code === 'GPU_PAUSED') return false;
   if (err?.code === 'GPU_OFFLINE') return true;
   const status = Number(err?.status ?? err?.response?.status);
   if (RETRYABLE_SYNTHESIS_STATUSES.has(status)) return true;

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Cpu, Loader2, X } from 'lucide-react';
+import { Clock, Cpu, Loader2, PowerOff, X } from 'lucide-react';
 import { useGpuStatus } from '@/lib/gpuStatus.jsx';
 import { describeGpuStatus } from '@/lib/gpuStatusModel';
 
@@ -30,6 +30,30 @@ export function useGpuInstanceWait() {
     episodeRef.current = { key: `gpu-${startedAt}`, startedAt };
   }
   return { ...INSTANCE_WAIT[view.phase], ...episodeRef.current };
+}
+
+// The GPU is turned off on purpose (administrator pause, or outside the GPU
+// schedule) and nothing will start it, so the site is not for use. One screen
+// for every build — lectures, Faculty, Live Fast, Training — and it clears by
+// itself when the GPU is allowed back on (the status keeps polling).
+export function GpuClosedNotice() {
+  const { status, checking, starting, autoStart } = useGpuStatus();
+  const view = describeGpuStatus({ status, checking, starting, autoStart });
+  if (view.phase !== 'closed') return null;
+  return (
+    <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/70 px-6 backdrop-blur-md">
+      <div className="w-full max-w-sm rounded-xl border border-white/10 bg-white p-8 text-center shadow-2xl" role="alert">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+          <PowerOff size={26} className="text-slate-600" />
+        </div>
+        <h1 className="text-lg font-semibold text-slate-900">
+          {view.reason === 'schedule' ? 'Outside GPU hours' : 'Voice features are off'}
+        </h1>
+        <p className="mt-3 text-sm leading-relaxed text-slate-600">{view.detail}</p>
+        <p className="mt-3 text-xs text-slate-400">This page reopens by itself when the GPU is back on.</p>
+      </div>
+    </div>
+  );
 }
 
 function formatDuration(totalSeconds) {

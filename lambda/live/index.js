@@ -188,6 +188,13 @@ export function createHandler({
         return err(error.statusCode, error.message);
       }
       if (Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode <= 599) {
+        if (error.code === 'GPU_PAUSED') {
+          return {
+            statusCode: error.statusCode,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            body: JSON.stringify({ error: error.message, code: error.code }),
+          };
+        }
         if (error.code === 'MODEL_CAPACITY_STARTING' || error.code === 'MODEL_CAPACITY_LIMIT') {
           return {
             statusCode: error.statusCode,

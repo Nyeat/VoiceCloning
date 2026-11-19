@@ -13,13 +13,13 @@ const DOWN_STATES = new Set(['stopping', 'shutting-down', 'stopped', 'terminated
 export function smoothGpuStatus(previous, next, misses = 0) {
   if (!next) return { status: previous || null, misses };
   if (next.workerReady || !previous?.workerReady) return { status: next, misses: 0 };
-  if (DOWN_STATES.has(next.state)) return { status: next, misses: 0 };
+  if (DOWN_STATES.has(next.state) || next.closed) return { status: next, misses: 0 };
   const nextMisses = misses + 1;
   if (nextMisses < READY_MISS_TOLERANCE) return { status: previous, misses: nextMisses };
   return { status: next, misses: 0 };
 }
 
-// phase: checking | unconfigured | ready | stopped | starting | warming | stopping | unavailable
+// phase: checking | unconfigured | closed | ready | stopped | starting | warming | stopping | unavailable
 export function describeGpuStatus({ status, checking = false, starting = false, autoStart = false } = {}) {
   if (checking && !status) {
     return { phase: 'checking', label: 'Checking GPU', detail: 'Checking the GPU status.' };
@@ -32,6 +32,16 @@ export function describeGpuStatus({ status, checking = false, starting = false, 
     };
   }
   const state = status.state;
+  // Paused by an administrator, or outside the GPU schedule: nothing will start
+  // it, so never claim "Starting" — every site shows the same closed screen.
+  if (status.closed) {
+    return {
+      phase: 'closed',
+      label: 'GPU off',
+      detail: status.message || 'The GPU is turned off, so voice features are unavailable for now.',
+      reason: status.closed,
+    };
+  }
   if (status.workerReady) {
     return { phase: 'ready', label: 'GPU ready', detail: 'The GPU is on and ready.' };
   }

@@ -15,6 +15,7 @@ function sameStatus(a, b) {
     && a.state === b.state
     && a.workerReady === b.workerReady
     && a.startable === b.startable
+    && (a.closed || '') === (b.closed || '')
     && (a.message || '') === (b.message || '');
 }
 

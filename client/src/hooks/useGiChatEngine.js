@@ -324,6 +324,12 @@ export function useGiChatEngine({
     ? voiceCapacityWait(voiceCapacity, capacityWaitRef.current, requestedVoiceProfileId)
     : null;
   const capacityWait = capacityWaitRef.current;
+  // Usable but busy (another GPU is being added for this same voice): the same
+  // non-blocking "heavily loaded" popup as Live Fast. Chat stays open.
+  const capacityBusy = requestedVoiceProfileId && !usesStandardVoice
+    && /^BUSY_/u.test(voiceCapacity.state)
+    ? { key: voiceCapacity.state, tone: 'info', title: 'Voice is heavily loaded', message: capacityMessage }
+    : null;
 
   return {
     status: toGiStatus(liveSpeech.phase, { hasError: Boolean(error) }),
@@ -361,6 +367,7 @@ export function useGiChatEngine({
       ? `This build is pinned to the "${pinnedVoiceKey}" cloned voice, but "${activeVoiceLabel}" is currently active on the backend. Activate the pinned voice profile to continue.`
       : capacityMessage || liveSpeech.notice,
     capacityWait,
+    capacityBusy,
     speechApiAvailable: liveSpeech.speechApiAvailable,
     // Playback plumbing — GiChatPage drives a hidden <audio> element from these.
     phase: liveSpeech.phase,

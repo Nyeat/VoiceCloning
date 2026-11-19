@@ -228,6 +228,10 @@ export function createHandler({
       if (error instanceof VoiceProfileResolutionError) {
         return err(error.statusCode, error.message);
       }
+      if (error?.code === 'GPU_PAUSED') {
+        const paused = err(error.statusCode, error.message);
+        return { ...paused, body: JSON.stringify({ error: error.message, code: error.code }) };
+      }
       if (Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode <= 599) {
         return err(error.statusCode, error.message);
       }

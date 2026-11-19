@@ -8,7 +8,7 @@ import { useAuth } from '@/auth/useAuth';
 import { config } from '@/config';
 import { PostLoginRedirectHandler, ProtectedRoute, SignInRecorder } from '@/auth/AppAuthGate';
 import GpuInstanceControl from '@/components/GpuInstanceControl.jsx';
-import { GpuInstanceWaitDialog } from '@/components/GpuWaitDialog.jsx';
+import { GpuClosedNotice, GpuInstanceWaitDialog } from '@/components/GpuWaitDialog.jsx';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import TrainingPage from '@/pages/TrainingPage.jsx';
@@ -663,6 +663,7 @@ function SignedInShell() {
       {/* After consent, so it never covers the terms. Staging starts the GPU on
           entry; dev shows it once someone presses Start. */}
       {consent && !tourOpen && location.pathname !== '/test-voice' ? <GpuInstanceWaitDialog /> : null}
+      {consent ? <GpuClosedNotice /> : null}
       <HelpGuide open={helpOpen} onClose={() => setHelpOpen(false)} />
       <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} onOpenGuide={() => setHelpOpen(true)} />
     </div>

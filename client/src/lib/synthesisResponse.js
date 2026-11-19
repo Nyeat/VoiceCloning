@@ -57,6 +57,13 @@ export function synthesisResponseError(text, status, { gpuOfflineMessage = '' } 
   const capacity = capacityError(payload, status);
   if (capacity) return capacity;
 
+  // Turned off by an administrator: a final answer, not a GPU to wait for.
+  if (payload?.code === 'GPU_PAUSED') {
+    const error = withStatus(new Error(payload.error || 'Voice features are turned off for now.'), status);
+    error.code = 'GPU_PAUSED';
+    return error;
+  }
+
   if (isGpuOfflineResponse(status, text)) {
     const error = withStatus(new Error(gpuOfflineMessage), Number(status) || 503);
     error.code = 'GPU_OFFLINE';

@@ -42,6 +42,24 @@ export async function invokeCoordinator(payload, { lambdaClient = client, timeou
   return result;
 }
 
+// GPU_PAUSED=true (admin) takes voice synthesis out of use on every site and
+// stops selections from waking or scaling the GPU fleet. Same switch and
+// wording as the instance status, so pages show one consistent "GPU is off".
+export function gpuPausedMessage(env = process.env) {
+  if (!/^(1|true|yes|on)$/iu.test(String(env.GPU_PAUSED || '').trim())) return '';
+  return String(env.GPU_PAUSED_MESSAGE || '').trim()
+    || 'The GPU has been turned off by an administrator, so voice features are unavailable for now. Please try again later.';
+}
+
+function throwIfGpuPaused() {
+  const message = gpuPausedMessage();
+  if (!message) return;
+  const error = new Error(message);
+  error.statusCode = 503;
+  error.code = 'GPU_PAUSED';
+  throw error;
+}
+
 function throwCoordinatorError(result) {
   const error = new Error(result.error || `Model coordinator request failed (${result.statusCode || 500})`);
   error.statusCode = Number(result.statusCode) || 500;
@@ -53,6 +71,7 @@ function throwCoordinatorError(result) {
 }
 
 export async function coordinatedInferencePostBinary(routePath, body = {}, headers = {}) {
+  throwIfGpuPaused();
   if (!functionName()) return inferencePostBinary(routePath, body, headers);
   const result = await invokeCoordinator({ action: 'synthesize', routePath, body, headers });
   if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
@@ -67,12 +86,14 @@ export async function coordinatedInferencePostBinary(routePath, body = {}, heade
 }
 
 export async function coordinatedInferencePost(routePath, body = {}, headers = {}) {
+  if (routePath !== '/live/cancel') throwIfGpuPaused();
   if (!functionName()) return inferencePost(routePath, body, headers);
   if (routePath === '/live/cancel') {
     const result = await invokeCoordinator({ action: 'cancel', replyToken: body.replyToken });
     if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
     return result;
   }
+  throwIfGpuPaused();
   const result = await invokeCoordinator({ action: 'synthesize', routePath, body, headers });
   if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
   let parsed;
@@ -100,6 +121,17 @@ export async function getCoordinatedModelStatus(body = {}) {
 }
 
 export async function prepareCoordinatedModel(body = {}, { allowScale = false, source = 'preflight' } = {}) {
+  const pausedMessage = gpuPausedMessage();
+  if (pausedMessage) {
+    return {
+      statusCode: 200,
+      state: 'PAUSED',
+      canStartConversation: false,
+      capacityAction: 'none',
+      message: pausedMessage,
+      coordinatorConfigured: Boolean(functionName()),
+    };
+  }
   if (!functionName()) {
     return {
       statusCode: 200,
