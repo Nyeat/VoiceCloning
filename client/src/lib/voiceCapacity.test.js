@@ -60,3 +60,24 @@ test('Dev routing simulation never renders as a staging GPU limit', () => {
   assert.match(voiceCapacityNotice(capacity), /Dev capacity simulation/i);
   assert.doesNotMatch(voiceCapacityNotice(capacity), /staging is at its GPU limit/i);
 });
+
+test('voice wait popup: same titles/timings everywhere, stable across polls, none when usable', async () => {
+  const { voiceCapacityWait } = await import('./voiceCapacity.js');
+  const starting = voiceCapacityWait({ state: 'STARTING' }, null, 'dean', 1_000);
+  assert.equal(starting.title, 'Starting a GPU with this voice');
+  assert.equal(starting.estimateSeconds, 600);
+  assert.equal(starting.key, 'dean:STARTING:1000');
+  // A later poll in the same phase keeps the key and start time.
+  const again = voiceCapacityWait({ state: 'STARTING' }, starting, 'dean', 9_000);
+  assert.equal(again.key, starting.key);
+  assert.equal(again.startedAt, 1_000);
+  // A new phase is a new wait.
+  const switching = voiceCapacityWait({ state: 'WARMING' }, again, 'dean', 9_000);
+  assert.equal(switching.title, 'Switching a GPU to this voice');
+  assert.notEqual(switching.key, starting.key);
+  // Usable, busy, simulated or unknown states never pop up.
+  assert.equal(voiceCapacityWait({ state: 'READY', canStartConversation: true }), null);
+  assert.equal(voiceCapacityWait({ state: 'BUSY_STARTING', canStartConversation: true }), null);
+  assert.equal(voiceCapacityWait({ state: 'STARTING', simulated: true }), null);
+  assert.equal(voiceCapacityWait({ state: 'LIMIT' }), null);
+});

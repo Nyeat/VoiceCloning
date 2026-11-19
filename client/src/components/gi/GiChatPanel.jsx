@@ -6,6 +6,7 @@ import { Composer } from './Composer.jsx';
 import { DisclaimerBanner } from './DisclaimerBanner.jsx';
 import { VoiceIndicator } from './VoiceIndicator.jsx';
 import { useGiChatEngine } from '@/hooks/useGiChatEngine.js';
+import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
 import { useGiReplyAudio } from '@/hooks/useGiReplyAudio.js';
 import { useStickToBottom } from '@/hooks/useStickToBottom.js';
 import { chatGrowthKey } from '@/lib/chatScroll';
@@ -102,6 +103,7 @@ export function GiChatPanel({
         )}
 
         {chat.notice && <p className="px-4 pt-2 text-center text-xs text-amber-600">{chat.notice}</p>}
+        <GpuWaitDialog wait={chat.capacityWait} />
 
         {/* The chip gets its own line above the composer. It used to be pinned
             out of flow beside the mic to save a row, but the composer row is

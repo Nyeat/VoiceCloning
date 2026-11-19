@@ -26,6 +26,7 @@ import {
   normalizeVoiceCapacity,
   voiceCapacityBlocksConversation,
   voiceCapacityNotice,
+  voiceCapacityWait,
 } from '@/lib/voiceCapacity';
 
 // Kiosk-only engine setup for the gi skin. This is the subset of
@@ -316,6 +317,13 @@ export function useGiChatEngine({
   const capacityMessage = requestedVoiceProfileId && !usesStandardVoice
     ? voiceCapacityNotice(voiceCapacity)
     : '';
+  // The same dismissible "Starting/Switching a GPU" popup as Live Fast. The ref
+  // keeps one wait (key + start time) across polls so its timer keeps counting.
+  const capacityWaitRef = useRef(null);
+  capacityWaitRef.current = requestedVoiceProfileId && !usesStandardVoice
+    ? voiceCapacityWait(voiceCapacity, capacityWaitRef.current, requestedVoiceProfileId)
+    : null;
+  const capacityWait = capacityWaitRef.current;
 
   return {
     status: toGiStatus(liveSpeech.phase, { hasError: Boolean(error) }),
@@ -352,6 +360,7 @@ export function useGiChatEngine({
     notice: voiceMismatch
       ? `This build is pinned to the "${pinnedVoiceKey}" cloned voice, but "${activeVoiceLabel}" is currently active on the backend. Activate the pinned voice profile to continue.`
       : capacityMessage || liveSpeech.notice,
+    capacityWait,
     speechApiAvailable: liveSpeech.speechApiAvailable,
     // Playback plumbing — GiChatPage drives a hidden <audio> element from these.
     phase: liveSpeech.phase,

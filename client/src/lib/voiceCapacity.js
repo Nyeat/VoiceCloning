@@ -52,3 +52,40 @@ export function voiceCapacityNotice(capacity = {}) {
   if (value.state === 'ERROR') return 'Voice capacity could not be verified. Please retry before starting a conversation.';
   return '';
 }
+
+// Popup timings for a voice that is not usable yet: a cold GPU boot takes
+// minutes, a switch on a warm GPU seconds. Estimates only; the popup closes on
+// the coordinator's real READY.
+export const CAPACITY_WAITS = {
+  STARTING: { estimateSeconds: 600, maxSeconds: 900 },
+  WARMING: { estimateSeconds: 60, maxSeconds: 180 },
+};
+
+export function voiceCapacityTitle(capacity = {}) {
+  const value = normalizeVoiceCapacity(capacity);
+  if (value.simulated) return 'Dev capacity simulation';
+  if (value.state === 'STARTING') return 'Starting a GPU with this voice';
+  if (value.state === 'WARMING') return 'Switching a GPU to this voice';
+  return 'Getting this voice ready';
+}
+
+// The GpuWaitDialog `wait` for a voice, or null when nothing is being waited
+// on. Pass the previous wait back in so polls keep its key and start time (the
+// timer and a dismissal survive); a new voice or a new phase starts a new wait.
+// Every site uses this, so lectures and Live Fast show the same popup.
+export function voiceCapacityWait(capacity = {}, previous = null, voiceId = '', now = Date.now()) {
+  const value = normalizeVoiceCapacity(capacity);
+  const timing = value.simulated || value.canStartConversation ? null : CAPACITY_WAITS[value.state];
+  if (!timing) return null;
+  const same = previous && previous.voiceId === voiceId && previous.state === value.state;
+  const startedAt = same ? previous.startedAt : now;
+  return {
+    ...timing,
+    title: voiceCapacityTitle(value),
+    message: voiceCapacityNotice(value) || value.message,
+    voiceId,
+    state: value.state,
+    startedAt,
+    key: same ? previous.key : `${voiceId}:${value.state}:${startedAt}`,
+  };
+}

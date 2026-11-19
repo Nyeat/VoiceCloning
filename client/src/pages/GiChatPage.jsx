@@ -9,6 +9,7 @@ import { Composer } from '@/components/gi/Composer.jsx';
 import { DisclaimerBanner } from '@/components/gi/DisclaimerBanner.jsx';
 import { VoiceIndicator } from '@/components/gi/VoiceIndicator.jsx';
 import { useGiChatEngine } from '@/hooks/useGiChatEngine.js';
+import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
 import { nextAudioErrorAction } from '@/hooks/liveConversation.js';
 
 export default function GiChatPage() {
@@ -297,6 +298,7 @@ export default function GiChatPage() {
                 {/* A capacity wait is an advisory, not an interruption, so it
                     goes out amber and on the polite 'status' channel — 'alert'
                     cuts across whatever a student's screen reader is saying. */}
+                <GpuWaitDialog wait={chat.capacityWait} />
                 {chat.error && (
                   <p
                     className={cn(

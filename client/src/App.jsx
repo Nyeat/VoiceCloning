@@ -173,8 +173,21 @@ function AppWithGpu({ autoStart }) {
   if (APP_MODE_CONFIG.mode === 'training') return <TrainingWithGpu />;
   return (
     <GpuStatusProvider autoStart={autoStart}>
-      {APP_MODE_CONFIG.gi ? <GiApp /> : <AppShell />}
+      {APP_MODE_CONFIG.gi ? <><GiGpuNotices /><GiApp /></> : <AppShell />}
     </GpuStatusProvider>
+  );
+}
+
+// Lectures get the same GPU power notices as every other build: the overlay
+// for a stopping/unavailable GPU and the dismissible "Starting the GPU" wait.
+function GiGpuNotices() {
+  const location = useLocation();
+  if (location.pathname === '/login') return null;
+  return (
+    <>
+      {GPU_AUTO_START && <GpuStartingOverlay />}
+      <GpuInstanceWaitDialog />
+    </>
   );
 }
 
