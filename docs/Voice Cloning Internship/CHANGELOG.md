@@ -2388,3 +2388,17 @@
 - Tests: client 550, lambda 385, coordinator 77; all 5 client builds pass. Deployed dev + staging
   Lambdas/coordinators and all 8 clients; new code verified in 4 live sites; staging coordinator `peek` answers.
   Sign-in cause still unconfirmed: the Lambda does not log 401s and gateway logs are not in CloudWatch.
+
+## 2026-11-19 (late night) — reading script + dev/staging consistency audit (7c97176, deployed)
+
+- Training page: "No recording? Read our script" (shining button) opens a ~10-12 min reading script
+  (training/readingScript.js, ReadingScriptDialog.jsx): full screen on phone, panel on desktop, one-tap Copy.
+  Sentences 10-18 words + a pause each, so slicer cuts (>=4 s, 0.3 s pauses) land on the 4-9 s clips the
+  reference picker scores highest; a test keeps sentences <=22 words. Checked at 390 px and 1366 px (local harness).
+- Audit: both branches at 7c97176; all 4 Lambdas deployed 15:40 UTC from it; all 8 sites carry the new client code
+  (MC has no LivePage/training parts by design). Coordinator env diffs are the deliberate ones (mode, fleet,
+  scope, 3 vs 10 min, boot estimate).
+- NOT current: staging ASG GPUs boot from an Aug image (git 30234eb + 3 patched files): 9 gpu-inference-worker
+  files differ from HEAD (persisted residency/boot replay, coordinator status, switching robustness). Needs a
+  canaried AMI + launch-template version (docs/deployment.md rule). Fixed staging GPU = HEAD for all worker files.
+  Dev GPUs stopped; their code is unchecked.

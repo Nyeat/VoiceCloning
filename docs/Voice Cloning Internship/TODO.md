@@ -1,5 +1,6 @@
 # Active TODO
 
+- [ ] Bake a canaried inference AMI + launch-template version from HEAD: staging ASG GPUs run Aug worker code (9 files behind, 2026-11-19 audit). Update dev GPUs next time they run.
 - [ ] Coordinator review (2026-11-16), in priority order (max raised to 3): class-start
   bursts need scheduled prewarm or deficit-based batch scale-out; per-GPU idle scale-in built (d1a0b35) — confirm the Lambda role
   has autoscaling:TerminateInstanceInAutoScalingGroup (logs show AccessDenied otherwise); add the fixed staging GPU as a permanent inference worker (check VRAM beside
