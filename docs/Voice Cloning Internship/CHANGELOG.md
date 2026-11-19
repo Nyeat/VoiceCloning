@@ -2331,3 +2331,11 @@
   while the coordinator runs; use GPU_PAUSED or min/desired/max 0.
 - Training upload "Failed to fetch" on https://voicecloning.lkcmedicine.org: the domain is missing from the S3
   bucket CORS AllowedOrigins (CloudFront hosts are listed). Fix pending (owner applies; auto-mode blocked Claude).
+- 1fae4dd (deployed dev + staging, both Lambdas, all clients): boot-warm gate also releases when an idle worker's
+  residency timestamp is newer than its last activity (= warm script's /coordinator/register; works on the current
+  AMI). Live: registration 19:28:07 SGT, READY by 19:28:59. Switch waits report the selection start
+  (waitStartedAt) so timers survive reloads; boot estimate 900 s / "about 15 minutes (allow up to 20)" (measured
+  15-16 min x3). A message whose GPU is gone re-checks capacity so the popup + chat lock appear (Live Fast/Test your
+  voice, lectures, MC). Voice names: POST /api/voice-profile/label (owner-only, display-only, voice-labels/<voice>.json),
+  shown in Your voices (Name/Rename) and every voice picker, optional at training start. Tests: client 545,
+  lambda 381, coordinator 76.
