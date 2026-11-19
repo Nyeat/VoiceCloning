@@ -2402,3 +2402,20 @@
   files differ from HEAD (persisted residency/boot replay, coordinator status, switching robustness). Needs a
   canaried AMI + launch-template version (docs/deployment.md rule). Fixed staging GPU = HEAD for all worker files.
   Dev GPUs stopped; their code is unchecked.
+
+## 2026-11-20 00:10-00:40 SGT — staging inference workers to c4d928a; new image (IN PROGRESS)
+
+- Running ASG GPUs i-05b57877 and i-06d992c1 updated in place to c4d928a (bundle s3://…/echolect-staging/deploy/
+  vcs-c4d928a.bundle; image's local patch saved to /home/ubuntu/pre-update/). Both: worker restart + Dean warm
+  ~3 min, 10/10 warm rounds, registered, 1 Python process, ELB targets healthy. ASG health check was EC2 during
+  the restarts and is restored to ELB.
+- Baked ami-0acc935a0205d142c (vcs-staging-unified-c4d928a-20261120, snap-0c337f0001b063db8) from i-05b57877
+  after sync; launch template lt-07728350a25e691a4 **v42** = v41 with only ImageId changed. **NOT default yet**
+  (default still v41 / ami-0642b66fa3ae46b4f).
+- Fresh-boot test: i-0d4172699706f7121 (tag vcs-staging-ami-canary-c4d928a, outside the ASG, subnet-0c1937ef…)
+  booted from v42: HEAD c4d928a clean, Dean weights loaded ready at ~8 min; warm rounds/registration not yet
+  confirmed when the AWS session expired. **It is still running and the role cannot terminate it.**
+- Cleanup: 15 Aug objects removed from s3://…/echolect-staging/deploy/. Denied for this role (admin needed):
+  ec2:TerminateInstances (old stopped canary i-0f6c399842bd8cc38 + 500 GB disk, and the v42 test GPU above),
+  ec2:DeleteLaunchTemplateVersions (v1-39); all 23 orphan 500 GB snapshots from deleted Jul-Aug images also
+  failed to delete (reason not captured before expiry). Dev GPU backup snap-08ec74499a13176f7 kept on purpose.
