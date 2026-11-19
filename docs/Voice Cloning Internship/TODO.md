@@ -9,7 +9,8 @@
   sg-03a2f3dddf4eff21c from coordinator SG sg-0acbdd24318784b70 (auto-mode blocked Claude), or rebake the AMI
   so workers report residencySource. Re-check a scale-from-0 releases at warm completion.
 - [ ] Admin: add https://d3k2rz0hqm8nxi.cloudfront.net as SPA redirect URI on Entra app 9b5c52c0 (Faculty).
-- [ ] Owner: accept Training-site consent, then browser-test upload/train/Test your voice on staging.
+- [ ] Live-test GPU_PAUSED on Dev (set on the Dev main Lambda, check every site shows the off screen, unset);
+  add it to lambda/.env.deployment* only if it should persist (deploys merge those files over live env).
 - [ ] Decide whether Test your voice should stop marking the tested voice as the system-wide active profile
   (`makeActive: !canEditInstructions`); it can change other sites' default voice.
 

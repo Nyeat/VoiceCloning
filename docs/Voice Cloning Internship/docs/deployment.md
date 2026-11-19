@@ -36,6 +36,9 @@ To shut staging GPU compute down (account 329599637774, region ap-northeast-2):
 2. Stop fixed EC2 `i-0f0da8be59367f7a8` separately. Active work is interrupted.
 3. Verify ASG has zero instances and fixed EC2 is stopped. Keep Lambda schedule
    disabled, idle-stop 0, and the deferred actions unchanged. No hour edits needed.
+4. To keep the sites closed (2026-11-19): set `GPU_PAUSED=true` on the main Lambda (merge, never replace
+   the env map; optional `GPU_PAUSED_MESSAGE`). Without it the next visitor restarts the fixed GPU and a
+   voice selection scales the ASG. Every site then shows "Voice features are off"; unset to reopen.
 
 Historical cause: 2026-10-06 19:00 SGT daily-stop and 2026-10-07 07:00 daily-start
 restored min 1/max 192 and launched GPUs after manual zeroing. Minimum 1 is a floor,

@@ -11,6 +11,9 @@
 - Fixed 2026-11-19: a new ASG GPU was routed users ~4 min before its boot warm finished (bounced 503s, a needless
   extra GPU, and a risk of failing the script's /coordinator/register). Gate in coordinator; see CHANGELOG.
 - Fixed 2026-11-19: the idle spare copy of a busy voice could not be switched to another voice.
+- Fixed 2026-11-19: no real "site off" state — an admin-stopped GPU was restarted by the next staging visitor;
+  off-schedule pages showed "Starting the GPU" forever. Now GPU_PAUSED / schedule -> one closed screen.
+- Fixed 2026-11-19: lectures showed no GPU wait popups (inline text only); models/select {} returned 500.
 - Open 2026-11-16: synthesis is not owner-checked server-side — any signed-in user can speak any cloned voice id
   (Faculty and Test-your-voice only filter in the UI).
 - Open 2026-11-16: from 0 GPUs a lecture blocks the whole composer (typing too) for ~10 min while the voice starts.

@@ -2289,3 +2289,18 @@
   Full Inference audio; Live MC smoke (2 turns, context kept) passes except its stale "no admin API" check.
   Dev coordinator status + site OK. Not tested: Training site (consent is the owner's to accept), Faculty
   (sign-in broken, see BUGS), microphone input, burst/overflow tests.
+- Later 11-19 (deployed dev + staging, all clients and both Lambdas, branches at 9268b32):
+  32ffd67 lectures render the same GPU popups as other builds (GiApp lacked GpuInstanceWaitDialog, the
+  stopping/unavailable overlay and the voice "Starting/Switching a GPU" popup); one helper
+  `voiceCapacityWait` in client/src/lib/voiceCapacity.js feeds Live Fast and lectures.
+  3b48eeb POST /api/models/select with no voice/model paths -> 400 (was 500).
+  9268b32 admin switch GPU_PAUSED=true (+ optional GPU_PAUSED_MESSAGE) on a main Lambda: instance status
+  `closed:'paused'` (startable false), starts refused, prepare -> PAUSED without waking/scaling, synthesis ->
+  503 GPU_PAUSED (non-retryable). Off-schedule stopped GPU reports `closed:'schedule'`. Every build shows
+  GpuClosedNotice ("Voice features are off") and clears it when allowed back; lectures get Live Fast's
+  non-blocking "Voice is heavily loaded" popup for BUSY_* (extra GPU for the same voice, chat stays usable).
+  Tests: lambda 376/376, client 544/544, 5 builds. Live: closed screen shown and auto-cleared on staging
+  lecture + TTS with the status faked in-page; GPU_PAUSED itself not set live (auto-mode blocked Lambda
+  config change). Dev routing-only simulation verified (SIMULATED, no GPU start). Fixed staging GPU idle-
+  stopped by itself at 08:38. Endpoint sweep: unsigned instance/start, models/select and /inference are
+  reachable on every site (by design for the unsigned TTS/MC sites; cost exposure).
