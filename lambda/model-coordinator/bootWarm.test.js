@@ -47,3 +47,18 @@ test('routing-only (Dev fixed GPUs) and unreachable workers are not gated', () =
   assert.equal(down.bootWarming, false);
   assert.equal(down.state, 'STARTING');
 });
+
+test('desired is raised to the live GPUs so AWS cannot remove one in use, within max and not right after a scale-in', async () => {
+  const { reconciledDesired } = await import('./index.js');
+  const now = 50_000_000;
+  const live = [{ reachable: true, state: 'READY' }];
+  // 18:42 SGT incident: desired 0, one GPU serving a conversation.
+  assert.equal(reconciledDesired({ group: { DesiredCapacity: 0, MaxSize: 3 }, workers: live, now }), 1);
+  assert.equal(reconciledDesired({ group: { DesiredCapacity: 1, MaxSize: 3 }, workers: live, now }), null);
+  // max 0 = deliberate shutdown: never raised.
+  assert.equal(reconciledDesired({ group: { DesiredCapacity: 0, MaxSize: 0 }, workers: live, now }), null);
+  // The coordinator's own scale-in just lowered desired: leave it.
+  assert.equal(reconciledDesired({ group: { DesiredCapacity: 0, MaxSize: 3 }, workers: live, now, lastScaleInAt: now - 60_000 }), null);
+  // Unreachable/draining GPUs do not count.
+  assert.equal(reconciledDesired({ group: { DesiredCapacity: 0, MaxSize: 3 }, workers: [{ reachable: false }, { state: 'DRAINING' }], now }), null);
+});

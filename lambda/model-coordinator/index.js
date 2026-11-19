@@ -223,6 +223,21 @@ function tcpPortOpen(host, port, timeoutMs = 800) {
   });
 }
 
+// AWS removes GPUs whenever desired < running. A stale manual desired (or a
+// protection flag that held a GPU past it) let the group terminate a GPU in the
+// middle of a conversation (2026-11-19 18:42 SGT). The coordinator owns
+// scale-in, so it raises desired to the live GPUs it can route to — never above
+// the group's maximum (max 0 = deliberate shutdown) and not right after its own
+// scale-in, which lowers desired a moment before the group removes the GPU.
+export function reconciledDesired({ group = {}, workers = [], lastScaleInAt = 0, now = Date.now(), graceMs = 5 * 60_000 } = {}) {
+  const desired = Number(group.DesiredCapacity || 0);
+  const max = Number(group.MaxSize || 0);
+  const live = workers.filter((worker) => worker.reachable !== false && worker.state !== 'DRAINING').length;
+  if (live <= desired || now - Number(lastScaleInAt || 0) < graceMs) return null;
+  const target = Math.min(live, max);
+  return target > desired ? target : null;
+}
+
 async function refreshFleet(existingItems, now = Date.now()) {
   const existing = new Map(
     existingItems.filter((item) => item.entity === 'WORKER').map((item) => [item.instanceId, item]),
@@ -277,6 +292,24 @@ async function refreshFleet(existingItems, now = Date.now()) {
     TableName: tableName,
     Item: worker,
   }))));
+  if (!routingOnly()) {
+    const lastScaleIn = existingItems.find((item) => item.id === coordinationKey('SWEEP', 'last-scale-in'));
+    const target = reconciledDesired({ group, workers, lastScaleInAt: lastScaleIn?.at, now });
+    if (target !== null) {
+      try {
+        await autoscaling.send(new UpdateAutoScalingGroupCommand({
+          AutoScalingGroupName: asgName,
+          DesiredCapacity: target,
+        }));
+        console.log('[model-coordinator][decision]', JSON.stringify({
+          request: 'refresh', decision: 'reconcile-desired', from: Number(group.DesiredCapacity || 0), to: target,
+        }));
+        group = { ...group, DesiredCapacity: target };
+      } catch (error) {
+        console.error('[model-coordinator][reconcile]', error?.name || '', error?.message || error);
+      }
+    }
+  }
   return { group, workers };
 }
 
@@ -1385,6 +1418,20 @@ async function sweepIdleWorkers(now = Date.now()) {
     });
     const candidate = candidates[0];
     if (!candidate) return null;
+    // A protection flag left on an idle GPU (a switch whose clean-up never ran)
+    // would otherwise keep it alive and block the desired-capacity fallback.
+    const live = new Set(items.filter((item) => liveReassignment(item, now)).map((item) => item.workerId));
+    const stale = (group?.Instances || []).filter((instance) => instance.ProtectedFromScaleIn
+      && candidates.some((worker) => worker.instanceId === instance.InstanceId)
+      && !live.has(instance.InstanceId));
+    await Promise.all(stale.map((instance) => setWorkerProtection(instance.InstanceId, false).catch(() => {})));
+    await document.send(new PutCommand({
+      TableName: tableName,
+      Item: {
+        entity: 'SWEEP', id: coordinationKey('SWEEP', 'last-scale-in'), coordinatorScope,
+        at: now, expiresAt: Math.floor((now + 3_600_000) / 1_000),
+      },
+    }));
     let method = 'terminate';
     try {
       await autoscaling.send(new TerminateInstanceInAutoScalingGroupCommand({
