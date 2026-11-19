@@ -61,6 +61,13 @@ const pendingTtlMs = Math.max(120_000, Number(process.env.MODEL_PENDING_TTL_MS) 
 // selecting) is terminated individually, longest-idle first, one per sweep.
 const scaleInIdleMs = Math.max(60_000, Number(process.env.MODEL_SCALE_IN_IDLE_MS) || 40 * 60_000);
 const scaleInSweepMs = 60_000;
+// A newly booted autoscaled GPU runs warm-staging-deanvoice.sh as its
+// ExecStartPost: model load, then ten rounds that fill every slot, then
+// /coordinator/register. It reports ready with the voice minutes before that
+// script finishes, so routing there earlier bounced users off busy slots and
+// launched a needless second GPU (2026-11-19 staging). It stays STARTING until
+// it registers; the grace caps that wait if the script failed.
+const bootWarmGraceMs = Math.max(0, Number(process.env.MODEL_BOOT_WARM_GRACE_MS) || 15 * 60_000);
 const preflightDwellMs = Math.max(0, Number(process.env.MODEL_PREFLIGHT_DWELL_MS) || 8_000);
 // A gap longer than this restarts the dwell (the page was closed).
 const selectionGapMs = 30_000;
@@ -159,6 +166,7 @@ async function probeWorker(worker) {
       state: status.draining ? 'DRAINING' : status.ready ? 'READY' : 'STARTING',
       modelKey: clean(status.modelKey),
       voiceProfileId: clean(status.voiceProfileId),
+      residencySource: clean(status.residencySource),
       active: Number(status.active) || 0,
       queued: Number(status.queued) || 0,
       maxSlots: Number(status.maxSlots) || 2,
@@ -175,6 +183,23 @@ async function probeWorker(worker) {
       lastActivityAt: worker.lastActivityAt || Date.now(),
     };
   }
+}
+
+export function gateBootWarm(worker, now = Date.now(), {
+  enabled = true,
+  graceMs = bootWarmGraceMs,
+} = {}) {
+  const bootRegistered = worker.bootRegistered === true || worker.residencySource === 'coordinator';
+  const bootWarming = enabled
+    && !bootRegistered
+    && worker.reachable !== false
+    && now - Number(worker.firstSeenAt || 0) < graceMs;
+  return {
+    ...worker,
+    bootRegistered,
+    bootWarming,
+    ...(bootWarming && worker.state === 'READY' ? { state: 'STARTING' } : {}),
+  };
 }
 
 async function refreshFleet(existingItems, now = Date.now()) {
@@ -207,7 +232,7 @@ async function refreshFleet(existingItems, now = Date.now()) {
     .filter((instance) => instance.State?.Name === 'running');
   const workers = await Promise.all(instances.filter((instance) => instance.PrivateIpAddress).map(async (instance) => {
     const prior = existing.get(instance.InstanceId) || {};
-    return probeWorker({
+    const probed = await probeWorker({
       ...prior,
       entity: 'WORKER',
       id: `WORKER#${instance.InstanceId}`,
@@ -216,6 +241,7 @@ async function refreshFleet(existingItems, now = Date.now()) {
       firstSeenAt: prior.firstSeenAt || now,
       updatedAt: now,
     });
+    return gateBootWarm(probed, now, { enabled: !routingOnly() });
   }));
   await Promise.all(workers.map((worker) => document.send(new PutCommand({
     TableName: tableName,
@@ -1089,6 +1115,7 @@ async function synthesize(event) {
     }
     const fresh = !selected && initiallyLockedWorkers.find((worker) =>
       worker.reachable
+      && worker.bootWarming !== true
       && worker.residencyLocked !== true
       && worker.active === 0
       && worker.queued === 0

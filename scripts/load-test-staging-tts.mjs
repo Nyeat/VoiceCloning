@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { dirname } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -21,6 +22,8 @@ const textsFile = process.env.VCS_LOAD_TEST_TEXTS_FILE || '';
 const skipVerify = process.env.VCS_LOAD_TEST_SKIP_VERIFY === 'true';
 const rampSpec = process.env.VCS_LOAD_TEST_RAMP || '';
 const bucketMs = Number.parseInt(process.env.VCS_LOAD_TEST_BUCKET_MS || '15000', 10);
+// Staging GI requires a signed-in learner; pass the browser's Entra ID token.
+const entraToken = process.env.VCS_LOAD_TEST_ENTRA_TOKEN || '';
 const pacePlayback = process.env.VCS_LOAD_TEST_PACE_PLAYBACK !== 'false';
 const thinkMsMin = Number.parseInt(process.env.VCS_LOAD_TEST_THINK_MS_MIN || '1000', 10);
 const thinkMsMax = Number.parseInt(process.env.VCS_LOAD_TEST_THINK_MS_MAX || '4000', 10);
@@ -142,18 +145,22 @@ async function runRequest(userIndex) {
   inFlight += 1;
   let outcome;
   try {
+    const body = JSON.stringify({
+      voiceProfileId: 'deanvoice-v1',
+      text,
+      ...(skipVerify ? { skip_verify: true } : {}),
+    });
     const response = await fetch(`${url}?loadTest=${runId}-${userIndex}-${sequence}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache',
+        // CloudFront signs the Lambda URL origin (AWS_IAM) and needs the body hash.
+        'x-amz-content-sha256': createHash('sha256').update(body).digest('hex'),
+        ...(entraToken ? { 'X-VCS-Entra-Token': entraToken } : {}),
         ...(freshConnections ? { Connection: 'close' } : {}),
       },
-      body: JSON.stringify({
-        voiceProfileId: 'deanvoice-v1',
-        text,
-        ...(skipVerify ? { skip_verify: true } : {}),
-      }),
+      body,
       signal: AbortSignal.timeout(timeoutMs),
     });
     const audio = Buffer.from(await response.arrayBuffer());

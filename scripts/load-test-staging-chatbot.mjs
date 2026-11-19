@@ -5,6 +5,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -390,6 +391,11 @@ Begin that sentence exactly with "${marker}."`;
             if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
           }
           const chunkStartedAt = performance.now();
+          const requestBody = JSON.stringify({
+            ...synthesisProfile,
+            text: requestedChunks[chunkIndex],
+            ...(chunkIndex === 0 && skipFirstVerify ? { skip_verify: true } : {}),
+          });
           const response = await fetch(
             `${ttsUrl}?chatbotLoadTest=${Date.now()}-${index}-${turnIndex}-${chunkIndex}`,
             {
@@ -397,15 +403,13 @@ Begin that sentence exactly with "${marker}."`;
               headers: {
                 'Content-Type': 'application/json',
                 'Cache-Control': 'no-cache',
+                // CloudFront signs the Lambda URL origin (AWS_IAM) and needs the body hash.
+                'x-amz-content-sha256': createHash('sha256').update(requestBody).digest('hex'),
                 ...(loadTestAuthSecret
                   ? { Authorization: `Bearer ${loadTestAuthSecret}` }
                   : {}),
               },
-              body: JSON.stringify({
-                ...synthesisProfile,
-                text: requestedChunks[chunkIndex],
-                ...(chunkIndex === 0 && skipFirstVerify ? { skip_verify: true } : {}),
-              }),
+              body: requestBody,
               signal: AbortSignal.timeout(timeoutMs),
             },
           );
