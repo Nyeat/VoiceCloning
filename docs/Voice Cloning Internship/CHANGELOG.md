@@ -2323,3 +2323,11 @@
 - 54ca01a (deployed dev + staging Lambdas, training clients): timers swapped per owner — fixed GPU idle-off
   GPU_IDLE_STOP_MINUTES 30 -> 40 (dev + staging), voice-GPU scale-in MODEL_SCALE_IN_IDLE_MS 40 -> 30 min
   (staging coordinator; code default 30). Guided tour says 40 idle minutes. Live env read back: 40 / 40 / 1800000.
+- 18:42 SGT incident: a Test-your-voice session lost its GPU 6 s after a reply. Cause: desired had been set to
+  0 by hand (Claude, 17:27) while i-00e124c5568a7e290 was still ProtectedFromScaleIn (stale flag from a voice
+  switch); when protection cleared the group terminated it. edc264a (deployed dev + staging): refreshFleet keeps
+  desired >= reachable GPUs (<= MaxSize, skipped 5 min after the coordinator's own scale-in); the sweep clears
+  stale protection on idle candidates. Tests coordinator 75/75, lambda 379/379. Rule: never set desired by hand
+  while the coordinator runs; use GPU_PAUSED or min/desired/max 0.
+- Training upload "Failed to fetch" on https://voicecloning.lkcmedicine.org: the domain is missing from the S3
+  bucket CORS AllowedOrigins (CloudFront hosts are listed). Fix pending (owner applies; auto-mode blocked Claude).
