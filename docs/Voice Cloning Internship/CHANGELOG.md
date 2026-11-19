@@ -2304,3 +2304,12 @@
   config change). Dev routing-only simulation verified (SIMULATED, no GPU start). Fixed staging GPU idle-
   stopped by itself at 08:38. Endpoint sweep: unsigned instance/start, models/select and /inference are
   reachable on every site (by design for the unsigned TTS/MC sites; cost exposure).
+- 17:18/17:23 SGT 11-19: live proof that scale-in is STILL denied — sweep chose the idle GPU, AWS refused
+  `autoscaling:TerminateInstanceInAutoScalingGroup` ("no identity-based policy allows"); the admin grant was for
+  something else. Both idle staging GPUs then set to desired 0 by hand (UpdateAutoScalingGroup; this role lacks
+  SetDesiredCapacity). a9c202f coordinator fallback: on AccessDenied, if EVERY worker is past the idle limit,
+  lower desired by one (UpdateAutoScalingGroup, which the Lambda role has); a partly busy fleet still waits.
+  decision.js `scaleInCandidates`. Tests coordinator 74/74, lambda 377/377; deployed dev + staging.
+- a2ab6cd training email sender shows "LKCMedicine Voice Cloning" (Gmail account unchanged; EMAIL_FROM_NAME
+  overrides). Workers redeployed on both training GPUs (were 23 commits behind; also delivers the s3Sync
+  streaming fix); all three services healthy. Sending itself already worked (logs 11-17). No test email sent.
