@@ -960,3 +960,25 @@ test('an auth-exempt origin (Live MC) may check its voice capacity unsigned; oth
     if (saved === undefined) delete process.env.LIVE_AUTH_EXEMPT_ORIGINS; else process.env.LIVE_AUTH_EXEMPT_ORIGINS = saved;
   }
 });
+
+test('a lecturer names their own voice; others cannot; the voice list shows the name', async () => {
+  const store = new Map();
+  const handler = createHandler({
+    authGuard: { authorize: async () => ({ oid: 'u1', email: 'cs-tengyu.liu@assoc.main.ntu.edu.sg' }) },
+    writeObject: async (key, buffer) => { store.set(key, buffer); },
+    readObject: async (key) => store.get(key) || null,
+    listVoiceNames: async () => ['cs-tengyu-liu_3'],
+    listProfileObjects: async () => [],
+    listStandardVoices: async () => [],
+  });
+  const label = (voiceName, value) => handler({
+    ...createEvent({ method: 'POST', path: '/api/voice-profile/label', body: { voiceName, label: value } }),
+  });
+  const saved = await label('cs-tengyu-liu_3', '  Lecture  voice\n<Nov>  ');
+  assert.equal(saved.statusCode, 200);
+  assert.equal(JSON.parse(saved.body).label, 'Lecture voice Nov');
+  assert.equal((await label('cs-someone-else_1', 'x')).statusCode, 403);
+  const mine = await handler(createEvent({ path: '/api/voice-profile/mine' }));
+  const voice = JSON.parse(mine.body).voices.find((v) => v.displayName === 'cs-tengyu-liu_3');
+  assert.equal(voice.label, 'Lecture voice Nov');
+});

@@ -402,6 +402,12 @@ export function prepareVoiceCapacity(voiceProfileId) {
 // The voices the signed-in lecturer owns. The server resolves ownership from
 // the token's email — never from anything the browser sends — and only honours
 // scope=all for an admin.
+// Names (or renames) one of the signed-in lecturer's own trained voices.
+// Display only; the voice id (e.g. cs-name_5) never changes. '' clears it.
+export function setVoiceLabel(voiceName, label) {
+  return api.post('/voice-profile/label', { voiceName, label });
+}
+
 export function getMyVoiceProfiles(scope = 'mine') {
   return api.get('/voice-profile/mine', { params: scope === 'all' ? { scope: 'all' } : {} });
 }

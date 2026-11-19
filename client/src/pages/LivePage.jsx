@@ -331,7 +331,7 @@ const CAPACITY_NOTICE_TITLES = new Set([
 ]);
 
 // Waits that get the centred, dismissible dialog. Same numbers as the wording
-// in voiceCapacityNotice: a fresh GPU ~10 min (up to 15), a switch < 1 min (up to 3).
+// in voiceCapacityNotice: a fresh GPU ~15 min (up to 20), a switch < 1 min (up to 3).
 // A neutral partner for hearing your own clone speak, so the lecturer can judge
 // the voice rather than a lecture's content.
 const VOICE_TEST_SYSTEM_PROMPT = 'You are a friendly assistant helping a lecturer hear how their cloned voice sounds. '
@@ -4169,6 +4169,37 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
   }, [capacityWatch, selectedVoiceProfileId, usingStandardVoice]);
 
+  // A message (not a voice selection) can find its GPU gone and start a new
+  // one, mid-conversation, when the selection poll has already stopped. Ask
+  // the coordinator straight away so the same popup (real start time) and
+  // chat lock appear as for a selection; a successful reply clears it.
+  const capacityWaitSeenRef = useRef(false);
+  useEffect(() => {
+    const waiting = liveSpeech.errorTone === 'waiting' && Boolean(liveSpeech.error);
+    const wasWaiting = capacityWaitSeenRef.current;
+    capacityWaitSeenRef.current = waiting;
+    if (!waiting) {
+      if (wasWaiting) {
+        setVoiceCapacityBlocked(false);
+        setGpuNotice((current) => (CAPACITY_NOTICE_TITLES.has(current?.title) ? null : current));
+      }
+      return;
+    }
+    if (wasWaiting || !selectedVoiceProfileId || usingStandardVoice) return;
+    const voiceId = selectedVoiceProfileId;
+    prepareVoiceCapacity(voiceId).then((res) => {
+      const capacity = res?.data || {};
+      if (capacity.canStartConversation) return;
+      setVoiceCapacityBlocked(true);
+      setGpuNotice((current) => ({
+        tone: 'warning',
+        title: voiceCapacityTitle(capacity),
+        message: voiceCapacityNotice(capacity) || capacity.message,
+        wait: voiceCapacityWait(capacity, current?.wait, voiceId),
+      }));
+    }).catch(() => {});
+  }, [liveSpeech.errorTone, liveSpeech.error, selectedVoiceProfileId, usingStandardVoice]);
+
   useEffect(() => {
     async function handleGpuReady() {
       // A GPU that just came up (auto-start, or a manual Start on dev) holds no
@@ -4670,7 +4701,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
               <Loader2 size={14} className="shrink-0 animate-spin" />
               {!voiceModelReady
                 ? gpuNotice?.wait
-                  ? `${gpuNotice.wait.title} — usually ${gpuNotice.wait.state === 'STARTING' ? 'about 10 minutes (up to 15)' : 'under a minute (up to 3)'}. The chat unlocks automatically.`
+                  ? `${gpuNotice.wait.title} — usually ${gpuNotice.wait.state === 'STARTING' ? 'about 15 minutes (up to 20)' : 'under a minute (up to 3)'}. The chat unlocks automatically.`
                   : 'Loading the voice — this may take a moment.'
                 : 'Almost ready — preparing the voice references.'}
             </>

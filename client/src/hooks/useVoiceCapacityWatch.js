@@ -12,7 +12,7 @@ import {
 // blocking "Starting/Switching a GPU" wait (chat locked), a non-blocking
 // "heavily loaded" notice (chat usable), or nothing when ready. Same polling
 // cadence as the lecture chat: every 5 s for the first minute, then 15 s.
-export function useVoiceCapacityWatch(voiceProfileId, { enabled = true } = {}) {
+export function useVoiceCapacityWatch(voiceProfileId, { enabled = true, recheckKey = 0 } = {}) {
   const [capacity, setCapacity] = useState(() => normalizeVoiceCapacity());
   const waitRef = useRef(null);
 
@@ -44,7 +44,7 @@ export function useVoiceCapacityWatch(voiceProfileId, { enabled = true } = {}) {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [enabled, voiceProfileId]);
+  }, [enabled, voiceProfileId, recheckKey]);
 
   waitRef.current = enabled ? voiceCapacityWait(capacity, waitRef.current, voiceProfileId) : null;
   const message = voiceCapacityNotice(capacity);

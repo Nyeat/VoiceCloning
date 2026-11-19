@@ -62,3 +62,20 @@ test('desired is raised to the live GPUs so AWS cannot remove one in use, within
   // Unreachable/draining GPUs do not count.
   assert.equal(reconciledDesired({ group: { DesiredCapacity: 0, MaxSize: 3 }, workers: [{ reachable: false }, { state: 'DRAINING' }], now }), null);
 });
+
+test('registration on the current AMI is detected from residency newer than activity', async () => {
+  const { gateBootWarm } = await import('./index.js');
+  const now = 9_000_000;
+  const base = {
+    instanceId: 'i-n', reachable: true, state: 'READY', modelKey: 'm', active: 0, queued: 0,
+    firstSeenAt: now - 600_000, firstReachableAt: now - 300_000,
+  };
+  // Between warm rounds: residency set at round start, activity marked after it.
+  assert.equal(gateBootWarm({ ...base, residencyUpdatedAt: now - 5_000, lastActivityAt: now - 4_000 }, now).state, 'STARTING');
+  // A round in flight is not registration even if timestamps cross.
+  assert.equal(gateBootWarm({ ...base, active: 1, residencyUpdatedAt: now - 1_000, lastActivityAt: now - 4_000 }, now).state, 'STARTING');
+  // /coordinator/register: residency newer than the last activity, idle -> released now.
+  const done = gateBootWarm({ ...base, residencyUpdatedAt: now - 1_000, lastActivityAt: now - 4_000 }, now);
+  assert.equal(done.state, 'READY');
+  assert.equal(done.bootRegistered, true);
+});

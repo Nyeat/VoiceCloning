@@ -91,7 +91,15 @@ function McSessionPage() {
   });
   const active = live.isConversationActive;
   const { workerReady } = useGpuStatus();
-  const voice = useVoiceCapacityWatch(MC_VOICE_PROFILE_ID);
+  // A reply that finds the voice's GPU gone re-checks it, so the popup shows.
+  const [capacityRecheck, setCapacityRecheck] = useState(0);
+  const capacityWaitSeenRef = useRef(false);
+  useEffect(() => {
+    const waiting = live.errorTone === 'waiting' && Boolean(live.error);
+    if (waiting && !capacityWaitSeenRef.current) setCapacityRecheck((count) => count + 1);
+    capacityWaitSeenRef.current = waiting;
+  }, [live.errorTone, live.error]);
+  const voice = useVoiceCapacityWatch(MC_VOICE_PROFILE_ID, { recheckKey: capacityRecheck });
   const startLocked = !workerReady || voice.blocked;
   const pendingChanges = active && applied
     && (applied.mode !== listeningMode || !sameCaptureSettings(applied.capture, captureSettings));

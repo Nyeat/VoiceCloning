@@ -35,7 +35,7 @@ export function voiceCapacityNotice(capacity = {}) {
   }
   if (value.state === 'CHECKING') return 'Getting this voice ready…';
   if (value.state === 'STARTING') {
-    return 'Starting a GPU with this voice. This takes about 10 minutes (allow up to 15). Please wait — the chat unlocks automatically, or try another lecture or voice meanwhile.';
+    return 'Starting a GPU with this voice. This takes about 15 minutes (allow up to 20). Please wait — the chat unlocks automatically, or try another lecture or voice meanwhile.';
   }
   if (value.state === 'WARMING') {
     return 'Switching a GPU to this voice. This usually takes under a minute (up to 3 minutes if that GPU was just in use). The chat unlocks automatically.';
@@ -61,7 +61,7 @@ export function voiceCapacityNotice(capacity = {}) {
 // minutes, a switch on a warm GPU seconds. Estimates only; the popup closes on
 // the coordinator's real READY.
 export const CAPACITY_WAITS = {
-  STARTING: { estimateSeconds: 600, maxSeconds: 900 },
+  STARTING: { estimateSeconds: 900, maxSeconds: 1200 },
   WARMING: { estimateSeconds: 60, maxSeconds: 180 },
 };
 

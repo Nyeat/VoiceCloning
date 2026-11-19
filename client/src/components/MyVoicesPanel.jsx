@@ -52,7 +52,8 @@ function VoiceItem({ kind, voice, subtitle }) {
   return (
     <SelectItem value={itemValue(kind, voice)} className="py-1.5 text-xs">
       <span className="truncate">
-        {voice.displayName}
+        {voice.label || voice.displayName}
+        {voice.label ? <span className="text-slate-400"> · {voice.displayName}</span> : null}
         {subtitle ? <span className="text-slate-400"> · {subtitle}</span> : null}
       </span>
     </SelectItem>
@@ -97,7 +98,7 @@ export default function MyVoicesPanel({
   // Name only: the stock names already read as descriptions ("River - Relaxed,
   // Neutral, Informative"), and appending the accent here would truncate them.
   // The detail belongs in the menu, where there is room to compare.
-  const selectedLabel = selectedStandard?.displayName || selectedOwn?.displayName || selectedVoiceName;
+  const selectedLabel = selectedStandard?.displayName || selectedOwn?.label || selectedOwn?.displayName || selectedVoiceName;
 
   function handleChange(next) {
     if (next === SCOPE_TOGGLE) {

@@ -153,6 +153,10 @@ export function useGiChatEngine({
     loadActiveProfile();
   }, [backendQueryable, loadActiveProfile, requestedVoiceProfileId]);
 
+  // A message can find its GPU gone and start a new one after this poll has
+  // stopped (voice was READY). Re-run it so the popup and lock appear.
+  const [capacityRecheck, setCapacityRecheck] = useState(0);
+
   useEffect(() => {
     // Stock voices do not use a GPU model pool and must never start or wait for
     // coordinator capacity.
@@ -187,7 +191,7 @@ export function useGiChatEngine({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [requestedVoiceProfileId, usesStandardVoice]);
+  }, [requestedVoiceProfileId, usesStandardVoice, capacityRecheck]);
 
   // Human-readable name of the voice in force, for the read-only indicator.
   //
@@ -256,6 +260,13 @@ export function useGiChatEngine({
     getVideoPosition,
     onUserQuestion,
   });
+
+  const capacityWaitSeenRef = useRef(false);
+  useEffect(() => {
+    const waiting = liveSpeech.errorTone === 'waiting' && Boolean(liveSpeech.error);
+    if (waiting && !capacityWaitSeenRef.current) setCapacityRecheck((count) => count + 1);
+    capacityWaitSeenRef.current = waiting;
+  }, [liveSpeech.errorTone, liveSpeech.error]);
 
   // Pick up a deploy the moment a conversation ends, so the next one runs the
   // current config. A kiosk here stays open all day: fetching only at mount meant

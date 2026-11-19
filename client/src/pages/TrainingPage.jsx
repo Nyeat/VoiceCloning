@@ -8,6 +8,7 @@ import {
   allocateTrainingVoiceName,
   getCurrentTraining,
   getMyVoiceProfiles,
+  setVoiceLabel,
   startTraining,
   stopTraining,
   uploadFiles,
@@ -144,6 +145,10 @@ export default function TrainingPage({ consent = null }) {
   const [notice, setNotice] = useState(null);
   const [otherRun, setOtherRun] = useState(null);
   const [voices, setVoices] = useState([]);
+  // Optional name for the voice being trained ("Lecture voice, Nov").
+  const [voiceLabel, setVoiceLabelInput] = useState('');
+  const [renaming, setRenaming] = useState(null); // { voiceName, value }
+  const [renameError, setRenameError] = useState('');
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicesToken, setVoicesToken] = useState(0);
 
@@ -283,6 +288,12 @@ export default function TrainingPage({ consent = null }) {
       });
       setSessionId(res.data.sessionId);
       restoredSessionRef.current = res.data.sessionId;
+      const label = voiceLabel.trim();
+      if (label) {
+        // The name is display-only, so a failure here must not fail training.
+        setVoiceLabel(expName, label).then(() => setVoicesToken((token) => token + 1)).catch(() => {});
+        setVoiceLabelInput('');
+      }
       connect(res.data.sessionId, { initialStatus: 'waiting' });
       setFiles([]);
       showNotice({ title: `Training ${expName}`, message: "Started. We'll email you when it's done.", tone: 'success' });
@@ -294,6 +305,18 @@ export default function TrainingPage({ consent = null }) {
       showNotice({ title: 'Training could not start', message, tone: 'error' });
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function saveRename() {
+    if (!renaming) return;
+    try {
+      await setVoiceLabel(renaming.voiceName, renaming.value);
+      setRenaming(null);
+      setRenameError('');
+      setVoicesToken((token) => token + 1);
+    } catch (err) {
+      setRenameError(err.response?.data?.error || err.message || 'Could not save the name.');
     }
   }
 
@@ -422,6 +445,20 @@ export default function TrainingPage({ consent = null }) {
               </div>
             ) : null}
 
+            {!isRunning ? (
+              <label className="mb-3 block max-w-sm">
+                <span className="text-xs font-medium text-slate-700">Name this voice <span className="font-normal text-slate-400">(optional)</span></span>
+                <input
+                  type="text"
+                  value={voiceLabel}
+                  maxLength={40}
+                  onChange={(event) => setVoiceLabelInput(event.target.value)}
+                  placeholder="e.g. Lecture voice, November"
+                  className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm focus:outline-primary"
+                />
+              </label>
+            ) : null}
+
             <div className="flex flex-wrap items-center gap-3">
               {!isRunning ? (
                 <button
@@ -540,14 +577,51 @@ export default function TrainingPage({ consent = null }) {
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {voices.map((voice) => (
-                    <li key={voice.voiceProfileId || voice.displayName} className="flex items-center justify-between gap-2 px-5 py-2.5">
-                      <span className="truncate text-sm text-slate-800">{voice.displayName}</span>
-                      <Link
-                        to={`/test-voice?voice=${encodeURIComponent(voice.displayName)}`}
-                        className="shrink-0 text-xs font-medium text-primary hover:underline"
-                      >
-                        Test
-                      </Link>
+                    <li key={voice.voiceProfileId || voice.displayName} className="px-5 py-2.5">
+                      {renaming?.voiceName === voice.displayName ? (
+                        <form
+                          className="flex items-center gap-2"
+                          onSubmit={(event) => { event.preventDefault(); void saveRename(); }}
+                        >
+                          <input
+                            autoFocus
+                            type="text"
+                            maxLength={40}
+                            value={renaming.value}
+                            onChange={(event) => setRenaming({ ...renaming, value: event.target.value })}
+                            placeholder={voice.displayName}
+                            aria-label={`Name for ${voice.displayName}`}
+                            className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-sm focus:outline-primary"
+                          />
+                          <button type="submit" className="shrink-0 text-xs font-medium text-primary hover:underline">Save</button>
+                          <button type="button" onClick={() => { setRenaming(null); setRenameError(''); }} className="shrink-0 text-xs text-slate-500 hover:underline">Cancel</button>
+                        </form>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm text-slate-800">{voice.label || voice.displayName}</span>
+                            {voice.label ? <span className="block truncate text-[11px] text-slate-400">{voice.displayName}</span> : null}
+                          </span>
+                          <span className="flex shrink-0 items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => { setRenameError(''); setRenaming({ voiceName: voice.displayName, value: voice.label || '' }); }}
+                              className="text-xs text-slate-500 hover:text-slate-800 hover:underline"
+                            >
+                              {voice.label ? 'Rename' : 'Name'}
+                            </button>
+                            <Link
+                              to={`/test-voice?voice=${encodeURIComponent(voice.displayName)}`}
+                              className="text-xs font-medium text-primary hover:underline"
+                            >
+                              Test
+                            </Link>
+                          </span>
+                        </div>
+                      )}
+                      {renaming?.voiceName === voice.displayName && renameError ? (
+                        <p className="mt-1 text-xs text-red-600">{renameError}</p>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

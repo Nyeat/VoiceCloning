@@ -10,7 +10,7 @@ test('a missing model blocks conversation and gives the truthful fifteen-minute 
   const capacity = { state: 'STARTING', canStartConversation: false, retryAfterSeconds: 900 };
   assert.equal(voiceCapacityBlocksConversation(capacity), true);
   assert.match(voiceCapacityNotice(capacity), /Starting a GPU with this voice/i);
-  assert.match(voiceCapacityNotice(capacity), /up to 15/i);
+  assert.match(voiceCapacityNotice(capacity), /up to 20/i);
 });
 
 test('a busy resident model remains usable while background capacity starts', () => {
@@ -65,7 +65,7 @@ test('voice wait popup: same titles/timings everywhere, stable across polls, non
   const { voiceCapacityWait } = await import('./voiceCapacity.js');
   const starting = voiceCapacityWait({ state: 'STARTING' }, null, 'dean', 1_000);
   assert.equal(starting.title, 'Starting a GPU with this voice');
-  assert.equal(starting.estimateSeconds, 600);
+  assert.equal(starting.estimateSeconds, 900);
   assert.equal(starting.key, 'dean:STARTING:1000');
   // A later poll in the same phase keeps the key and start time.
   const again = voiceCapacityWait({ state: 'STARTING' }, starting, 'dean', 9_000);

@@ -169,6 +169,7 @@ async function probeWorker(worker) {
       modelKey: clean(status.modelKey),
       voiceProfileId: clean(status.voiceProfileId),
       residencySource: clean(status.residencySource),
+      residencyUpdatedAt: Number(status.updatedAt) || 0,
       active: Number(status.active) || 0,
       queued: Number(status.queued) || 0,
       maxSlots: Number(status.maxSlots) || 2,
@@ -197,7 +198,16 @@ export function gateBootWarm(worker, now = Date.now(), {
   graceMs = bootWarmGraceMs,
 } = {}) {
   const reachableSince = Number(worker.firstReachableAt || 0);
-  const signalled = worker.residencySource === 'coordinator' || worker.warmPortOpen === true;
+  // The warm script ends with /coordinator/register, which sets the residency
+  // timestamp WITHOUT marking activity; every synthesis sets residency first
+  // and marks activity after. So an idle worker whose residency is newer than
+  // its last activity has just registered: warm-up is over (works on the
+  // current AMI, no network rule needed).
+  const registeredNow = Boolean(worker.modelKey)
+    && Number(worker.active || 0) === 0
+    && Number(worker.queued || 0) === 0
+    && Number(worker.residencyUpdatedAt || 0) > Number(worker.lastActivityAt || 0);
+  const signalled = worker.residencySource === 'coordinator' || worker.warmPortOpen === true || registeredNow;
   const graceOver = reachableSince > 0 && now - reachableSince >= graceMs;
   const bootRegistered = !enabled || worker.bootRegistered === true || signalled || graceOver;
   const bootWarming = !bootRegistered && worker.reachable !== false;
@@ -1000,7 +1010,7 @@ async function prepareCapacity(event) {
       model,
       matchingWorkers: readyMatching.length,
       capacityAction: 'reassign',
-      startedAt: reassigning.requestedAt,
+      startedAt: Math.min(Number(reassigning.requestedAt) || now, now - selectionDwellMs),
     });
   }
   if (booting) {
@@ -1066,6 +1076,8 @@ async function prepareCapacity(event) {
       model,
       matchingWorkers: readyMatching.length,
       capacityAction: 'reassign',
+      // The wait began when this voice was first selected (the dwell start).
+      startedAt: now - selectionDwellMs,
       message: 'An idle GPU will switch to this voice shortly. No additional GPU is being started.',
     });
   }
@@ -1112,6 +1124,7 @@ async function prepareCapacity(event) {
       matchingWorkers: readyMatching.length,
       capacityAction: 'reassign',
       started: scheduled.started,
+      startedAt: now - selectionDwellMs,
     });
   }
   if (action.type === 'defer') {

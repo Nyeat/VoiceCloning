@@ -22,6 +22,34 @@ const ACTIVATE_PROFILE_PATH = /^\/api\/voice-profile\/activate\/?$/u;
 const CAPACITY_PROFILE_PATH = /^\/api\/voice-profile\/capacity\/?$/u;
 const INTERNAL_PROFILE_PATH = /^\/api\/voice-profile\/internal\/([^/]+)\/?$/u;
 const PINNED_PROFILE_PATH = /^\/api\/voice-profile\/pinned\/([^/]+)\/?$/u;
+const VOICE_LABEL_PATH = /^\/api\/voice-profile\/label\/?$/u;
+const VOICE_LABEL_PREFIX = 'voice-labels/';
+const VOICE_LABEL_MAX = 40;
+
+// The name a lecturer gives a trained voice ("Lecture voice, Nov"). Display
+// only: the voice's id (cs-name_5) stays the key everywhere.
+export function cleanVoiceLabel(value) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f<>]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, VOICE_LABEL_MAX)
+    .trim();
+}
+
+export function voiceLabelKey(voiceName) {
+  return `${VOICE_LABEL_PREFIX}${voiceName}.json`;
+}
+
+async function readVoiceLabel(readObject, voiceName) {
+  try {
+    const buffer = await readObject(voiceLabelKey(voiceName));
+    if (!buffer) return '';
+    return cleanVoiceLabel(JSON.parse(buffer.toString('utf-8'))?.label);
+  } catch {
+    return '';
+  }
+}
 
 // Same rule as the supervisor analytics routes: an app role, or an explicit
 // object-id allowlist. Deliberately not a second admin mechanism.
@@ -346,6 +374,10 @@ export function createHandler({
         }
 
         voices.sort((left, right) => String(left.displayName || '').localeCompare(String(right.displayName || '')));
+        await Promise.all(voices.map(async (voice) => {
+          const label = await readVoiceLabel(readObject, voice.displayName);
+          if (label) voice.label = label;
+        }));
 
         // Stock voices are appended after the sort, not merged into it: they are
         // owned by nobody, so the isMine filter above would drop them from the
@@ -359,6 +391,34 @@ export function createHandler({
           voices,
           standardVoices,
         }, {}, event);
+      }
+
+      // A lecturer names (or renames) one of their own trained voices. The
+      // owner comes from the signed-in identity, never from the request.
+      if (method === 'POST' && VOICE_LABEL_PATH.test(routePath)) {
+        if (!authGuard) return err(503, 'Voice profile authentication is not configured', event);
+        let identity;
+        try {
+          identity = await authGuard.authorize(event);
+        } catch {
+          return err(401, 'Sign in to name your voice', event);
+        }
+        let body;
+        try {
+          body = parseJsonBody(event);
+        } catch {
+          return err(400, 'Invalid JSON body', event);
+        }
+        const voiceName = String(body?.voiceName || '').trim();
+        if (!voiceName || !isSafePathSegment(voiceName)) return err(400, 'voiceName is required', event);
+        if (!ownsVoiceName(identity?.email, voiceName)) return err(403, 'You can only name your own voices', event);
+        const label = cleanVoiceLabel(body?.label);
+        await writeObject(
+          voiceLabelKey(voiceName),
+          Buffer.from(JSON.stringify({ voiceName, label, updatedAt: now() })),
+          'application/json',
+        );
+        return ok({ voiceName, label }, {}, event);
       }
 
       // Synthesis resolves a voice per request by id, which is the only thing
