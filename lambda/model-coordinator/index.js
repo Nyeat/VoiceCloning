@@ -23,6 +23,7 @@ import {
   chooseCapacityAction,
   choosePreparationAction,
   chooseScaleInCandidate,
+  scaleInCandidates,
   chooseSynthesisAdmission,
   preflightScaleBlocked,
   matchingFreeSlots,
@@ -1374,7 +1375,7 @@ async function sweepIdleWorkers(now = Date.now()) {
     const items = await scanState();
     const { group, workers: probed } = await refreshFleet(items, now);
     const workers = applyAdmissionReservations(lockedFleet(items, probed, now), items, now);
-    const candidate = chooseScaleInCandidate({
+    const candidates = scaleInCandidates({
       workers,
       now,
       idleMs: scaleInIdleMs,
@@ -1382,15 +1383,32 @@ async function sweepIdleWorkers(now = Date.now()) {
       desired: Number(group?.DesiredCapacity || 0),
       lastDemandByModel: demandMap(items),
     });
+    const candidate = candidates[0];
     if (!candidate) return null;
-    await autoscaling.send(new TerminateInstanceInAutoScalingGroupCommand({
-      InstanceId: candidate.instanceId,
-      ShouldDecrementDesiredCapacity: true,
-    }));
+    let method = 'terminate';
+    try {
+      await autoscaling.send(new TerminateInstanceInAutoScalingGroupCommand({
+        InstanceId: candidate.instanceId,
+        ShouldDecrementDesiredCapacity: true,
+      }));
+    } catch (error) {
+      // Without TerminateInstanceInAutoScalingGroup (2026-11-19 staging) the
+      // group can still shrink by one when EVERY worker is idle: whichever it
+      // removes, nobody is cut off. A busy fleet waits for the permission.
+      const fleetIdle = error?.name === 'AccessDenied'
+        && candidates.length === workers.length
+        && candidates.length === Number(group?.DesiredCapacity || 0);
+      if (!fleetIdle) throw error;
+      await autoscaling.send(new UpdateAutoScalingGroupCommand({
+        AutoScalingGroupName: asgName,
+        DesiredCapacity: Number(group.DesiredCapacity) - 1,
+      }));
+      method = 'decrement-desired';
+    }
     await document.send(new DeleteCommand({ TableName: tableName, Key: { id: candidate.id || `WORKER#${candidate.instanceId}` } }))
       .catch(() => {});
     console.log('[model-coordinator][decision]', JSON.stringify({
-      request: 'sweep', decision: 'scale-in', workerId: candidate.instanceId,
+      request: 'sweep', decision: 'scale-in', method, workerId: candidate.instanceId,
       modelKey: String(candidate.modelKey || '').slice(0, 12),
       idleMinutes: Math.round((now - Number(candidate.lastActivityAt || now)) / 60_000),
       desiredCapacity: Number(group?.DesiredCapacity || 0) - 1,

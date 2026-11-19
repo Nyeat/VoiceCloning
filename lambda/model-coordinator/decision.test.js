@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   applyResidencyLocks,
   chooseCapacityAction,
+  scaleInCandidates,
   choosePreparationAction,
   chooseQueuedMatchingWorker,
   chooseSynthesisAdmission,
@@ -545,4 +546,17 @@ test('a spare copy of a busy voice can switch to another voice; the last copy ca
     workers: [{ ...spare }], requestedModelKey: 'tengyu', lastDemandByModel, now, reassignIdleMs: 180_000,
   });
   assert.equal(lastCopy.type, 'scale');
+});
+
+test('scale-in candidates cover the whole fleet only when every GPU is idle', () => {
+  const now = 100_000_000;
+  const idle = (id, mins) => ({
+    instanceId: id, state: 'READY', reachable: true, modelKey: id, active: 0, queued: 0,
+    firstSeenAt: 1, lastActivityAt: now - mins * 60_000,
+  });
+  const all = scaleInCandidates({ workers: [idle('a', 50), idle('b', 45)], now, idleMs: 40 * 60_000, desired: 2 });
+  assert.deepEqual(all.map((w) => w.instanceId), ['a', 'b']);
+  const some = scaleInCandidates({ workers: [idle('a', 50), idle('b', 5)], now, idleMs: 40 * 60_000, desired: 2 });
+  assert.deepEqual(some.map((w) => w.instanceId), ['a']);
+  assert.deepEqual(scaleInCandidates({ workers: [idle('a', 50)], now, idleMs: 40 * 60_000, desired: 1, minSize: 1 }), []);
 });

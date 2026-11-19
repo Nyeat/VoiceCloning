@@ -228,7 +228,14 @@ export function chooseSynthesisAdmission({
 // GPU nor its voice has been used/selected for `idleMs` (an open page that keeps
 // selecting a voice keeps that voice's GPU). Never takes the group below its
 // minimum. Returns null when nothing should be removed.
-export function chooseScaleInCandidate({
+export function chooseScaleInCandidate(options = {}) {
+  return scaleInCandidates(options)[0] || null;
+}
+
+// Every worker that may be removed, longest-idle first. When this is the whole
+// fleet, removing ANY one of them is safe — the coordinator relies on that when
+// it can only lower the desired count and let the group pick (2026-11-19).
+export function scaleInCandidates({
   workers = [],
   now = Date.now(),
   idleMs = 15 * 60_000,
@@ -236,7 +243,7 @@ export function chooseScaleInCandidate({
   desired = 0,
   lastDemandByModel = {},
 } = {}) {
-  if (Number(desired) - 1 < Number(minSize)) return null;
+  if (Number(desired) - 1 < Number(minSize)) return [];
   const holders = new Map();
   for (const worker of workers) {
     if (worker.state === 'READY' && worker.reachable !== false && worker.modelKey) {
@@ -262,5 +269,5 @@ export function chooseScaleInCandidate({
       && now - idleSince(worker) >= idleMs
     ))
     .sort((a, b) => idleSince(a) - idleSince(b)
-      || Number(b.firstSeenAt || 0) - Number(a.firstSeenAt || 0))[0] || null;
+      || Number(b.firstSeenAt || 0) - Number(a.firstSeenAt || 0));
 }
