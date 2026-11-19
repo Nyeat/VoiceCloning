@@ -94,9 +94,9 @@ Reapplying provisioning/daily-schedule scripts can restore automatic operation.
   workers alone does not update future scale-outs.
 - The shared DynamoDB table is partitioned logically by `MODEL_COORDINATOR_SCOPE=dev|staging` for
   demand, reassign, pending-scale, and residency-lock records. Never remove the scope variables or
-  interpret legacy unscoped markers as live state. `MODEL_PREFLIGHT_REASSIGN_IDLE_MS=30000` protects
-  an idle prepared lecture voice from opposing 15-second polls; real synthesis keeps immediate idle
-  reassignment through `MODEL_REASSIGN_IDLE_MS=0`.
+  interpret legacy unscoped markers as live state. Staging `MODEL_REASSIGN_IDLE_MS` and
+  `MODEL_PREFLIGHT_REASSIGN_IDLE_MS` = 600000 (2026-11-19): a GPU messaged within 10 min is not switched; a
+  new GPU is added. Dev (routing-only) keeps 180000 and waits out the grace.
 
 ### Atomic admission release and acceptance (commit `7b297dc`)
 

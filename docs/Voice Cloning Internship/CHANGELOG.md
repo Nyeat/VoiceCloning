@@ -2339,3 +2339,22 @@
   voice, lectures, MC). Voice names: POST /api/voice-profile/label (owner-only, display-only, voice-labels/<voice>.json),
   shown in Your voices (Name/Rename) and every voice picker, optional at training start. Tests: client 545,
   lambda 381, coordinator 76.
+
+## 2026-11-19 (late) — GPU switch vs add, wait popup, training prewarm (289832d, deployed)
+
+- Coordinator: a GPU is "in use" only by its own messages or the switch that loaded it; pages that merely have
+  its voice open no longer pin it (decision.js chooseCapacityAction). Staging switches only a GPU unused for
+  10 min (`MODEL_*REASSIGN_IDLE_MS=600000`, was 3 min) and otherwise ADDS a GPU — the grace no longer makes a
+  selection wait (that "await-reassign-grace" path is kept only for routing-only Dev, which cannot add).
+  A voice already loaded with full slots answers BUSY_QUEUED on page open (no scale); real queue overflow scales.
+- Wait timer: await-fleet-transition carries the shared selection start; selection gap 30 s -> 2 min (hidden
+  tabs restarted it); client keeps one wait per voice across STARTING<->WARMING (timer, larger estimate, dismissal).
+- Test your voice: a superseded load left `loadingModel` true, so switching back to an already-loaded voice
+  stayed locked; selection now releases the lock and always re-prepares (modelLoading.js `force`).
+- GpuWaitDialog: dismissing leaves a "Show" pill with the timer (all sites). WARMING copy: "Switching an idle GPU…".
+- Training site: after consent, prewarms an inference GPU for the person's most recent voice
+  (training/useInferencePrewarm.js); none if they have no trained voice.
+- Deployed: dev + staging Lambdas and coordinators (staging coordinator env verified 600000/600000), clients staging
+  training/live-fast/chatbot/chatbot-text/mc, dev training/live-fast/chatbot; new strings verified in 4 live App
+  chunks. Tests: client 546, lambda 381, coordinator 76. Not live-tested: the multi-tab switch/add scenarios,
+  BUSY_QUEUED, the prewarm boot.

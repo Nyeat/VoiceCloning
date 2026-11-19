@@ -292,3 +292,7 @@ These live in runtime configuration and will not appear in any branch diff:
   are disabled.
 - Every chatbot uses Live MC's Medium mic preset unless Live MC's sliders override it.
 
+## 2026-11-19 — Switch vs add a GPU
+- A GPU belongs to whoever messaged it (or switched it) in the last 10 min on staging: another voice gets a new
+  GPU rather than taking it. An open page that sends nothing is not use. A loaded voice adds GPUs only through
+  real queue overflow, never on page open. Fixed-GPU Dev keeps 3 min and waits instead of adding.
