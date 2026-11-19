@@ -64,3 +64,17 @@ test('sendTrainingCompleteEmail drops a non-https test link', async () => {
   });
   assert.doesNotMatch(calls[0].html, /href=/);
 });
+
+test('the sender shows a service name instead of a bare personal address', async () => {
+  const { formatSender, sendTrainingCompleteEmail } = await import('./emailService.js');
+  assert.equal(formatSender('someone@gmail.com'), '"LKCMedicine Voice Cloning" <someone@gmail.com>');
+  assert.equal(formatSender('Team <team@x.sg>'), 'Team <team@x.sg>');
+  assert.equal(formatSender('a@b.c', ''), 'a@b.c');
+  assert.equal(formatSender('a@b.c', 'Bad"\r\nName'), '"BadName" <a@b.c>');
+  let sent;
+  await sendTrainingCompleteEmail('u@ntu.edu.sg', 'voice', {
+    transport: { sendMail: async (mail) => { sent = mail; } },
+    fromEmail: formatSender('someone@gmail.com'),
+  });
+  assert.equal(sent.from, '"LKCMedicine Voice Cloning" <someone@gmail.com>');
+});

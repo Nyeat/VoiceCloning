@@ -34,9 +34,21 @@ export function safeTestVoiceUrl(value) {
   }
 }
 
+// Recipients see a service name, not a bare mailbox address. An EMAIL_FROM
+// that already carries a name ("Name <addr>") is used as is.
+export function formatSender(address, name = 'LKCMedicine Voice Cloning') {
+  const value = String(address || '').trim();
+  if (!value || value.includes('<')) return value;
+  const label = String(name || '').replace(/["\\\r\n]/g, '').trim();
+  return label ? `"${label}" <${value}>` : value;
+}
+
 export async function sendTrainingCompleteEmail(email, expName, {
   transport = createTransport(),
-  fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER,
+  fromEmail = formatSender(
+    process.env.EMAIL_FROM || process.env.EMAIL_USER,
+    process.env.EMAIL_FROM_NAME ?? 'LKCMedicine Voice Cloning',
+  ),
   testVoiceUrl = '',
 } = {}) {
 
