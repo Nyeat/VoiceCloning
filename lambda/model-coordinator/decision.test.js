@@ -523,3 +523,26 @@ test('a spare copy of a voice in use scales in by its own idleness; the last cop
   const alone = chooseScaleInCandidate({ workers: [workers[0]], now, idleMs: 40 * 60_000, minSize: 0, desired: 1, lastDemandByModel });
   assert.equal(alone, null);
 });
+
+test('a spare copy of a busy voice can switch to another voice; the last copy cannot', () => {
+  const now = 10_000_000;
+  const oldest = {
+    instanceId: 'i-old', state: 'READY', modelKey: 'dean', active: 0, queued: 0, maxSlots: 2,
+    firstSeenAt: 1, lastActivityAt: now - 10_000,
+  };
+  const spare = {
+    instanceId: 'i-spare', state: 'READY', modelKey: 'dean', active: 0, queued: 0, maxSlots: 2,
+    firstSeenAt: 2, lastActivityAt: now - 7 * 60_000,
+  };
+  const lastDemandByModel = { dean: now - 5_000 };
+  const both = chooseCapacityAction({
+    workers: [oldest, spare], requestedModelKey: 'tengyu', lastDemandByModel, now, reassignIdleMs: 180_000,
+  });
+  assert.equal(both.type, 'reassign');
+  assert.equal(both.worker.instanceId, 'i-spare');
+
+  const lastCopy = chooseCapacityAction({
+    workers: [{ ...spare }], requestedModelKey: 'tengyu', lastDemandByModel, now, reassignIdleMs: 180_000,
+  });
+  assert.equal(lastCopy.type, 'scale');
+});
