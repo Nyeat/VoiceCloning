@@ -14,6 +14,8 @@
   Liu_Teng_Yu_Intern2026-LambdaExecutionRole (the 11-19 grant was a different permission). Check with
   coordinator logs `"decision":"scale-in","method":"terminate"`.
 - [ ] npm audit on the GPU box: gpu-worker 1 critical/3 high, inference worker 1 critical/1 high, gateway 1 critical.
+- [ ] Owner decision: should a visible open tab count as using its voice (heartbeat) or only messages/selections
+  (current)? Two tabs with different voices currently take turns on one GPU.
 - [ ] Live-test GPU_PAUSED on Dev (set on the Dev main Lambda, check every site shows the off screen, unset);
   add it to lambda/.env.deployment* only if it should persist (deploys merge those files over live env).
 - [ ] Decide whether Test your voice should stop marking the tested voice as the system-wide active profile

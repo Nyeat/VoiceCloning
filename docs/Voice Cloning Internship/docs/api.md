@@ -109,7 +109,11 @@ Notes:
     ordinary inference ALB. The response includes `coordinatorCapacity`.
 - `POST /api/voice-profile/activate`
 - `GET /api/voice-profile/active`
-- `POST /api/voice-profile/capacity` — authenticated lecture-voice preflight.
+- `POST /api/voice-profile/label` — signed-in owner names a trained voice (2026-11-19). Request
+  `{ "voiceName": "cs-name_5", "label": "Lecture voice" }` (label <= 40 chars, cleaned; "" clears). 403 for
+  another owner's voice. Stored at `voice-labels/<voiceName>.json`; `/mine` returns it as `label`. Display only.
+- `POST /api/voice-profile/capacity` — authenticated lecture-voice preflight (also unsigned for
+  LIVE_AUTH_EXEMPT_ORIGINS, i.e. Live MC). STARTING/WARMING answers carry `waitStartedAt` (ms) for the popup timer.
   - Request: `{ "voiceProfileId": "<safe saved profile ID>" }`. Lambda loads the
     saved profile and sends its immutable GPT/SoVITS snapshot to the staging model
     coordinator.

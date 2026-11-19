@@ -11,8 +11,9 @@ Last updated: 2026-11-19
   voice; lost boots retried; 30 min per-GPU scale-in (fixed GPU idle-off 40, since 11-19), spare copies by own activity, swept from idle-check too; legacy
   `no-traffic-15m` alarm actions disabled. One reference selector (lambda/shared). All chatbots use Live MC Medium mic
   preset. Profile/config saves strip presigned URLs (8 KB WAF). 11-17 later: 2 GB training uploads (s3Sync undeployed).
-- 2026-11-19: 26c0f1a deployed dev + staging Lambdas/coordinators. Scale-in IAM granted; new GPUs stay STARTING
-  until boot warm ends; idle spare copies switch voices. Faculty sign-in broken (AADSTS50011). See CHANGELOG/BUGS.
+- 2026-11-19 (7d22b21, all deployed dev + staging): scale-in IAM still MISSING (fallback: all-idle fleet shrinks);
+  new GPUs released at warm registration; same GPU popups/off screen on every site (GPU_PAUSED switch); idle-off 40
+  / scale-in 30 min; voice names. Open: Faculty sign-in, training emails bounce (NTU IT). See CHANGELOG/BUGS/TODO.
 
 - 2026-11-16: training site launched (SSO + domain, consent, guide, Test your voice); staging fixed GPU 30-min
   idle stop; staging ASG min 0 / max 3; per-voice boots (d1a0b35). Superseded where 2026-11-17 differs.
