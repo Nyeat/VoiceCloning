@@ -2413,8 +2413,8 @@
   after sync; launch template lt-07728350a25e691a4 **v42** = v41 with only ImageId changed. **NOT default yet**
   (default still v41 / ami-0642b66fa3ae46b4f).
 - Fresh-boot test: i-0d4172699706f7121 (tag vcs-staging-ami-canary-c4d928a, outside the ASG, subnet-0c1937ef…)
-  booted from v42: HEAD c4d928a clean, Dean weights loaded ready at ~8 min; warm rounds/registration not yet
-  confirmed when the AWS session expired. **It is still running and the role cannot terminate it.**
+  booted from v42: HEAD c4d928a clean, Dean loaded at ~8 min; boot warm COMPLETED 16:43:15 UTC (total_seconds=580, all route
+  rounds, coordinator registration) -> v42 verified on a fresh boot, ready to promote. **It is still running and the role cannot terminate it.**
 - Cleanup: 15 Aug objects removed from s3://…/echolect-staging/deploy/. Denied for this role (admin needed):
   ec2:TerminateInstances (old stopped canary i-0f6c399842bd8cc38 + 500 GB disk, and the v42 test GPU above),
   ec2:DeleteLaunchTemplateVersions (v1-39); all 23 orphan 500 GB snapshots from deleted Jul-Aug images also
