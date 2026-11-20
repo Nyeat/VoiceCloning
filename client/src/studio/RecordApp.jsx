@@ -321,7 +321,7 @@ function lecturerStatusLine(job, now) {
     return job.estimate ? `Training now — should finish around ${formatSgt(job.estimate.finishAt)} SGT (${relativeFromNow(job.estimate.finishAt, now)}).` : 'Training now.';
   }
   if (job.status === 'quality-check') return 'Trained. Our team is checking the quality — we will email you when it passes.';
-  if (job.status === 'scheduled') return job.slot ? `Ready! Your test time: ${formatSgt(job.slot.start)} – ${formatSgt(job.slot.end, { withDate: false })} SGT.` : 'Ready to test.';
+  if (job.status === 'ready') return 'Passed quality check! Open Voice Studio to see or pick your test time.';
   return '';
 }
 
@@ -348,8 +348,8 @@ function MySubmissions({ me, onWithdraw }) {
               <p className="mt-0.5 text-xs text-slate-400">{job.files.length} file(s) · {formatBytes(job.totalBytes)} · submitted {formatSgt(job.queuedAt || job.createdAt)}</p>
             </div>
             {job.status === 'queued' && <Button variant="ghost" size="sm" onClick={() => onWithdraw(job.id)}>Withdraw</Button>}
-            {job.status === 'scheduled' && studioUrl && (
-              <a href={`${studioUrl}/?voice=${encodeURIComponent(job.voiceName)}`} className="inline-flex h-8 items-center rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700">Test your voice</a>
+            {job.status === 'ready' && studioUrl && (
+              <a href={studioUrl} className="inline-flex h-8 items-center rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700">Open Voice Studio</a>
             )}
           </li>
         ))}

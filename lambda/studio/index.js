@@ -40,6 +40,18 @@ async function defaultStartGpu() {
   return startGpuInstance();
 }
 
+// Loads a voice onto the GPU the way selecting it in the studio does: the
+// coordinator switches the GPU to it at once (singleGpu, no 10 min protection).
+async function defaultPreloadVoice(voiceName) {
+  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel }, { buildVoiceProfileId }] = await Promise.all([
+    import('../shared/voiceProfileRuntime.js'),
+    import('../shared/modelCoordinator.js'),
+    import('../shared/voiceIdentity.js'),
+  ]);
+  const body = await createVoiceProfileResolver()({ voiceProfileId: buildVoiceProfileId(voiceName), text: 'Voice Studio slot warm-up.' });
+  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', singleGpu: true });
+}
+
 async function readJsonObject(key) {
   if (!(await headObject(key))) return null;
   return JSON.parse((await getObject(key)).toString('utf-8'));
@@ -61,6 +73,7 @@ export function createStudioService({
   readJson = readJsonObject,
   writeJson = (key, value) => uploadBuffer(key, Buffer.from(JSON.stringify(value, null, 2)), 'application/json'),
   applyPronunciation = (voiceName) => inferencePost('/inference/start', { pronunciationVoice: voiceName }),
+  preloadVoice = defaultPreloadVoice,
 } = {}) {
   async function takenVoiceNames(state) {
     const trained = await listVoices();
@@ -182,6 +195,24 @@ export function createStudioService({
       }
     }
 
+    // Load the person's voice before their slot starts, once the GPU is up.
+    const preloaded = [];
+    for (const slot of wf.slotsToPreload(state, now)) {
+      const voiceName = wf.preloadVoiceFor(state, slot);
+      if (!voiceName) continue;
+      try {
+        await preloadVoice(voiceName);
+        preloaded.push(voiceName);
+        await updateState(store, (draft) => {
+          const current = wf.findSlot(draft, slot.id);
+          if (current) current.preloadedAt = new Date(now).toISOString();
+          return null;
+        });
+      } catch (error) {
+        console.warn(`[studio] slot preload of ${voiceName} failed (retried next tick): ${error.message}`);
+      }
+    }
+
     const demand = wf.gpuDemand(state, now);
     let gpuStart = null;
     if (demand && !worker) {
@@ -191,7 +222,7 @@ export function createStudioService({
         gpuStart = { error: error.message };
       }
     }
-    return { skipped: false, demand, dispatched, workerReachable: Boolean(worker), gpuStart };
+    return { skipped: false, demand, dispatched, preloaded, workerReachable: Boolean(worker), gpuStart };
   }
 
   return { store, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer };
@@ -264,7 +295,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
     const estimates = new Map(wf.estimateQueue(state, { now, env }).map((entry) => [entry.jobId, entry]));
     const jobs = state.jobs
       .filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && job.status !== 'cancelled')
-      .map((job) => wf.lecturerJob(job, estimates.get(job.id), state))
+      .map((job) => wf.lecturerJob(job, estimates.get(job.id)))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return {
       email,
@@ -276,6 +307,12 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         voiceName,
         access: wf.voiceAccess(state, { email, voiceName, now, superuser: false }),
       })),
+      slots: wf.publicSlots(state, email, now),
+      mySlot: wf.upcomingSlotFor(state, email, now),
+      activeSlot: (() => {
+        const active = wf.currentSlot(state, now);
+        return active && wf.sameNtuPerson(active.assigneeEmail, email) ? active : null;
+      })(),
       now: new Date(now).toISOString(),
     };
   }
@@ -295,7 +332,15 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         .map((job) => wf.publicJob(job, estimates.get(job.id)))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
       queue: wf.orderQueue(state.jobs).map((job) => job.id),
-      slots: state.slots.filter((slot) => slot.status !== 'cancelled' && Date.parse(slot.end) > now - 7 * 24 * 3600_000),
+      slots: state.slots
+        .filter((slot) => slot.status !== 'cancelled' && Date.parse(slot.end) > now - 7 * 24 * 3600_000)
+        .sort((a, b) => a.start.localeCompare(b.start)),
+      draftCount: state.slots.filter((slot) => slot.status === 'draft').length,
+      people: [...new Map(state.jobs.filter((job) => job.status !== 'uploading').map((job) => [job.ownerEmail, {
+        email: job.ownerEmail,
+        name: job.ownerName,
+        approvedVoices: state.jobs.filter((other) => other.ownerEmail === job.ownerEmail && ['approved', 'scheduled'].includes(other.status)).map((other) => other.approvedExpName),
+      }])).values()],
       currentSlot: wf.currentSlot(state, now),
       superusers: wf.listSuperusers(state, env),
       trainingMinutes: wf.trainingMinutes(state, env),
@@ -333,7 +378,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
     try {
       const { email } = await identify(event);
       const now = clock();
-      const route = `${method} ${parts.map((part, index) => (index > 0 && ['submissions', 'jobs', 'voices', 'superusers'].includes(parts[index - 1]) ? ':id' : part)).join('/')}`;
+      const route = `${method} ${parts.map((part, index) => (index > 0 && part !== 'publish' && ['submissions', 'jobs', 'voices', 'superusers', 'slots'].includes(parts[index - 1]) ? ':id' : part)).join('/')}`;
 
       // ── Lecturer (and everyone) ──
       if (route === 'GET me') {
@@ -356,7 +401,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           const job = wf.createJob(state, { id: newId(), ownerEmail: email, ownerName: body.name, expName, label: body.label, consent: body.consent, now });
           return { job };
         });
-        return ok({ job: wf.lecturerJob(result.job, null, { slots: [] }), jobId: result.job.id }, {}, event);
+        return ok({ job: wf.lecturerJob(result.job, null), jobId: result.job.id }, {}, event);
       }
 
       if (route === 'POST submissions/:id/presign') {
@@ -467,6 +512,23 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         return ok({ applied: true, restarted: Boolean(result?.restarted), ready: result?.ready !== false }, {}, event);
       }
 
+      if (route === 'POST slots/:id/claim' || route === 'POST slots/:id/release') {
+        const claiming = route.endsWith('claim');
+        const { result } = await updateState(store, (state) => {
+          const slot = claiming
+            ? wf.claimSlot(state, parts[1], { email, name: body.name, now })
+            : wf.releaseSlot(state, parts[1], { email, now });
+          return { slot: { ...slot } };
+        });
+        const { state } = await store.read();
+        if (claiming) {
+          await service.mailer.send(email, templates.slotBooked({ slot: result.slot, moved: false, env }));
+        }
+        const people = wf.listSuperusers(state, env).map((entry) => entry.email);
+        await service.mailer.send(people, templates.slotPicked({ slot: result.slot, email, claiming, env }));
+        return ok(await lecturerView(state, email), {}, event);
+      }
+
       // ── Super users ──
       if (parts[0] === 'admin') {
         const { state: snapshot } = await store.read();
@@ -498,34 +560,51 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           });
           if (decision === 'reject') await maybeTick();
           const { state } = await store.read();
-          return ok(await adminView(state), {}, event);
-        }
-
-        if (route === 'POST admin/jobs/:id/slot') {
-          const { result } = await updateState(store, (state) => {
+          if (decision === 'approve') {
             const job = wf.findJob(state, parts[2]);
-            if (!job) throw wf.clientError(404, 'Job not found');
-            const booking = wf.bookSlot(state, job, { start: body.start, end: body.end, bookedBy: email, slotId: newId(), now });
-            return { jobId: job.id, ...booking };
-          });
-          const { state } = await store.read();
-          const job = wf.findJob(state, result.jobId);
-          const slot = state.slots.find((item) => item.id === result.slot.id);
-          const mail = await service.notify(job.id, 'slotBooked', job.ownerEmail, templates.slotBooked({ job, slot, moved: result.moved, env }));
-          return ok({ ...(await adminView((await store.read()).state)), email: mail }, {}, event);
-        }
-
-        if (route === 'DELETE admin/jobs/:id/slot') {
-          const { result } = await updateState(store, (state) => {
-            const job = wf.findJob(state, parts[2]);
-            if (!job) throw wf.clientError(404, 'Job not found');
-            wf.cancelSlot(state, job);
-            return { jobId: job.id };
-          });
-          const { state } = await store.read();
-          const job = wf.findJob(state, result.jobId);
-          if (body.notify !== false) await service.notify(job.id, 'slotCancelled', job.ownerEmail, templates.slotCancelled({ job, env }));
+            const slot = wf.upcomingSlotFor(state, job.ownerEmail, clock());
+            await service.notify(job.id, 'voiceApproved', job.ownerEmail, templates.voiceApproved({ job, slot, env }));
+          }
           return ok(await adminView((await store.read()).state), {}, event);
+        }
+
+        if (route === 'POST admin/slots') {
+          await updateState(store, (state) => {
+            wf.addSlot(state, {
+              id: newId(), start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, actor: email, now,
+            });
+            return null;
+          });
+          return ok(await adminView((await store.read()).state), {}, event);
+        }
+
+        if (route === 'PUT admin/slots/:id') {
+          await updateState(store, (state) => {
+            wf.editSlot(state, parts[2], {
+              start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName,
+            }, now);
+            return null;
+          });
+          return ok(await adminView((await store.read()).state), {}, event);
+        }
+
+        if (route === 'DELETE admin/slots/:id') {
+          const { result } = await updateState(store, (state) => ({ removed: wf.removeSlot(state, parts[2]) }));
+          const told = result.removed.notify;
+          if (told) await service.mailer.send(told.assigneeEmail, templates.slotCancelled({ slot: told, env }));
+          return ok(await adminView((await store.read()).state), {}, event);
+        }
+
+        if (route === 'POST admin/slots/publish') {
+          const { result } = await updateState(store, (state) => ({ toNotify: wf.publishSlots(state, now) }));
+          const sent = [];
+          for (const item of result.toNotify) {
+            const message = item.kind === 'slotBooked'
+              ? templates.slotBooked({ slot: item.slot, moved: item.moved, env })
+              : templates.slotCancelled({ slot: item.slot, env });
+            sent.push({ email: item.email, kind: item.kind, ...(await service.mailer.send(item.email, message)) });
+          }
+          return ok({ ...(await adminView((await store.read()).state)), published: sent }, {}, event);
         }
 
         if (route === 'POST admin/jobs/:id/retry') {
@@ -543,8 +622,6 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);
             if (!job) throw wf.clientError(404, 'Job not found');
-            const slot = state.slots.find((item) => item.jobId === job.id && item.status !== 'cancelled');
-            if (slot) slot.status = 'cancelled';
             wf.cancelJob(job);
             return null;
           });

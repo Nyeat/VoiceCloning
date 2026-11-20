@@ -18,8 +18,8 @@ import { cn } from '@/lib/utils';
 import LivePage from '@/pages/LivePage.jsx';
 import PronunciationPanel from './PronunciationPanel.jsx';
 import {
-  addSuperuser, bookSlot, cancelJob, cancelSlot, errorText, formatRange, formatSgt, getMe, getOverview,
-  relativeFromNow, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob, runTick, sendFeedback, sgtToIso,
+  addSlot, addSuperuser, cancelJob, claimSlot, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
+  publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob, runTick, sendFeedback, sgtToIso,
 } from './studioApi.js';
 import {
   Brand, Button, Card, Header, Notice, SignInScreen, StatusPill, formatBytes,
@@ -76,7 +76,9 @@ function Overview({ overview, onAction }) {
   const jobs = overview.jobs;
   const byId = new Map(jobs.map((job) => [job.id, job]));
   const review = jobs.filter((job) => job.status === 'review' || job.status === 'failed');
-  const needSlot = jobs.filter((job) => job.status === 'approved');
+  const now = Date.parse(overview.now);
+  const slotted = new Set(overview.slots.filter((slot) => slot.assigneeEmail && Date.parse(slot.end) > now).map((slot) => slot.assigneeEmail));
+  const needSlot = jobs.filter((job) => job.status === 'approved' && !slotted.has(job.ownerEmail));
   const training = jobs.find((job) => job.status === 'training');
   const queue = overview.queue.map((id) => byId.get(id)).filter(Boolean);
   const [filter, setFilter] = useState('all');
@@ -96,7 +98,7 @@ function Overview({ overview, onAction }) {
       )}
       {overview.currentSlot && (
         <Notice tone="info">
-          The GPU is reserved for <b>{overview.currentSlot.ownerEmail}</b> ({overview.currentSlot.voiceName}) until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT. Training and other tests wait until then.
+          Training waits while <b>{overview.currentSlot.assigneeName || overview.currentSlot.assigneeEmail}</b> tests until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT.
         </Notice>
       )}
 
@@ -117,7 +119,7 @@ function Overview({ overview, onAction }) {
                   </div>
                   <p className="text-sm text-slate-600">{job.label}{job.error ? ` — ${job.error}` : ''}</p>
                 </div>
-                {job.status === 'review' && <Button variant="outline" size="sm" onClick={() => navigate(`/test?voice=${encodeURIComponent(job.expName)}`)}><Mic2 size={13} /> Test</Button>}
+                {job.status === 'review' && <Button variant="outline" size="sm" disabled={Boolean(overview.currentSlot)} title={overview.currentSlot ? 'Locked while a lecturer is testing' : ''} onClick={() => navigate(`/test?voice=${encodeURIComponent(job.expName)}`)}><Mic2 size={13} /> Test</Button>}
                 <Button variant="dark" size="sm" onClick={() => navigate(`/review/${job.id}`)}>Open</Button>
               </li>
             ))}
@@ -165,7 +167,7 @@ function Overview({ overview, onAction }) {
                     <p className="font-medium text-slate-900">{who(job)}</p>
                     <p className="text-xs text-slate-500">{job.label} · {job.approvedExpName}</p>
                   </div>
-                  <Button variant="success" size="sm" onClick={() => navigate(`/review/${job.id}#slot`)}><CalendarClock size={13} /> Book</Button>
+                  <Button variant="success" size="sm" onClick={() => navigate(`/schedule?person=${encodeURIComponent(job.ownerEmail)}`)}><CalendarClock size={13} /> Give a slot</Button>
                 </li>
               ))}
             </ul>
@@ -274,46 +276,18 @@ function ReviewForm({ job, reasons, maxAttempts, onAction }) {
   );
 }
 
-function SlotForm({ job, overview, onAction }) {
-  const slot = overview.slots.find((item) => item.jobId === job.id);
-  const [date, setDate] = useState(() => SGT_DATE(Date.now() + 24 * 3600_000));
-  const [time, setTime] = useState('13:00');
-  const [minutes, setMinutes] = useState(60);
-  if (!['approved', 'scheduled'].includes(job.status)) return null;
-  const start = sgtToIso(date, time);
-  const end = start ? new Date(Date.parse(start) + minutes * 60_000).toISOString() : '';
-  const clash = start && overview.slots.find((item) => item.jobId !== job.id && Date.parse(item.start) < Date.parse(end) && Date.parse(start) < Date.parse(item.end));
-  const sameDay = overview.slots.filter((item) => SGT_DATE(item.start) === date).sort((a, b) => a.start.localeCompare(b.start));
-
+function SlotHint({ job, overview }) {
+  const navigate = useNavigate();
+  if (job.status !== 'approved') return null;
+  const now = Date.parse(overview.now);
+  const slot = overview.slots.find((item) => item.assigneeEmail === job.ownerEmail && Date.parse(item.end) > now);
   return (
-    <Card className="p-5" id="slot">
-      <h3 className="font-semibold text-slate-900">Test slot on the GPU</h3>
-      {slot ? (
-        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3">
-          <CheckCircle2 size={18} className="text-emerald-600" />
-          <p className="flex-1 text-sm text-emerald-900">Booked: <b>{formatRange(slot.start, slot.end)}</b>. The lecturer was emailed.</p>
-          <Button variant="ghost" size="sm" onClick={() => onAction(() => cancelSlot(job.id))}>Cancel slot</Button>
-        </div>
-      ) : <p className="mt-1 text-sm text-slate-600">Booking emails the lecturer a link and their time. Only one voice can use the GPU at a time.</p>}
-      <div className="mt-4 flex flex-wrap items-end gap-3">
-        <label className="text-xs font-medium text-slate-600">Date (SGT)<input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block h-9 rounded-lg border border-slate-300 px-2 text-sm" /></label>
-        <label className="text-xs font-medium text-slate-600">Start<input type="time" step={900} value={time} onChange={(event) => setTime(event.target.value)} className="mt-1 block h-9 rounded-lg border border-slate-300 px-2 text-sm" /></label>
-        <label className="text-xs font-medium text-slate-600">Length
-          <select value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} className="mt-1 block h-9 rounded-lg border border-slate-300 px-2 text-sm">
-            {[30, 45, 60, 90, 120, 180, 240].map((value) => <option key={value} value={value}>{value >= 60 ? `${value / 60} h` : `${value} min`}</option>)}
-          </select>
-        </label>
-        <Button variant="success" disabled={!start || Boolean(clash)} onClick={() => onAction(() => bookSlot(job.id, start, end))}>
-          <CalendarClock size={15} /> {slot ? 'Move slot' : 'Book & email lecturer'}
-        </Button>
-      </div>
-      {clash && <Notice tone="error" className="mt-3 text-xs">Clashes with {clash.ownerEmail} ({formatRange(clash.start, clash.end)}). Pick another time.</Notice>}
-      {sameDay.length > 0 && (
-        <div className="mt-3 text-xs text-slate-600">
-          <p className="font-medium">Already booked that day:</p>
-          <ul className="mt-1 space-y-0.5">{sameDay.map((item) => <li key={item.id}>• {formatSgt(item.start, { withDate: false })}–{formatSgt(item.end, { withDate: false })} · {item.ownerEmail}</li>)}</ul>
-        </div>
-      )}
+    <Card className="p-5">
+      <h3 className="font-semibold text-slate-900">Test time</h3>
+      {slot
+        ? <p className="mt-1 text-sm text-slate-600">{who(job)} has {formatRange(slot.start, slot.end)} ({slot.status}). In it they can use all their approved voices.</p>
+        : <p className="mt-1 text-sm text-slate-600">{who(job)} has no slot yet. They can pick an open published time, or you can give them one.</p>}
+      <Button variant="outline" size="sm" className="mt-3" onClick={() => navigate(`/schedule?person=${encodeURIComponent(job.ownerEmail)}`)}><CalendarClock size={13} /> Open the schedule</Button>
     </Card>
   );
 }
@@ -351,7 +325,7 @@ function JobDetail({ overview, onAction }) {
               <h3 className="font-semibold text-slate-900">Trained versions</h3>
               <div className="mt-3 flex flex-wrap gap-2">
                 {voices.map((name) => (
-                  <Button key={name} variant={name === job.expName ? 'dark' : 'outline'} size="sm" onClick={() => navigate(`/test?voice=${encodeURIComponent(name)}`)}>
+                  <Button key={name} variant={name === job.expName ? 'dark' : 'outline'} size="sm" disabled={Boolean(overview.currentSlot)} onClick={() => navigate(`/test?voice=${encodeURIComponent(name)}`)}>
                     <Mic2 size={13} /> Test {name}
                   </Button>
                 ))}
@@ -359,7 +333,7 @@ function JobDetail({ overview, onAction }) {
             </Card>
           )}
           <ReviewForm job={job} reasons={overview.rejectReasons} maxAttempts={overview.maxAttempts} onAction={onAction} />
-          <SlotForm job={job} overview={overview} onAction={onAction} />
+          <SlotHint job={job} overview={overview} />
           <Card className="p-5">
             <h3 className="font-semibold text-slate-900">Lecturer feedback</h3>
             {job.feedback.length === 0 ? <p className="mt-2 text-sm text-slate-500">No feedback yet.</p> : (
@@ -413,49 +387,150 @@ function JobDetail({ overview, onAction }) {
   );
 }
 
-// ── Super user: schedule ─────────────────────────────────────────────────
+// ── Super user: schedule (draft → edit → Publish) ────────────────────────
 
-function Schedule({ overview }) {
-  const navigate = useNavigate();
-  const now = Date.parse(overview.now);
-  const upcoming = overview.slots.filter((slot) => Date.parse(slot.end) > now).sort((a, b) => a.start.localeCompare(b.start));
-  const days = [...new Set(upcoming.map((slot) => SGT_DATE(slot.start)))];
-  const jobsById = new Map(overview.jobs.map((job) => [job.id, job]));
+const LENGTHS = [30, 45, 60, 90, 120, 180, 240];
+
+function timeOf(value) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+}
+
+function SlotEditor({ initial, people, onSave, onCancel, saveLabel }) {
+  const [date, setDate] = useState(initial?.start ? SGT_DATE(initial.start) : SGT_DATE(Date.now() + 24 * 3600_000));
+  const [time, setTime] = useState(initial?.start ? timeOf(initial.start) : '13:00');
+  const [minutes, setMinutes] = useState(initial ? Math.round((Date.parse(initial.end) - Date.parse(initial.start)) / 60000) : 60);
+  const [person, setPerson] = useState(initial?.assigneeEmail || '');
+  const [name, setName] = useState(initial?.assigneeName || '');
+  const known = people.find((entry) => entry.email === person);
+  const start = sgtToIso(date, time);
+  const end = start ? new Date(Date.parse(start) + minutes * 60_000).toISOString() : '';
   return (
-    <Card>
-      <div className="border-b border-slate-200 px-5 py-3">
-        <h2 className="font-semibold text-slate-900">GPU test schedule</h2>
-        <p className="text-xs text-slate-500">One voice per slot. Book from a voice's page (Overview → Approved).</p>
-      </div>
-      {days.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No upcoming slots.</p> : days.map((day) => (
-        <div key={day} className="border-b border-slate-100 px-5 py-3 last:border-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">{formatSgt(`${day}T12:00:00+08:00`).split(',')[0]} {day}</p>
-          <div className="relative mt-2 h-10 rounded-lg bg-slate-100" aria-hidden="true">
-            {upcoming.filter((slot) => SGT_DATE(slot.start) === day).map((slot) => {
-              const dayStart = Date.parse(`${day}T07:00:00+08:00`);
-              const span = 14 * 3600_000; // 07:00–21:00
-              const left = Math.max(0, (Date.parse(slot.start) - dayStart) / span) * 100;
-              const width = Math.max(2, ((Date.parse(slot.end) - Date.parse(slot.start)) / span) * 100);
-              const live = Date.parse(slot.start) <= now && now < Date.parse(slot.end);
-              return <span key={slot.id} className={cn('absolute top-1 h-8 rounded-md', live ? 'bg-emerald-500' : 'bg-primary/70')} style={{ left: `${left}%`, width: `${width}%` }} />;
-            })}
-          </div>
-          <div className="mt-1 flex justify-between text-[10px] text-slate-400"><span>7 am</span><span>2 pm</span><span>9 pm</span></div>
-          <ul className="mt-2 space-y-1">
-            {upcoming.filter((slot) => SGT_DATE(slot.start) === day).map((slot) => {
-              const job = jobsById.get(slot.jobId);
-              return (
-                <li key={slot.id} className="flex items-center gap-3 text-sm">
-                  <span className="w-36 text-slate-600">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</span>
-                  <span className="flex-1 font-medium text-slate-800">{job ? who(job) : slot.ownerEmail} <span className="font-normal text-slate-500">· {slot.voiceName}</span></span>
-                  <button type="button" onClick={() => navigate(`/review/${slot.jobId}`)} className="text-xs font-medium text-primary hover:underline">Open</button>
-                </li>
-              );
-            })}
-          </ul>
+    <form
+      className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[auto_auto_auto_minmax(0,1fr)_auto]"
+      onSubmit={(event) => { event.preventDefault(); onSave({ start, end, assigneeEmail: person.trim(), assigneeName: (known?.name || name).trim() }); }}
+    >
+      <label className="text-xs font-medium text-slate-600">Date (SGT)
+        <input type="date" required value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" />
+      </label>
+      <label className="text-xs font-medium text-slate-600">Start
+        <input type="time" required step={900} value={time} onChange={(event) => setTime(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" />
+      </label>
+      <label className="text-xs font-medium text-slate-600">Length
+        <select value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm">
+          {[...new Set([...LENGTHS, minutes])].sort((a, b) => a - b).map((value) => <option key={value} value={value}>{value >= 60 ? `${value / 60} h` : `${value} min`}</option>)}
+        </select>
+      </label>
+      <div className="text-xs font-medium text-slate-600">
+        Name
+        <div className="mt-1 flex gap-2">
+          <select value={known ? person : person ? '__typed' : ''} onChange={(event) => { const value = event.target.value; if (value !== '__typed') { setPerson(value); setName(''); } else setPerson(' '); }} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-sm">
+            <option value="">Open — lecturers pick it</option>
+            {people.map((entry) => (
+              <option key={entry.email} value={entry.email}>{entry.name || entry.email}{entry.approvedVoices.length ? ` · ${entry.approvedVoices.length} approved voice(s)` : ' · not approved yet'}</option>
+            ))}
+            <option value="__typed">Someone else (type email)…</option>
+          </select>
+          {!known && person && (
+            <input value={person.trim()} onChange={(event) => setPerson(event.target.value)} placeholder="email" type="email" className="h-10 w-44 rounded-lg border border-slate-300 px-2 text-sm" />
+          )}
         </div>
-      ))}
-    </Card>
+      </div>
+      <div className="flex items-end gap-2">
+        <Button type="submit" variant="dark" disabled={!start}>{saveLabel}</Button>
+        {onCancel && <Button variant="ghost" onClick={onCancel}>Cancel</Button>}
+      </div>
+    </form>
+  );
+}
+
+function Schedule({ overview, onAction }) {
+  const [params] = useSearchParams();
+  const [editing, setEditing] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState('');
+  const now = Date.parse(overview.now);
+  const prefill = params.get('person') || '';
+  const slots = overview.slots.filter((slot) => Date.parse(slot.end) > now);
+  const days = [...new Set(slots.map((slot) => SGT_DATE(slot.start)))];
+  const drafts = overview.draftCount || 0;
+
+  return (
+    <div className="space-y-5">
+      <Card className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-slate-900">Add a test slot</h2>
+            <p className="mt-1 text-sm text-slate-600">Any day and time. Pick a lecturer, or leave it open for lecturers to choose. New and edited slots stay drafts until you publish.</p>
+          </div>
+          <Button variant={drafts ? 'success' : 'outline'} size="lg" disabled={!drafts} onClick={() => onAction(publishSlots)}>
+            Publish {drafts ? `${drafts} change${drafts === 1 ? '' : 's'}` : '(nothing to publish)'}
+          </Button>
+        </div>
+        <div className="mt-4">
+          <SlotEditor
+            key={prefill}
+            initial={prefill ? { assigneeEmail: prefill } : null}
+            people={overview.people || []}
+            saveLabel="Add slot"
+            onSave={(slot) => onAction(() => addSlot(slot))}
+          />
+        </div>
+        <p className="mt-3 text-xs text-slate-500">Publishing emails each person whose slot is new or changed. The GPU starts 15 minutes before a slot and loads their voice; slots can never overlap.</p>
+      </Card>
+
+      <Card>
+        <div className="border-b border-slate-200 px-5 py-3">
+          <h2 className="font-semibold text-slate-900">Upcoming slots</h2>
+        </div>
+        {days.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No upcoming slots yet.</p> : days.map((day) => {
+          const daySlots = slots.filter((slot) => SGT_DATE(slot.start) === day);
+          return (
+            <div key={day} className="border-b border-slate-100 px-5 py-4 last:border-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">{formatSgt(`${day}T12:00:00+08:00`).split(',')[0]} · {day}</p>
+              <div className="relative mt-2 h-8 rounded-lg bg-slate-100" aria-hidden="true">
+                {daySlots.map((slot) => {
+                  const dayStart = Date.parse(`${day}T00:00:00+08:00`);
+                  const span = 24 * 3600_000;
+                  const left = ((Date.parse(slot.start) - dayStart) / span) * 100;
+                  const width = Math.max(1.5, ((Date.parse(slot.end) - Date.parse(slot.start)) / span) * 100);
+                  const live = Date.parse(slot.start) <= now && now < Date.parse(slot.end);
+                  return <span key={slot.id} className={cn('absolute top-1 h-6 rounded', live ? 'bg-emerald-500' : slot.status === 'draft' ? 'bg-amber-400' : slot.assigneeEmail ? 'bg-primary/80' : 'bg-sky-300')} style={{ left: `${left}%`, width: `${width}%` }} />;
+                })}
+              </div>
+              <div className="mt-1 flex justify-between text-[10px] text-slate-400"><span>12 am</span><span>6 am</span><span>12 pm</span><span>6 pm</span><span>12 am</span></div>
+              <ul className="mt-3 space-y-2">
+                {daySlots.map((slot) => (
+                  <li key={slot.id} className="rounded-xl border border-slate-200 px-3 py-2">
+                    {editing === slot.id ? (
+                      <SlotEditor
+                        initial={slot}
+                        people={overview.people || []}
+                        saveLabel="Save"
+                        onCancel={() => setEditing('')}
+                        onSave={(changes) => onAction(() => editSlot(slot.id, changes)).then((done) => { if (done) setEditing(''); })}
+                      />
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3 text-sm">
+                        <span className="w-36 font-medium text-slate-800">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</span>
+                        <span className="min-w-0 flex-1 text-slate-700">
+                          {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}</span></> : <span className="text-sky-700">Open — lecturers can pick</span>}
+                        </span>
+                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', slot.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>
+                          {slot.status === 'draft' ? 'Draft' : 'Published'}
+                        </span>
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(slot.id)}>Edit</Button>
+                        {confirmDelete === slot.id
+                          ? <Button size="sm" variant="danger" onClick={() => onAction(() => deleteSlot(slot.id)).then(() => setConfirmDelete(''))}>Confirm delete</Button>
+                          : <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(slot.id)} aria-label="Delete slot"><Trash2 size={14} /></Button>}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </Card>
+    </div>
   );
 }
 
@@ -516,7 +591,7 @@ function TestBench({ voiceNames, canApply, header }) {
 function SuperTest({ overview }) {
   const voices = [...new Set(overview.jobs.flatMap(trainedVoices))];
   if (overview.currentSlot) {
-    return <Notice tone="warn">The GPU is reserved for {overview.currentSlot.ownerEmail} until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT. Testing other voices opens after that.</Notice>;
+    return <Notice tone="warn">Locked: {overview.currentSlot.assigneeName || overview.currentSlot.assigneeEmail} is using the GPU until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT. Testing opens again after that.</Notice>;
   }
   if (voices.length === 0) return <Notice tone="info">No trained voices yet.</Notice>;
   return (
@@ -684,11 +759,17 @@ function SuperuserConsole() {
         <main className="mx-auto max-w-7xl space-y-4 px-4 py-6 sm:px-6">
           {busy && <div className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs text-white shadow"><Loader2 size={13} className="animate-spin" /> Working…</div>}
           {error && <Notice tone="error">{error}</Notice>}
+          {data?.currentSlot && (
+            <Notice tone="warn" className="flex items-center gap-2">
+              <ShieldCheck size={16} className="shrink-0" />
+              <span><b>{data.currentSlot.assigneeName || data.currentSlot.assigneeEmail}</b> is testing their voice until {formatSgt(data.currentSlot.end, { withDate: false })} SGT. The GPU is theirs, so voice testing is locked for super users until then. Reviews, scheduling and admin still work.</span>
+            </Notice>
+          )}
           {!data ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-slate-400" /></div> : (
             <Routes>
               <Route path="/" element={<Overview overview={data} onAction={onAction} />} />
               <Route path="/review/:jobId" element={<JobDetail overview={data} onAction={onAction} />} />
-              <Route path="/schedule" element={<Schedule overview={data} />} />
+              <Route path="/schedule" element={<Schedule overview={data} onAction={onAction} />} />
               <Route path="/test" element={<SuperTest overview={data} />} />
               <Route path="/feedback" element={<FeedbackList overview={data} />} />
               <Route path="/superusers" element={<Superusers overview={data} onAction={onAction} />} />
@@ -748,21 +829,119 @@ function useNow(intervalMs = 15_000) {
   return now;
 }
 
-function LecturerHome({ me, refresh }) {
-  const now = useNow();
-  const ready = me.jobs.filter((job) => job.status === 'scheduled' && job.slot);
-  const active = ready.find((job) => Date.parse(job.slot.start) <= now && now < Date.parse(job.slot.end));
-  const upcoming = ready.filter((job) => Date.parse(job.slot.start) > now).sort((a, b) => a.slot.start.localeCompare(b.slot.start));
-  const pending = me.jobs.filter((job) => ['queued', 'training', 'quality-check'].includes(job.status));
-  const recordUrl = String(import.meta.env.VITE_RECORD_APP_URL || '').replace(/\/+$/u, '');
+function lecturerLine(job, now) {
+  if (job.status === 'queued') return job.estimate ? `Queued (#${job.estimate.position}) — training should finish ${formatSgt(job.estimate.finishAt)} SGT (${relativeFromNow(job.estimate.finishAt, now)}).` : 'Queued for training.';
+  if (job.status === 'training') return job.estimate ? `Training now — should finish ${formatSgt(job.estimate.finishAt)} SGT (${relativeFromNow(job.estimate.finishAt, now)}).` : 'Training now.';
+  if (job.status === 'quality-check') return 'Trained — our team is checking the quality.';
+  if (job.status === 'ready') return 'Passed quality check — ready to test in your slot.';
+  return '';
+}
 
-  // Re-read at the slot boundary so the chat opens/closes on time.
+function MyVoicesStatus({ jobs, now }) {
+  const shown = jobs.filter((job) => !['uploading', 'cancelled'].includes(job.status));
+  const recordUrl = String(import.meta.env.VITE_RECORD_APP_URL || '').replace(/\/+$/u, '');
+  return (
+    <Card>
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+        <h2 className="font-semibold text-slate-900">Your voices</h2>
+        {recordUrl && <a href={recordUrl} className="text-xs font-semibold text-primary hover:underline">Record another →</a>}
+      </div>
+      {shown.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">Nothing submitted yet.</p> : (
+        <ul className="divide-y divide-slate-100">
+          {shown.map((job) => (
+            <li key={job.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2"><p className="font-medium text-slate-900">{job.label}</p><StatusPill status={job.status} /></div>
+                <p className="mt-0.5 text-sm text-slate-600">{lecturerLine(job, now)}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function SlotTable({ me, onChanged }) {
+  const auth = useAuth();
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [day, setDay] = useState('all');
+  const days = [...new Set(me.slots.map((slot) => SGT_DATE(slot.start)))];
+  const rows = me.slots.filter((slot) => day === 'all' || SGT_DATE(slot.start) === day);
+  async function act(id, call) {
+    setBusy(id);
+    setError('');
+    try {
+      onChanged(await call());
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy('');
+    }
+  }
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-3">
+        <div>
+          <h2 className="font-semibold text-slate-900">Test times</h2>
+          <p className="text-xs text-slate-500">Published by the Voice Studio team. Pick an open time; during it the GPU is yours.</p>
+        </div>
+        <select value={day} onChange={(event) => setDay(event.target.value)} className="h-9 rounded-lg border border-slate-300 px-2 text-sm" aria-label="Filter by date">
+          <option value="all">All dates</option>
+          {days.map((value) => <option key={value} value={value}>{formatSgt(`${value}T12:00:00+08:00`).split(',')[0]} {value}</option>)}
+        </select>
+      </div>
+      {error && <Notice tone="error" className="mx-5 mt-3">{error}</Notice>}
+      {rows.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No times are published yet. We will email you when there are.</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-[0.06em] text-slate-500">
+              <tr><th className="px-5 py-2">Date</th><th className="px-3 py-2">Time (SGT)</th><th className="px-3 py-2">Name</th><th className="px-3 py-2" /></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((slot) => (
+                <tr key={slot.id} className={slot.mine ? 'bg-emerald-50' : ''}>
+                  <td className="px-5 py-2.5 font-medium text-slate-800">{formatSgt(slot.start).split(',')[0]} {SGT_DATE(slot.start)}</td>
+                  <td className="px-3 py-2.5">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</td>
+                  <td className="px-3 py-2.5">{slot.mine ? <b className="text-emerald-700">You</b> : slot.open ? <span className="text-sky-700">Open</span> : slot.name}</td>
+                  <td className="px-3 py-2.5 text-right">
+                    {slot.open && !me.mySlot && <Button size="sm" variant="dark" disabled={busy === slot.id} onClick={() => act(slot.id, () => claimSlot(slot.id, auth.user?.name || ''))}>Pick this time</Button>}
+                    {slot.mine && Date.parse(slot.start) > Date.now() && <Button size="sm" variant="ghost" disabled={busy === slot.id} onClick={() => act(slot.id, () => releaseSlot(slot.id))}>Release</Button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function LecturerHome({ me: initialMe, refresh }) {
+  const now = useNow();
+  const [me, setMe] = useState(initialMe);
+  useEffect(() => setMe(initialMe), [initialMe]);
+  const ready = me.jobs.filter((job) => job.status === 'ready');
+  const active = me.activeSlot && Date.parse(me.activeSlot.end) > now ? me.activeSlot : null;
+  const upcoming = me.mySlot && !active ? me.mySlot : null;
+  const voiceNames = ready.map((job) => job.voiceName).filter(Boolean);
+  const [feedbackJob, setFeedbackJob] = useState('');
+  const feedbackTarget = ready.find((job) => job.id === feedbackJob) || ready[0];
+
+  // Re-read at the slot boundary so the tester opens/closes on time.
   useEffect(() => {
-    const boundary = active ? Date.parse(active.slot.end) : upcoming[0] ? Date.parse(upcoming[0].slot.start) : 0;
+    const boundary = active ? Date.parse(active.end) : upcoming ? Date.parse(upcoming.start) : 0;
     if (!boundary) return undefined;
     const id = window.setTimeout(refresh, Math.max(1000, boundary - Date.now() + 1500));
     return () => window.clearTimeout(id);
   }, [active, upcoming, refresh]);
+  // Statuses (training, quality check) refresh on their own.
+  useEffect(() => {
+    const id = window.setInterval(refresh, 60_000);
+    return () => window.clearInterval(id);
+  }, [refresh]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -773,62 +952,55 @@ function LecturerHome({ me, refresh }) {
             <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-white">
               <CheckCircle2 size={22} />
               <div className="flex-1">
-                <p className="text-lg font-semibold">Your voice is live — the GPU is yours until {formatSgt(active.slot.end, { withDate: false })} SGT</p>
-                <p className="text-sm text-white/85">Chat with it, or switch to “Read text aloud” and type anything for it to say. Fix any word it says oddly on the right.</p>
+                <p className="text-lg font-semibold">The GPU is yours until {formatSgt(active.end, { withDate: false })} SGT</p>
+                <p className="text-sm text-white/85">
+                  {voiceNames.length > 1 ? 'Switch between your voices in the panel — the GPU loads the one you pick straight away. ' : ''}
+                  Chat with your voice, or switch to “Read text aloud” and type anything for it to say.
+                </p>
               </div>
             </div>
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="min-h-[640px] overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <VoiceTester />
-              </div>
-              <div className="space-y-4">
-                <PronunciationPanel voiceName={active.voiceName} canApply />
-                <FeedbackForm job={active} />
-              </div>
-            </div>
+            {voiceNames.length === 0 ? <Notice tone="warn">None of your voices has passed the quality check yet, so there is nothing to test in this slot.</Notice> : (
+              <TestBench voiceNames={voiceNames} canApply header={null} />
+            )}
           </>
         ) : (
-          <Card className="p-8 text-center">
-            <Mic2 size={30} className="mx-auto text-slate-400" />
-            {upcoming[0] ? (
+          <Card className="p-6 text-center sm:p-8">
+            <CalendarClock size={30} className="mx-auto text-slate-400" />
+            {upcoming ? (
               <>
-                <h1 className="mt-3 text-2xl font-semibold text-slate-900">Your voice is ready to test</h1>
-                <p className="mt-2 text-slate-600">Your reserved time is <b>{formatRange(upcoming[0].slot.start, upcoming[0].slot.end)}</b> ({relativeFromNow(upcoming[0].slot.start, now)}).</p>
-                <p className="mt-1 text-sm text-slate-500">Come back then — this page opens the chat automatically when your time starts.</p>
+                <h1 className="mt-3 text-2xl font-semibold text-slate-900">Your test time is booked</h1>
+                <p className="mt-2 text-slate-600"><b>{formatRange(upcoming.start, upcoming.end)}</b> ({relativeFromNow(upcoming.start, now)}).</p>
+                <p className="mt-1 text-sm text-slate-500">Your voice is loaded just before it starts, and this page opens the tester automatically.</p>
               </>
-            ) : pending.length > 0 ? (
+            ) : ready.length > 0 ? (
               <>
-                <h1 className="mt-3 text-2xl font-semibold text-slate-900">Your voice is on its way</h1>
-                <p className="mt-2 text-slate-600">
-                  {pending.some((job) => job.status === 'quality-check') ? 'It has trained and our team is checking the quality.' : 'It is in the training queue.'}
-                  {' '}We will email you with a time to test it.
-                </p>
+                <h1 className="mt-3 text-2xl font-semibold text-slate-900">Your voice is ready — pick a test time</h1>
+                <p className="mt-2 text-slate-600">Choose an open time below.</p>
               </>
             ) : (
               <>
-                <h1 className="mt-3 text-2xl font-semibold text-slate-900">No voice to test yet</h1>
-                <p className="mt-2 text-slate-600">Record or upload your voice first. We email you when it is ready.</p>
-                {recordUrl && <a href={recordUrl} className="mt-4 inline-flex h-10 items-center rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white">Record your voice</a>}
+                <h1 className="mt-3 text-2xl font-semibold text-slate-900">Your voice is on its way</h1>
+                <p className="mt-2 text-slate-600">You can follow its training below. We email you when it passes the quality check.</p>
               </>
             )}
           </Card>
         )}
 
-        {ready.filter((job) => job !== active).length > 0 && (
-          <Card>
-            <div className="border-b border-slate-200 px-5 py-3"><h2 className="font-semibold text-slate-900">Your voices</h2></div>
-            <ul className="divide-y divide-slate-100">
-              {ready.filter((job) => job !== active).map((job) => (
-                <li key={job.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
-                  <span className="flex-1 font-medium text-slate-800">{job.label}</span>
-                  <span className="text-slate-600">{formatRange(job.slot.start, job.slot.end)}</span>
-                  {Date.parse(job.slot.end) <= now && <span className="text-xs text-slate-400">ended</span>}
-                </li>
-              ))}
-            </ul>
-          </Card>
+        <div className="grid gap-5 xl:grid-cols-2">
+          <MyVoicesStatus jobs={me.jobs} now={now} />
+          <SlotTable me={me} onChanged={setMe} />
+        </div>
+
+        {feedbackTarget && (
+          <div className="space-y-2">
+            {ready.length > 1 && (
+              <select value={feedbackTarget.id} onChange={(event) => setFeedbackJob(event.target.value)} className="h-9 rounded-lg border border-slate-300 px-2 text-sm" aria-label="Feedback for which voice">
+                {ready.map((job) => <option key={job.id} value={job.id}>{job.label}</option>)}
+              </select>
+            )}
+            <FeedbackForm key={feedbackTarget.id} job={feedbackTarget} />
+          </div>
         )}
-        {!active && ready.some((job) => Date.parse(job.slot.end) <= now) && <FeedbackForm job={ready.find((job) => Date.parse(job.slot.end) <= now)} />}
       </main>
     </div>
   );

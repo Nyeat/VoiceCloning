@@ -120,8 +120,9 @@ const STATUS_STYLES = {
   training: ['Training', 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'],
   'quality-check': ['Quality check', 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'],
   review: ['Needs review', 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'],
-  approved: ['Approved · needs slot', 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'],
+  approved: ['Approved', 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'],
   scheduled: ['Ready · slot booked', 'bg-emerald-600 text-white'],
+  ready: ['Ready to test', 'bg-emerald-600 text-white'],
   failed: ['Failed', 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'],
   cancelled: ['Withdrawn', 'bg-slate-100 text-slate-500'],
 };

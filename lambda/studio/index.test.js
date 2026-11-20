@@ -13,6 +13,7 @@ function harness() {
   const trained = new Set();
   let worker = { status: 'idle', expName: '' };
   const started = [];
+  const preloaded = [];
   const store = createMemoryStore();
   const service = createStudioService({
     store,
@@ -30,6 +31,7 @@ function harness() {
     readJson: async () => null,
     writeJson: async () => {},
     applyPronunciation: async () => ({ ready: true }),
+    preloadVoice: async (name) => { preloaded.push(name); },
   });
   const handler = createHandler({
     service,
@@ -45,7 +47,7 @@ function harness() {
     return { status: res.statusCode, body: JSON.parse(res.body) };
   };
   return {
-    call, sent, started, store, trained,
+    call, sent, started, store, trained, preloaded,
     advance: (minutes) => { now += minutes * MIN; },
     finishWorker: (expName, status = 'complete') => { worker = { status, expName }; if (status === 'complete') trained.add(expName); },
   };
@@ -117,22 +119,44 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   assert.equal(after.jobs.find((j) => j.id === a1).status, 'review');
   assert.equal(h.started.find((s) => s.expName === retry.expName).config.sourceExpName, 'alice');
 
-  // Approve and book; a clashing slot is refused.
+  // Approve -> lecturer emailed. Super user adds slots (drafts), publishes; Bob picks the open one.
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${a1}/review`, { decision: 'approve' })).status, 200);
+  assert.ok(h.sent.some((m) => m.to.includes(alice) && /passed quality control/u.test(m.subject)));
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${b1}/review`, { decision: 'approve' })).status, 200);
   const at = (m) => new Date(T0 + m * MIN).toISOString();
-  const booked = await h.call(boss, 'POST', `admin/jobs/${a1}/slot`, { start: at(300), end: at(360) });
-  assert.equal(booked.status, 200, JSON.stringify(booked.body));
-  assert.ok(h.sent.some((m) => m.to.includes(alice) && /ready to test/u.test(m.subject)));
-  const clash = await h.call(boss, 'POST', `admin/jobs/${b1}/slot`, { start: at(330), end: at(400) });
+  const added = await h.call(boss, 'POST', 'admin/slots', { start: at(300), end: at(360), assigneeEmail: alice, assigneeName: 'Alice' });
+  assert.equal(added.status, 200, JSON.stringify(added.body));
+  const clash = await h.call(boss, 'POST', 'admin/slots', { start: at(330), end: at(400) });
   assert.equal(clash.status, 409);
   assert.equal(clash.body.code, 'SLOT_CLASH');
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { start: at(360), end: at(420) })).status, 200);
+  assert.equal((await h.call(bob, 'GET', 'me')).body.slots.length, 0, 'drafts are invisible to lecturers');
+  const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
+  assert.equal(published.status, 200, JSON.stringify(published.body));
+  assert.deepEqual(published.body.published.map((p) => p.email), [alice]);
+  const bobView = (await h.call(bob, 'GET', 'me')).body;
+  assert.deepEqual(bobView.slots.map((row) => [row.open, row.name]), [[false, 'Alice'], [true, '']]);
+  const open = bobView.slots.find((row) => row.open);
+  const picked = await h.call(bob, 'POST', `slots/${open.id}/claim`, { name: 'Bob' });
+  assert.equal(picked.status, 200, JSON.stringify(picked.body));
+  assert.equal(picked.body.mySlot.id, open.id);
+  assert.equal((await h.call(alice, 'POST', `slots/${open.id}/claim`, {})).status, 409);
+  // Editing Alice's slot by a super user keeps it a draft until published again.
+  const aliceSlot = published.body.slots.find((slot) => slot.assigneeEmail === alice);
+  assert.equal((await h.call(boss, 'PUT', `admin/slots/${aliceSlot.id}`, { start: at(290), end: at(360) })).status, 200);
+  const republished = await h.call(boss, 'POST', 'admin/slots/publish', {});
+  assert.ok(republished.body.published.some((p) => p.email === alice && p.kind === 'slotBooked'));
 
   // Alice's voice is visible but not usable before her slot.
   const voice = retry.expName;
   assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.reason, 'too-early');
   assert.equal((await h.call(bob, 'GET', `voices/${voice}/access`)).status, 404);
-  h.advance(300 - 124 + 1);
+  h.advance(290 - 124 - 10); // 10 min before Alice's slot: GPU wanted, her voice preloaded
+  await h.call(boss, 'POST', 'admin/tick');
+  assert.deepEqual(h.preloaded, [voice]);
+  h.advance(11);
+  // Super user is locked out of testing while Alice's slot runs.
+  assert.equal((await h.call(boss, 'GET', `voices/${voice}/access`)).body.reason, 'slot-in-use');
   assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.allowed, true);
   assert.equal((await h.call(alice, 'POST', `voices/${voice}/pronunciations`, { word: 'cohesin', soundsLike: 'koh hee sin' })).status, 200);
   assert.equal((await h.call(alice, 'POST', `voices/${voice}/pronunciations/apply`, {})).status, 200);

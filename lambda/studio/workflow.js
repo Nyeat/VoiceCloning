@@ -209,8 +209,14 @@ export function trainingMinutes(state, env = process.env) {
   return Math.round(recent.reduce((sum, value) => sum + value, 0) / recent.length);
 }
 
+// A slot holds the GPU only once it is published AND someone is assigned to it.
+// Drafts and open (unclaimed) slots never block training or super users.
+export function slotHoldsGpu(slot) {
+  return slot.status === 'published' && Boolean(slot.assigneeEmail);
+}
+
 function activeSlotAt(slots, time) {
-  return slots.find((slot) => slot.status !== 'cancelled' && ms(slot.start) <= time && time < ms(slot.end)) || null;
+  return slots.find((slot) => slotHoldsGpu(slot) && ms(slot.start) <= time && time < ms(slot.end)) || null;
 }
 
 /**
@@ -369,61 +375,140 @@ export function addFeedback(job, { email, rating, comment, now }) {
 }
 
 // ── Slots ────────────────────────────────────────────────────────────────
+//
+// A slot is GPU time for one PERSON (not one voice): inside it they can switch
+// between all of their approved voices. Super users add slots as drafts (date,
+// time, optionally a name), edit them, and Publish. Published slots with no
+// name are open; a lecturer can pick one from the table. One GPU means no two
+// slots may overlap, drafts included.
 
 export function slotsOverlap(left, right) {
   return ms(left.start) < ms(right.end) && ms(right.start) < ms(left.end);
 }
 
-/**
- * Books (or moves) the job's GPU slot. One GPU means one voice at a time, so
- * any overlap with another booking is refused, never resolved silently.
- */
-export function bookSlot(state, job, { start, end, bookedBy, slotId, now }) {
-  if (!['approved', 'scheduled'].includes(job.status)) {
-    throw clientError(409, 'Approve the voice before booking a test slot');
-  }
+function liveSlots(state) {
+  return state.slots.filter((slot) => slot.status !== 'cancelled');
+}
+
+function validateTimes(start, end, now) {
   const startMs = ms(start);
   const endMs = ms(end);
-  if (!startMs || !endMs) throw clientError(400, 'start and end must be valid times');
+  if (!startMs || !endMs) throw clientError(400, 'Pick a valid date, start and end time');
   const minutes = (endMs - startMs) / MINUTE;
   if (minutes < MIN_SLOT_MINUTES) throw clientError(400, `A slot must be at least ${MIN_SLOT_MINUTES} minutes`);
   if (minutes > MAX_SLOT_MINUTES) throw clientError(400, `A slot can be at most ${MAX_SLOT_MINUTES / 60} hours`);
   if (endMs <= now) throw clientError(400, 'The slot must end in the future');
-
-  const candidate = { start: iso(startMs), end: iso(endMs) };
-  const existing = state.slots.find((slot) => slot.jobId === job.id && slot.status !== 'cancelled');
-  const clash = state.slots.find((slot) => slot.status !== 'cancelled'
-    && slot !== existing
-    && slotsOverlap(slot, candidate));
-  if (clash) {
-    const owner = findJob(state, clash.jobId);
-    const error = clientError(409, `That time clashes with ${owner?.ownerName || owner?.ownerEmail || 'another booking'} `
-      + `(${clash.start} – ${clash.end}). The GPU can serve one voice at a time.`);
-    error.code = 'SLOT_CLASH';
-    error.clash = { start: clash.start, end: clash.end, jobId: clash.jobId };
-    throw error;
-  }
-
-  const slot = existing || { id: slotId, jobId: job.id, status: 'booked' };
-  Object.assign(slot, candidate, {
-    voiceName: job.approvedExpName || job.expName,
-    ownerEmail: job.ownerEmail,
-    bookedBy: normalizeEmail(bookedBy),
-    bookedAt: iso(now),
-    reminderSentAt: null,
-  });
-  if (!existing) state.slots.push(slot);
-  job.status = 'scheduled';
-  job.slotId = slot.id;
-  return { slot, moved: Boolean(existing) };
+  return { start: iso(startMs), end: iso(endMs) };
 }
 
-export function cancelSlot(state, job) {
-  const slot = state.slots.find((item) => item.jobId === job.id && item.status !== 'cancelled');
-  if (!slot) throw clientError(404, 'This voice has no booked slot');
+function assertNoClash(state, candidate, ignoreId = '') {
+  const clash = liveSlots(state).find((slot) => slot.id !== ignoreId && slotsOverlap(slot, candidate));
+  if (clash) {
+    const error = clientError(409, `That time overlaps ${clash.assigneeName || clash.assigneeEmail || 'another slot'} `
+      + `(${clash.start} – ${clash.end}). The GPU serves one person at a time.`);
+    error.code = 'SLOT_CLASH';
+    error.clash = { id: clash.id, start: clash.start, end: clash.end };
+    throw error;
+  }
+}
+
+export function findSlot(state, id) {
+  return state.slots.find((slot) => slot.id === id && slot.status !== 'cancelled') || null;
+}
+
+export function addSlot(state, { id, start, end, assigneeEmail = '', assigneeName = '', actor, now }) {
+  const times = validateTimes(start, end, now);
+  assertNoClash(state, times);
+  const slot = {
+    id,
+    ...times,
+    status: 'draft',
+    assigneeEmail: normalizeEmail(assigneeEmail),
+    assigneeName: cleanText(assigneeName, 80),
+    createdBy: normalizeEmail(actor),
+    updatedAt: iso(now),
+    // What the assignee was last told (person + time), so Publish emails only real changes.
+    notified: null,
+    preloadedAt: null,
+  };
+  state.slots.push(slot);
+  return slot;
+}
+
+export function editSlot(state, id, { start, end, assigneeEmail, assigneeName }, now) {
+  const slot = findSlot(state, id);
+  if (!slot) throw clientError(404, 'Slot not found');
+  const times = validateTimes(start ?? slot.start, end ?? slot.end, now);
+  assertNoClash(state, times, id);
+  Object.assign(slot, times, {
+    ...(assigneeEmail !== undefined ? { assigneeEmail: normalizeEmail(assigneeEmail) } : {}),
+    ...(assigneeName !== undefined ? { assigneeName: cleanText(assigneeName, 80) } : {}),
+    updatedAt: iso(now),
+    preloadedAt: null,
+  });
+  // An edited published slot goes back to draft until it is published again,
+  // so lecturers never see a half-edited schedule.
+  if (slot.status === 'published') slot.status = 'draft';
+  return slot;
+}
+
+export function removeSlot(state, id) {
+  const slot = findSlot(state, id);
+  if (!slot) throw clientError(404, 'Slot not found');
+  const told = slot.notified;
   slot.status = 'cancelled';
-  job.status = 'approved';
-  job.slotId = null;
+  return { slot, notify: told?.assigneeEmail ? told : null };
+}
+
+/**
+ * Publishes every draft. Returns who must be emailed: people newly given a
+ * slot or whose time changed, and people who lost a slot they had been told about.
+ */
+export function publishSlots(state, now) {
+  const toNotify = [];
+  for (const slot of state.slots.filter((item) => item.status === 'draft')) {
+    slot.status = 'published';
+    slot.publishedAt = iso(now);
+    const before = slot.notified;
+    const after = slot.assigneeEmail ? { assigneeEmail: slot.assigneeEmail, start: slot.start, end: slot.end } : null;
+    const samePerson = before && after && sameNtuPerson(before.assigneeEmail, after.assigneeEmail);
+    if (before && !samePerson) {
+      toNotify.push({ kind: 'slotCancelled', email: before.assigneeEmail, slot: { ...slot, ...before } });
+    }
+    if (after && (!samePerson || before.start !== after.start || before.end !== after.end)) {
+      toNotify.push({ kind: 'slotBooked', email: after.assigneeEmail, slot: { ...slot }, moved: Boolean(samePerson) });
+    }
+    slot.notified = after;
+  }
+  return toNotify;
+}
+
+/** A lecturer picks an open published slot (one upcoming slot each). */
+export function claimSlot(state, id, { email, name = '', now }) {
+  const slot = findSlot(state, id);
+  if (!slot || slot.status !== 'published') throw clientError(404, 'That slot is not available');
+  if (slot.assigneeEmail) throw clientError(409, 'Someone has just taken that slot — pick another');
+  if (ms(slot.end) <= now) throw clientError(409, 'That slot has already ended');
+  if (!state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && !['uploading', 'cancelled'].includes(job.status))) {
+    throw clientError(409, 'Submit your recordings first, then pick a time');
+  }
+  const mine = liveSlots(state).find((item) => sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
+  if (mine) throw clientError(409, 'You already have an upcoming slot. Release it first to pick another.');
+  slot.assigneeEmail = normalizeEmail(email);
+  slot.assigneeName = cleanText(name, 80);
+  slot.claimedAt = iso(now);
+  slot.notified = { assigneeEmail: slot.assigneeEmail, start: slot.start, end: slot.end };
+  return slot;
+}
+
+export function releaseSlot(state, id, { email, now }) {
+  const slot = findSlot(state, id);
+  if (!slot || !sameNtuPerson(slot.assigneeEmail, email)) throw clientError(404, 'That is not your slot');
+  if (ms(slot.start) <= now) throw clientError(409, 'Your slot has already started');
+  slot.assigneeEmail = '';
+  slot.assigneeName = '';
+  slot.notified = null;
+  slot.claimedAt = null;
   return slot;
 }
 
@@ -431,49 +516,85 @@ export function currentSlot(state, now) {
   return activeSlotAt(state.slots, now);
 }
 
+export function upcomingSlotFor(state, email, now) {
+  return liveSlots(state)
+    .filter((slot) => slot.status === 'published' && sameNtuPerson(slot.assigneeEmail, email) && ms(slot.end) > now)
+    .sort((a, b) => ms(a.start) - ms(b.start))[0] || null;
+}
+
+function approvedVoicesOf(state, email) {
+  return state.jobs
+    .filter((job) => sameNtuPerson(job.ownerEmail, email) && ['approved', 'scheduled'].includes(job.status) && job.approvedExpName)
+    .map((job) => job.approvedExpName);
+}
+
 /**
  * Whether this person may load and speak with this voice right now.
- * Super users review any voice, but not inside another lecturer's booked hour.
- * A lecturer uses only their own approved voice, only inside their slot.
+ * Super users review any voice, but never inside a lecturer's slot (the GPU is theirs).
+ * A lecturer uses only their own approved voices, only inside their own slot.
  */
 export function voiceAccess(state, { email, voiceName, now, superuser }) {
   const active = activeSlotAt(state.slots, now);
-  if (superuser) {
-    if (active && active.voiceName !== voiceName) {
-      return { allowed: false, reason: 'slot-in-use', slot: active };
-    }
-    return { allowed: true, reason: 'superuser', slot: active };
+  const ownApproved = approvedVoicesOf(state, email).includes(voiceName);
+  if (active && sameNtuPerson(active.assigneeEmail, email) && ownApproved) {
+    return { allowed: true, reason: 'in-slot', slot: active };
   }
-  const own = state.jobs.find((job) => sameNtuPerson(job.ownerEmail, email)
-    && (job.approvedExpName || '') === voiceName
-    && job.status === 'scheduled');
-  if (!own) return { allowed: false, reason: 'not-approved' };
-  const slot = state.slots.find((item) => item.jobId === own.id && item.status !== 'cancelled');
+  if (superuser) {
+    if (active) return { allowed: false, reason: 'slot-in-use', slot: active };
+    return { allowed: true, reason: 'superuser', slot: null };
+  }
+  if (!ownApproved) return { allowed: false, reason: 'not-approved' };
+  const slot = upcomingSlotFor(state, email, now);
   if (!slot) return { allowed: false, reason: 'no-slot' };
-  if (now < ms(slot.start)) return { allowed: false, reason: 'too-early', slot };
-  if (now >= ms(slot.end)) return { allowed: false, reason: 'slot-ended', slot };
-  return { allowed: true, reason: 'in-slot', slot };
+  return { allowed: false, reason: 'too-early', slot };
 }
 
 /** Voices this person may see in the testing portal at all. */
 export function visibleVoices(state, { email, superuser }) {
-  if (superuser) {
-    return state.jobs
-      .filter((job) => ['review', 'approved', 'scheduled', 'failed'].includes(job.status) || job.attempts.length > 0)
-      .flatMap((job) => job.attempts.filter((attempt) => attempt.result === 'trained').map((attempt) => attempt.expName));
-  }
-  return state.jobs
-    .filter((job) => sameNtuPerson(job.ownerEmail, email) && job.status === 'scheduled' && job.approvedExpName)
-    .map((job) => job.approvedExpName);
+  const own = approvedVoicesOf(state, email);
+  if (!superuser) return own;
+  const trained = state.jobs.flatMap((job) => job.attempts.filter((attempt) => attempt.result === 'trained').map((attempt) => attempt.expName));
+  return [...new Set([...trained, ...own])];
+}
+
+/** The voice to load before a slot starts: the person's most recently approved one. */
+export function preloadVoiceFor(state, slot) {
+  const approved = state.jobs
+    .filter((job) => sameNtuPerson(job.ownerEmail, slot.assigneeEmail) && ['approved', 'scheduled'].includes(job.status) && job.approvedExpName)
+    .sort((a, b) => String(b.reviews.at(-1)?.at || '').localeCompare(String(a.reviews.at(-1)?.at || '')));
+  return approved[0]?.approvedExpName || '';
+}
+
+/** Published, assigned slots inside the warm-up window (or running) whose voice is not loaded yet. */
+export function slotsToPreload(state, now) {
+  return state.slots.filter((slot) => slotHoldsGpu(slot)
+    && !slot.preloadedAt
+    && ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now
+    && now < ms(slot.end));
 }
 
 /** The GPU must stay on (and be started) while any of this is true. */
 export function gpuDemand(state, now) {
   if (state.jobs.some((job) => job.status === 'training' || job.status === 'queued')) return 'training';
-  const soon = state.slots.find((slot) => slot.status !== 'cancelled'
+  const soon = state.slots.find((slot) => slotHoldsGpu(slot)
     && ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now
     && now < ms(slot.end));
   return soon ? 'slot' : '';
+}
+
+/** What a lecturer sees in the slot table: published upcoming slots. */
+export function publicSlots(state, email, now) {
+  return liveSlots(state)
+    .filter((slot) => slot.status === 'published' && ms(slot.end) > now)
+    .sort((a, b) => ms(a.start) - ms(b.start))
+    .map((slot) => ({
+      id: slot.id,
+      start: slot.start,
+      end: slot.end,
+      open: !slot.assigneeEmail,
+      mine: sameNtuPerson(slot.assigneeEmail, email),
+      name: slot.assigneeEmail ? (slot.assigneeName || 'Booked') : '',
+    }));
 }
 
 // ── Views ────────────────────────────────────────────────────────────────
@@ -483,9 +604,8 @@ export function publicJob(job, estimate = null) {
   return { ...rest, ...(estimate ? { estimate } : {}) };
 }
 
-export function lecturerJob(job, estimate, state) {
-  const slot = state.slots.find((item) => item.jobId === job.id && item.status !== 'cancelled') || null;
-  // Lecturers see their status and slot, not reviewers' internal notes.
+export function lecturerJob(job, estimate) {
+  // Lecturers see their status, not reviewers' internal notes.
   return {
     id: job.id,
     label: job.label,
@@ -495,9 +615,8 @@ export function lecturerJob(job, estimate, state) {
     totalBytes: job.totalBytes,
     createdAt: job.createdAt,
     queuedAt: job.queuedAt,
-    voiceName: job.status === 'scheduled' ? job.approvedExpName : '',
+    voiceName: ['approved', 'scheduled'].includes(job.status) ? job.approvedExpName : '',
     estimate: estimate || null,
-    slot: slot ? { start: slot.start, end: slot.end } : null,
     feedback: job.feedback.filter((entry) => sameNtuPerson(entry.email, job.ownerEmail)),
   };
 }
@@ -505,7 +624,8 @@ export function lecturerJob(job, estimate, state) {
 // "Retraining after review" is shown to the lecturer as plain "queued": the
 // quality check is internal, and the email promise covers both.
 function lecturerStatus(status) {
-  if (status === 'review' || status === 'approved') return 'quality-check';
+  if (status === 'approved' || status === 'scheduled') return 'ready';
+  if (status === 'review') return 'quality-check';
   if (status === 'failed') return 'quality-check';
   return status;
 }

@@ -65,8 +65,13 @@ export const applyPronunciations = (voice) => api.post(`/studio/voices/${enc(voi
 export const getOverview = () => api.get('/studio/admin/overview').then((res) => res.data);
 export const runTick = () => api.post('/studio/admin/tick', {}).then((res) => res.data);
 export const reviewJob = (jobId, body) => api.post(`/studio/admin/jobs/${enc(jobId)}/review`, body).then((res) => res.data);
-export const bookSlot = (jobId, start, end) => api.post(`/studio/admin/jobs/${enc(jobId)}/slot`, { start, end }).then((res) => res.data);
-export const cancelSlot = (jobId) => api.delete(`/studio/admin/jobs/${enc(jobId)}/slot`, { data: {} }).then((res) => res.data);
+// Slots belong to people. Super users draft, edit and publish; lecturers pick open ones.
+export const addSlot = (slot) => api.post('/studio/admin/slots', slot).then((res) => res.data);
+export const editSlot = (id, changes) => api.put(`/studio/admin/slots/${enc(id)}`, changes).then((res) => res.data);
+export const deleteSlot = (id) => api.delete(`/studio/admin/slots/${enc(id)}`, { data: {} }).then((res) => res.data);
+export const publishSlots = () => api.post('/studio/admin/slots/publish', {}).then((res) => res.data);
+export const claimSlot = (id, name) => api.post(`/studio/slots/${enc(id)}/claim`, { name }).then((res) => res.data);
+export const releaseSlot = (id) => api.post(`/studio/slots/${enc(id)}/release`, {}).then((res) => res.data);
 export const retryJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/retry`, {}).then((res) => res.data);
 export const cancelJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/cancel`, {}).then((res) => res.data);
 export const requestRecordings = (jobId, notes) => api.post(`/studio/admin/jobs/${enc(jobId)}/request-recordings`, { notes }).then((res) => res.data);

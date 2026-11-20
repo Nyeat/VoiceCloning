@@ -79,23 +79,45 @@ export const templates = {
       ], studio ? { label: 'Open the job', url: `${studio}/review/${encodeURIComponent(job.id)}` } : null),
     };
   },
-  slotBooked({ job, slot, moved, env }) {
+  voiceApproved({ job, slot, env }) {
     const { studio } = studioLinks(env);
     return {
-      subject: moved ? 'Your voice test time has changed' : 'Your cloned voice is ready to test',
-      ...layout(moved ? 'Your test time has changed' : 'Your cloned voice passed quality control', [
-        `Your voice "${job.label}" is ready. The GPU is reserved for you on ${formatSgtRange(slot.start, slot.end)}.`,
-        'Open the link during that time to talk to your voice, adjust how it pronounces words, and tell us what you think.',
-      ], studio ? { label: 'Test your voice', url: `${studio}/?voice=${encodeURIComponent(slot.voiceName)}` } : null),
+      subject: 'Your cloned voice passed quality control',
+      ...layout('Your cloned voice is ready', [
+        `Your voice "${job.label}" passed our quality check.`,
+        slot
+          ? `Your test time is ${formatSgtRange(slot.start, slot.end)}. The GPU is reserved for you then, with your voice already loaded.`
+          : 'Sign in to Voice Studio to pick a test time from the published slots (or wait for us to assign you one).',
+        'During your time you can talk to your voice, have it read text aloud, fix how it pronounces words, and tell us what you think.',
+      ], studio ? { label: slot ? 'Open Voice Studio' : 'Pick a test time', url: studio } : null),
     };
   },
-  slotCancelled({ job, env }) {
+  slotBooked({ slot, moved, env }) {
+    const { studio } = studioLinks(env);
+    return {
+      subject: moved ? 'Your voice test time has changed' : 'Your voice test time',
+      ...layout(moved ? 'Your test time has changed' : 'Your voice test time is booked', [
+        `The GPU is reserved for you on ${formatSgtRange(slot.start, slot.end)}. Your voice is loaded just before it starts.`,
+        'Sign in to Voice Studio during that time to talk to your voices, have them read text aloud, fix pronunciations and leave feedback.',
+      ], studio ? { label: 'Open Voice Studio', url: studio } : null),
+    };
+  },
+  slotCancelled({ slot, env }) {
     const { studio } = studioLinks(env);
     return {
       subject: 'Your voice test time was cancelled',
       ...layout('Your test time was cancelled', [
-        `The GPU time booked for your voice "${job.label}" was cancelled. We will email you again with a new time.`,
+        `Your GPU time on ${formatSgtRange(slot.start, slot.end)} was cancelled. You can pick another published time in Voice Studio, or we will assign you one.`,
       ], studio ? { label: 'Open Voice Studio', url: studio } : null),
+    };
+  },
+  slotPicked({ slot, email, claiming, env }) {
+    const { studio } = studioLinks(env);
+    return {
+      subject: claiming ? `Test slot picked by ${email}` : `Test slot released by ${email}`,
+      ...layout(claiming ? 'A lecturer picked a test slot' : 'A lecturer released a test slot', [
+        `${email} ${claiming ? 'picked' : 'released'} ${formatSgtRange(slot.start, slot.end)}.`,
+      ], studio ? { label: 'Open the schedule', url: `${studio}/schedule` } : null),
     };
   },
   newRecordingsNeeded({ job, notes, env }) {
