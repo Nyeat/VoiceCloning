@@ -2519,3 +2519,17 @@
   gateway env on dev GPU and staging fixed GPU (both started for this; they idle-stop). No inference-worker change, so
   no new AMI (v43 stays). Tests: lambda 409/409, client 556/556, gateway 185/185. Smoke: /faq 200, /api/studio 401,
   old record URLs serve the forwarder. Not done: signed-in end-to-end run; SMTP unset (emails recorded as skipped).
+
+## 2026-11-20 (evening) — Voice Studio open to any Microsoft account; two super users (10cd835, deployed ~16:10-16:20 SGT)
+
+- Studio origins (STUDIO_SITE_ORIGINS) and /api/studio use a multi-tenant Entra verifier (common keys, issuer = token
+  tenant): any work/school or personal Microsoft account; Gmail users create a Microsoft account from their Gmail on
+  the sign-in page. STUDIO_HOME_DOMAINS=ntu.edu.sg: NTU addresses accepted only from NTU's tenant. Other sites unchanged.
+  Entra app 9b5c52c0 already allows personal accounts (consumers endpoint redirects to login.live.com).
+- Gateway: same switch by page Origin (new env keys synced by deploy-worker). Client: VITE_ALLOW_PERSONAL_ACCOUNTS.
+- Non-NTU voice names `x-<local>-<fnv6>` (allowExternal opt-in: studio + headless worker runs; training site NTU-only).
+  /voice-profile/ensure accepts studio users for voices the studio lets them use, recording the real owner.
+- STUDIO_SUPERUSERS = lkc-digitallearning@ntu.edu.sg, cs-tengyu.liu@assoc.main.ntu.edu.sg (no UI-added ones stored).
+- Deployed both Lambdas, both studio clients, workers on dev + staging fixed GPU (staging SSM reported a D-Bus reset
+  but services restarted 08:18 UTC, healthy, .env has the studio keys). Tests: lambda 410, gateway 190, client 556,
+  worker 27. Not tested with a real personal/Gmail account sign-in yet.
