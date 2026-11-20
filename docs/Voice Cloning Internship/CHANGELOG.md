@@ -2423,3 +2423,42 @@
   GPUs boot current code; v41 (ami-0642b66fa3ae46b4f) kept as rollback. Test GPU i-0d4172699706f7121 STOPPED
   (vol-049cb9e93a4b088f0 remains). Deregistered v40 image ami-07236b80dcdb93bcb; its snapshot snap-03997dabc64f1d8c0
   remains (role lacks ec2:DeleteSnapshot/DeleteVolume/TerminateInstances/DeleteLaunchTemplateVersions).
+
+## 2026-11-20 — first-GPU hold, honest GPU waits, page keep-alive, voice-name route (64d34f7, deployed)
+
+- Coordinator (decision.js `firstGpuHold`, `reassignCandidates`; index.js): while no inference GPU is READY and one
+  is on its way (PENDING boot, booting worker, or ASG instance Pending), prepare and synthesis never add a GPU; they
+  answer STARTING `sharedBoot` with the boot's real start (`await-first-gpu`). A boot GPU nobody has spoken through
+  since registering (residency newer than activity) is protected only by selections of its voice, so it switches
+  to the waiting voice at once. Training prewarm sends `source:'prewarm'` and records no demand.
+- `await-fleet-transition` returned WARMING "Switching a GPU" while it only waited for another GPU's boot (the
+  false "switched" seen before leaving the tab); now STARTING `sharedBoot` with that boot's start time.
+- runReassignment dropped a scheduled switch when a fresh probe ranked another idle GPU first; it now runs if its
+  chosen GPU is still switchable (logs `reassign-dropped` otherwise).
+- Fixed training GPU: POST /api/instance/activity (pages that auto-start the GPU send it on clicks/typing/scroll,
+  max every 2 min, visible tabs only; lib/gpuStatus.jsx) writes `gpu-activity/page-activity.json`; idle-check counts
+  it, so the GPU stops only after 40 min of true inactivity. Unsigned, like /instance/start.
+- Voice naming: router.js never routed `/api/voice-profile/label` (404), so names never saved. Fixed.
+- Client: "Waiting for the GPU that is starting" popup copy (lib/voiceCapacity.js); Test your voice shows
+  "Loaded on the GPU: <name>" / "Loading on the GPU: <name>" under the picker.
+- Owner rule: a GPU that finished warming up and nobody has spoken through is switchable at once, whatever its
+  age; only a selection of its voice within 60 s of it registering (someone still waiting) or later keeps it
+  (`BOOT_WAITER_GRACE_MS`). A switch marks activity, so after a switch the 10 min rule applies.
+  runReassignment always passes ignoreIdle (it re-checks the rules on a fresh probe; the worker's clock counts
+  warm-up sentences as activity).
+- Training site only, one GPU per signed-in account: owner = sha256 of the Entra oid (`trainingOwnerKey`, only for
+  TRAINING_SITE_ORIGINS / TRAINING_PUBLIC_URL origins). Coordinator OWNER#<instance> rows record which account's
+  boot/switch loaded a GPU; that GPU (still holding that voice, nothing running/queued, no speech 60 s) switches to
+  the account's next pick inside 10 min; the account's own pending boot is reused (`await-own-gpu`). Busy -> add.
+- Live status: peek re-probes when worker rows are >45 s old and returns `resident`/`pendingBoot`/`reassigning`
+  + waitStartedAt; Test your voice shows "Not on a GPU now" when its voice was switched/scaled away and re-runs
+  preparation (popup + lock with the real start) when it is being brought back in the background.
+- Deploy: b2d5720 was built from a zero-context patch (shared tree with the Voice Studio session) and misplaced 3
+  hunks (activity route 404, status line nested in the notice); 64d34f7 fixes it. Deployed 64d34f7 11:25 SGT: dev +
+  staging main Lambdas/coordinators, staging training/live-fast/chatbot/chatbot-text/mc, dev training/live-fast/
+  chatbot. Live: /api/instance/activity 200 and /api/voice-profile/label 401 (was 404) on both training sites; new
+  strings in both live App chunks; no coordinator errors. Staging fixed GPU started 11:16 SGT by a stray
+  /instance/start smoke call (idles off after 40 min).
+- Tests (clean tree): coordinator 81/81, lambda 392/392, client 554/554. Not live-tested: hold, owner switch, keep-alive timing.
+  Not tested live (not deployed): hold, prewarm switch, keep-alive, naming. Needs main Lambda (dev+staging),
+  staging coordinator and all clients deployed from one commit.

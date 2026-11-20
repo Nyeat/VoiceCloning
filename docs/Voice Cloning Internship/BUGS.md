@@ -1,5 +1,9 @@
 # Bugs
 
+- Fixed 2026-11-20 (64d34f7, deployed): naming a voice never showed — router.js did not route /api/voice-profile/label (404).
+- Fixed 2026-11-20 (64d34f7, deployed): fixed training GPU idle-stopped under someone using Test your voice (its speech runs
+  on ASG GPUs, so the training GPU saw no work); page activity now counts. Also: entering the training site plus
+  picking another voice bought a second GPU while the first was still booting; "Switching a GPU" shown for a wait.
 - Open 2026-11-19: intermittent "Sign in to …" on staging; likely cause an expired cached MSAL ID token (now
   force-refreshed, 056dd32) but NOT confirmed: the Lambda does not log 401s. Screenshot the exact wording if seen again.
 - Fixed 2026-11-19 (127deed): queued-while-scaling replies failed "The voice engine is not ready yet" — live and
