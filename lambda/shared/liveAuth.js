@@ -6,6 +6,7 @@
 //
 // Off unless LIVE_AUTH_ENABLED is set, so existing deployments are unchanged.
 import { createEntraVerifier, TokenError } from './entraToken.js';
+import { isStudioSessionToken, verifyStudioSession } from './studioSession.js';
 
 let cached = null;
 let cachedStudio = null;
@@ -162,6 +163,8 @@ export function createLiveAuthGuard({ env = process.env, verifier = null, studio
 
       // Voice Studio: any Microsoft account; the faculty-only rule does not apply.
       if (forceStudio || isStudioRequest(event, env)) {
+        // Email + password accounts (no Microsoft account) are accepted on the studio only.
+        if (isStudioSessionToken(token)) return { ...verifyStudioSession(token, { env }), synthetic: false, studio: true };
         return { ...await studio().verify(token), synthetic: false, studio: true };
       }
       const identity = { ...await activeVerifier.verify(token), synthetic: false };

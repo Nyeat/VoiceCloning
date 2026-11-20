@@ -45,6 +45,20 @@ export const BASE_TRAINING_CONFIG = Object.freeze({
   asrModel: 'large-v3',
 });
 
+// Test fixtures (seeded by lambda/scripts/seed-studio-fixtures.mjs) belong to
+// accounts at this reserved domain. They show in the UI like real work but
+// never reach the GPU (no training dispatch, no warm-up, no slot lock), and
+// real lecturers never see fixture sessions.
+export const FIXTURE_DOMAIN = 'voice-studio.test';
+
+export function isFixtureEmail(email) {
+  return normalizeEmail(email).endsWith(`@${FIXTURE_DOMAIN}`);
+}
+
+function real(item) {
+  return item?.fixture !== true;
+}
+
 export function emptyState() {
   return { schemaVersion: 1, superusers: [], jobs: [], slots: [], lastTickAt: 0, history: [] };
 }
@@ -222,7 +236,7 @@ export function slotKind(slot) {
 }
 
 export function slotHoldsGpu(slot) {
-  return slotKind(slot) === 'test' && slot.status === 'published' && Boolean(slot.assigneeEmail);
+  return real(slot) && slotKind(slot) === 'test' && slot.status === 'published' && Boolean(slot.assigneeEmail);
 }
 
 function activeSlotAt(slots, time) {
@@ -245,7 +259,9 @@ export function estimateQueue(state, { now, gpuRunning = true, env = process.env
     estimates.push({ jobId: running.id, position: 0, startAt: iso(started), finishAt: iso(finish) });
     cursor = finish;
   }
-  orderQueue(state.jobs).forEach((job, index) => {
+  // Fixtures queue behind every real job, so they never delay a real estimate.
+  const ordered = orderQueue(state.jobs);
+  [...ordered.filter(real), ...ordered.filter((job) => !real(job))].forEach((job, index) => {
     let start = cursor;
     for (let guard = 0; guard < 50; guard += 1) {
       const slot = activeSlotAt(state.slots, start);
@@ -262,7 +278,7 @@ export function estimateQueue(state, { now, gpuRunning = true, env = process.env
 export function nextJobToTrain(state, now) {
   if (state.jobs.some((job) => job.status === 'training')) return null;
   if (activeSlotAt(state.slots, now)) return null;
-  return orderQueue(state.jobs)[0] || null;
+  return orderQueue(state.jobs).find(real) || null;
 }
 
 export function markTrainingStarted(job, { sessionId, now }) {
@@ -376,11 +392,28 @@ export function cancelJob(job) {
   return job;
 }
 
-export function addFeedback(job, { email, rating, comment, now }) {
+// What a lecturer can tick about their voice. Short on purpose: a few taps,
+// then the words it got wrong, then anything else in their own words.
+export const FEEDBACK_ISSUES = Object.freeze({
+  'wrong-words': 'Says some words wrongly',
+  'skips-words': 'Skips or repeats words',
+  robotic: 'Sounds flat or robotic',
+  pace: 'Too fast or too slow',
+  'not-like-me': 'Does not sound like me',
+  noise: 'Buzz, hiss or glitches',
+});
+export const FEEDBACK_LIKENESS = Object.freeze({ yes: 'Sounds like me', mostly: 'Mostly', no: 'Not really' });
+
+export function addFeedback(job, { email, rating, comment, likeness = '', issues = [], words = '', now }) {
   const score = Number(rating);
   if (!Number.isInteger(score) || score < 1 || score > 5) throw clientError(400, 'rating must be 1 to 5');
-  const text = cleanText(comment, 2000);
-  job.feedback.push({ email: normalizeEmail(email), rating: score, comment: text, at: iso(now) });
+  const entry = { email: normalizeEmail(email), rating: score, comment: cleanText(comment, 2000), at: iso(now) };
+  if (likeness in FEEDBACK_LIKENESS) entry.likeness = likeness;
+  const picked = [...new Set((Array.isArray(issues) ? issues : []).filter((issue) => issue in FEEDBACK_ISSUES))];
+  if (picked.length) entry.issues = picked;
+  const wordList = cleanText(words, 500);
+  if (wordList) entry.words = wordList;
+  job.feedback.push(entry);
   return job;
 }
 
@@ -414,7 +447,8 @@ function validateTimes(start, end, now) {
 function assertNoClash(state, candidate, ignoreId = '', kind = 'test') {
   // Recording sessions are in person and may run in parallel; GPU test slots may not.
   if (kind !== 'test') return;
-  const clash = liveSlots(state).find((slot) => slot.id !== ignoreId && slotKind(slot) === 'test' && slotsOverlap(slot, candidate));
+  // Fixture slots never hold the GPU, so they never block a real one.
+  const clash = liveSlots(state).find((slot) => slot.id !== ignoreId && real(slot) && slotKind(slot) === 'test' && slotsOverlap(slot, candidate));
   if (clash) {
     const error = clientError(409, `That time overlaps ${clash.assigneeName || clash.assigneeEmail || 'another slot'} `
       + `(${clash.start} – ${clash.end}). The GPU serves one person at a time.`);
@@ -507,17 +541,45 @@ export function publishSlots(state, now) {
 /** A lecturer picks an open published recording session (one upcoming each). */
 export function claimSlot(state, id, { email, name = '', now }) {
   const slot = findSlot(state, id);
-  if (!slot || slot.status !== 'published' || slotKind(slot) !== 'recording') throw clientError(404, 'That session is not available');
+  if (!slot || slot.status !== 'published' || slotKind(slot) !== 'recording' || (!real(slot) && !isFixtureEmail(email))) {
+    throw clientError(404, 'That session is not available');
+  }
   if (slot.assigneeEmail) throw clientError(409, 'Someone has just taken that session — pick another');
   if (ms(slot.end) <= now) throw clientError(409, 'That session has already ended');
   if (!cleanText(name, 80)) throw clientError(400, 'Enter your name');
   const mine = liveSlots(state).find((item) => slotKind(item) === 'recording' && sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
-  if (mine) throw clientError(409, 'You already have an upcoming recording session. Release it first to pick another.');
+  if (mine) throw clientError(409, 'You already have a recording session booked. Use Change to move it to another time.');
   slot.assigneeEmail = normalizeEmail(email);
   slot.assigneeName = cleanText(name, 80);
   slot.claimedAt = iso(now);
   slot.notified = { assigneeEmail: slot.assigneeEmail, start: slot.start, end: slot.end };
   return slot;
+}
+
+/**
+ * A lecturer changes their booked recording session to another open one, in
+ * one step, so they never hold two and never end up with none. Only before
+ * their current session starts.
+ */
+export function moveSlot(state, toId, { email, now }) {
+  const current = liveSlots(state).find((item) => slotKind(item) === 'recording' && item.status === 'published'
+    && sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
+  if (!current) throw clientError(404, 'You have no booked session to change');
+  if (current.id === toId) throw clientError(409, 'That is already your session');
+  if (ms(current.start) <= now) throw clientError(409, 'Your session has already started and cannot be changed');
+  const target = findSlot(state, toId);
+  if (!target || target.status !== 'published' || slotKind(target) !== 'recording' || (!real(target) && !isFixtureEmail(email))) {
+    throw clientError(404, 'That session is not available');
+  }
+  if (target.assigneeEmail) throw clientError(409, 'Someone has just taken that session — pick another');
+  if (ms(target.end) <= now) throw clientError(409, 'That session has already ended');
+  const name = current.assigneeName;
+  Object.assign(target, {
+    assigneeEmail: current.assigneeEmail, assigneeName: name, claimedAt: iso(now),
+    notified: { assigneeEmail: current.assigneeEmail, start: target.start, end: target.end },
+  });
+  Object.assign(current, { assigneeEmail: '', assigneeName: '', notified: null, claimedAt: null });
+  return { from: { ...current }, to: target };
 }
 
 export function releaseSlot(state, id, { email, now }) {
@@ -629,7 +691,7 @@ export function slotsToPreload(state, now) {
 
 /** The GPU must stay on (and be started) while any of this is true. */
 export function gpuDemand(state, now) {
-  if (state.jobs.some((job) => job.status === 'training' || job.status === 'queued')) return 'training';
+  if (state.jobs.some((job) => real(job) && (job.status === 'training' || job.status === 'queued'))) return 'training';
   const soon = state.slots.find((slot) => slotHoldsGpu(slot)
     && ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now
     && now < ms(slot.end));
@@ -638,8 +700,10 @@ export function gpuDemand(state, now) {
 
 /** What a lecturer sees in the session table: published upcoming recording sessions. */
 export function publicSlots(state, email, now) {
+  const fixtureViewer = isFixtureEmail(email);
   return liveSlots(state)
     .filter((slot) => slotKind(slot) === 'recording' && slot.status === 'published' && ms(slot.end) > now)
+    .filter((slot) => real(slot) || fixtureViewer)
     .sort((a, b) => ms(a.start) - ms(b.start))
     .map((slot) => ({
       id: slot.id,

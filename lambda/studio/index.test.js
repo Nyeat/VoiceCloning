@@ -1,12 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandler, createStudioService } from './index.js';
+import { generateKeyPairSync } from 'node:crypto';
 import { createMemoryStore } from './store.js';
+import { normalizeAccounts } from './accounts.js';
+import { createLiveAuthGuard } from '../shared/liveAuth.js';
+
+const SESSION_KEYS = (() => {
+  const { privateKey } = generateKeyPairSync('ed25519');
+  return { STUDIO_SESSION_PRIVATE_KEY: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64') };
+})();
 
 const T0 = Date.parse('2026-11-20T01:00:00Z');
 const MIN = 60_000;
 
-function harness() {
+function harness({ realAuth = false } = {}) {
   let now = T0;
   let ids = 0;
   const sent = [];
@@ -15,9 +23,14 @@ function harness() {
   const started = [];
   const preloaded = [];
   const store = createMemoryStore();
+  const env = {
+    STUDIO_SUPERUSERS: 'boss@ntu.edu.sg', STUDIO_PUBLIC_URL: 'https://studio.example', ...SESSION_KEYS,
+    LIVE_AUTH_ENABLED: 'true', ENTRA_TENANT_ID: 'tenant', ENTRA_AUDIENCE: 'aud',
+  };
   const service = createStudioService({
     store,
-    env: { STUDIO_SUPERUSERS: 'boss@ntu.edu.sg', STUDIO_PUBLIC_URL: 'https://studio.example' },
+    accountStore: createMemoryStore(null, normalizeAccounts),
+    env,
     clock: () => now,
     newId: () => `id${(ids += 1)}`,
     mailer: { send: async (to, message) => { sent.push({ to: [].concat(to), subject: message.subject }); return { status: 'sent' }; } },
@@ -35,13 +48,15 @@ function harness() {
   });
   const handler = createHandler({
     service,
-    authGuard: { authorize: async (event) => ({ email: event.headers['x-user'], synthetic: false }) },
+    authGuard: realAuth
+      ? createLiveAuthGuard({ env, forceStudio: true, studioVerifier: { verify: async () => { throw new Error('not a Microsoft token'); } } })
+      : { authorize: async (event) => ({ email: event.headers['x-user'], synthetic: false, passwordAccount: event.headers['x-password'] === '1' }) },
   });
-  const call = async (user, method, path, body) => {
+  const call = async (user, method, path, body, extraHeaders = {}) => {
     const res = await handler({
       rawPath: `/api/studio/${path}`,
       requestContext: { http: { method } },
-      headers: { 'x-user': user },
+      headers: { 'x-user': user, ...extraHeaders },
       body: body ? JSON.stringify(body) : undefined,
     });
     return { status: res.statusCode, body: JSON.parse(res.body) };
@@ -212,4 +227,79 @@ test('worker refusing a dispatch leaves the job queued', async () => {
   assert.equal(job.status, 'queued');
   assert.match(job.error, /busy/u);
   assert.ok(h);
+});
+
+test('email + password accounts: register, sign in, use the studio, never a super user', async () => {
+  const h = harness({ realAuth: true });
+  const anon = (path, body) => h.call('', 'POST', path, body);
+  assert.equal((await anon('auth/register', { email: 'x@ntu.edu.sg', password: 'longenough', name: 'X' })).status, 400, 'NTU uses Microsoft');
+  assert.equal((await anon('auth/register', { email: 'boss@ntu.edu.sg', password: 'longenough', name: 'B' })).status, 400);
+  assert.equal((await anon('auth/register', { email: 'dee@gmail.com', password: 'short', name: 'Dee' })).status, 400, 'password length');
+  const registered = await anon('auth/register', { email: 'Dee@Gmail.com', password: 'longenough', name: 'Dee' });
+  assert.equal(registered.status, 200, JSON.stringify(registered.body));
+  assert.equal((await anon('auth/register', { email: 'dee@gmail.com', password: 'longenough2', name: 'Dee' })).status, 409, 'one account per address');
+  assert.equal((await anon('auth/login', { email: 'dee@gmail.com', password: 'wrong-password' })).status, 401);
+  assert.equal((await anon('auth/login', { email: 'nobody@gmail.com', password: 'whatever1' })).status, 401);
+  const login = await anon('auth/login', { email: 'dee@gmail.com', password: 'longenough' });
+  assert.equal(login.status, 200);
+  const auth = { 'x-vcs-entra-token': login.body.token };
+  const me = await h.call('', 'GET', 'me', undefined, auth);
+  assert.equal(me.status, 200, JSON.stringify(me.body));
+  assert.equal(me.body.email, 'dee@gmail.com');
+  assert.equal(me.body.role, 'lecturer');
+  assert.equal(me.body.account, 'password');
+  assert.equal((await h.call('', 'GET', 'admin/overview', undefined, auth)).status, 403);
+  assert.equal((await h.call('', 'GET', 'me', undefined, { 'x-vcs-entra-token': `${login.body.token}x` })).status, 401);
+});
+
+test('a password identity is never a super user, even with a super user address', async () => {
+  const h = harness();
+  assert.equal((await h.call('boss@ntu.edu.sg', 'GET', 'me')).body.role, 'superuser');
+  assert.equal((await h.call('boss@ntu.edu.sg', 'GET', 'me', undefined, { 'x-password': '1' })).body.role, 'lecturer');
+  assert.equal((await h.call('boss@ntu.edu.sg', 'GET', 'admin/overview', undefined, { 'x-password': '1' })).status, 403);
+});
+
+test('super users record without the lecturer consent; lecturers still need it', async () => {
+  const h = harness();
+  const created = await h.call('boss@ntu.edu.sg', 'POST', 'submissions', { label: 'Reference' });
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+});
+
+test('a lecturer holds one recording session and can change it, not add another', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const at0 = (m) => new Date(T0 + m * MIN).toISOString();
+  for (const start of [60, 180, 300]) {
+    assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(start), end: at0(start + 60) })).status, 200);
+  }
+  const sessions = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
+  const [s1, s2, s3] = sessions.map((slot) => slot.id);
+  assert.equal((await h.call('amy@gmail.com', 'POST', `slots/${s1}/claim`, { name: 'Amy' })).status, 200);
+  assert.equal((await h.call('amy@gmail.com', 'POST', `slots/${s2}/claim`, { name: 'Amy' })).status, 409, 'no second booking');
+  const moved = await h.call('amy@gmail.com', 'POST', `slots/${s3}/move`, {});
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  const mine = moved.body.sessions.filter((slot) => slot.mine).map((slot) => slot.id);
+  assert.deepEqual(mine, [s3]);
+  assert.equal(moved.body.sessions.find((slot) => slot.id === s1).open, true, 'old session is free again');
+  // The console sees the booking with the person's name.
+  const admin = (await h.call(boss, 'GET', 'admin/overview')).body;
+  assert.equal(admin.slots.find((slot) => slot.id === s3).assigneeName, 'Amy');
+  // Once it has started it cannot be changed.
+  h.advance(301);
+  assert.equal((await h.call('amy@gmail.com', 'POST', `slots/${s2}/move`, {})).status, 409);
+});
+
+test('feedback keeps the structured answers', async () => {
+  const h = harness();
+  const { updateState } = await import('./store.js');
+  await updateState(h.store, (state) => {
+    state.jobs.push({ id: 'j1', ownerEmail: 'amy@gmail.com', status: 'approved', approvedExpName: 'x-amy-1', expName: 'x-amy-1', sourceExpName: 'x-amy-1', attempts: [], trainingConfig: {}, notifications: [], feedback: [], reviews: [], files: [] });
+    return null;
+  });
+  const saved = await h.call('amy@gmail.com', 'POST', 'submissions/j1/feedback', {
+    rating: 3, likeness: 'mostly', issues: ['wrong-words', 'bogus'], words: 'cohesin, apoptosis', comment: 'A bit fast',
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  const entry = h.store.snapshot().jobs[0].feedback[0];
+  assert.deepEqual([entry.likeness, entry.issues, entry.words, entry.comment], ['mostly', ['wrong-words'], 'cohesin, apoptosis', 'A bit fast']);
 });

@@ -6,8 +6,15 @@ const enc = encodeURIComponent;
 
 export const getMe = () => api.get('/studio/me').then((res) => res.data);
 
-export async function createSubmission({ label, name }) {
-  return (await api.post('/studio/submissions', { label, name })).data;
+// consent: the record the lecturer accepted (super users send none).
+export async function createSubmission({ label, name, consent = null }) {
+  return (await api.post('/studio/submissions', { label, name, ...(consent ? { consent } : {}) })).data;
+}
+
+/** Email + password sign-in. mode: 'login' | 'register'. No token is needed (or sent if absent). */
+export async function passwordSignIn(mode, { email, password, name }) {
+  const path = mode === 'register' ? '/studio/auth/register' : '/studio/auth/login';
+  return (await api.post(path, { email, password, ...(mode === 'register' ? { name } : {}) }, { vcsOptionalAuth: true })).data;
 }
 
 /**
@@ -54,7 +61,8 @@ function putWithProgress(url, file, onLoaded) {
 }
 
 export const withdrawSubmission = (jobId) => api.post(`/studio/submissions/${enc(jobId)}/cancel`, {}).then((res) => res.data);
-export const sendFeedback = (jobId, rating, comment) => api.post(`/studio/submissions/${enc(jobId)}/feedback`, { rating, comment }).then((res) => res.data);
+// feedback: { rating, likeness, issues[], words, comment }
+export const sendFeedback = (jobId, feedback) => api.post(`/studio/submissions/${enc(jobId)}/feedback`, feedback).then((res) => res.data);
 
 export const getVoiceAccess = (voice) => api.get(`/studio/voices/${enc(voice)}/access`).then((res) => res.data);
 export const getPronunciations = (voice) => api.get(`/studio/voices/${enc(voice)}/pronunciations`).then((res) => res.data);
@@ -72,6 +80,8 @@ export const deleteSlot = (id) => api.delete(`/studio/admin/slots/${enc(id)}`, {
 export const publishSlots = () => api.post('/studio/admin/slots/publish', {}).then((res) => res.data);
 export const claimSlot = (id, name) => api.post(`/studio/slots/${enc(id)}/claim`, { name }).then((res) => res.data);
 export const releaseSlot = (id) => api.post(`/studio/slots/${enc(id)}/release`, {}).then((res) => res.data);
+// Change a booked recording session to another open one (atomic on the server).
+export const moveSlot = (id) => api.post(`/studio/slots/${enc(id)}/move`, {}).then((res) => res.data);
 export const retryJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/retry`, {}).then((res) => res.data);
 export const cancelJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/cancel`, {}).then((res) => res.data);
 export const requestRecordings = (jobId, notes) => api.post(`/studio/admin/jobs/${enc(jobId)}/request-recordings`, { notes }).then((res) => res.data);

@@ -7,7 +7,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  CalendarClock, CheckCircle2, ClipboardCheck, Cpu, Loader2, MessageSquareText, Mic2, RefreshCw, ShieldCheck,
+  CalendarCheck, CalendarClock, CheckCircle2, ClipboardCheck, Cpu, Loader2, MessageSquareText, Mic2, RefreshCw, ShieldCheck,
   Star, ThumbsDown, ThumbsUp, Trash2, UserPlus, Users, X,
 } from 'lucide-react';
 import { PostLoginRedirectHandler, ProtectedRoute } from '@/auth/AppAuthGate';
@@ -18,16 +18,20 @@ import { cn } from '@/lib/utils';
 import LivePage from '@/pages/LivePage.jsx';
 import PronunciationPanel from './PronunciationPanel.jsx';
 import { RecordWorkspace } from './RecordApp.jsx';
-import { FaqPage } from './ConsentAndFaq.jsx';
+import { FaqList, FaqPage } from './ConsentAndFaq.jsx';
+import { saveStudioSession } from '@/auth/studioSession.js';
+import { DayTimeline, Legend, MonthCalendar, TONES } from './SlotCalendar.jsx';
+import {
+  dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
+} from './slotCalendar.js';
 import {
   addSlot, addSuperuser, cancelJob, claimSlot, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
-  publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob, runTick, sendFeedback, sgtToIso,
+  moveSlot, passwordSignIn, publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob,
+  runTick, sendFeedback,
 } from './studioApi.js';
 import {
   Brand, Button, Card, Header, Notice, SignInScreen, StatusPill, formatBytes,
 } from './StudioChrome.jsx';
-
-const SGT_DATE = (value) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
 
 function who(job) {
   return job.ownerName || job.ownerEmail;
@@ -85,10 +89,14 @@ function Overview({ overview, onAction }) {
   const queue = overview.queue.map((id) => byId.get(id)).filter(Boolean);
   const [filter, setFilter] = useState('all');
   const listed = jobs.filter((job) => filter === 'all' || job.status === filter);
+  const recordingSlots = overview.slots.filter((slot) => slot.kind === 'recording' && Date.parse(slot.end) > now);
+  const recordingBooked = recordingSlots.filter((slot) => slot.assigneeEmail).sort((a, b) => a.start.localeCompare(b.start));
+  const recordingOpen = recordingSlots.filter((slot) => !slot.assigneeEmail && slot.status === 'published').length;
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard icon={CalendarCheck} label="Recording sessions booked" value={recordingBooked.length} tone="slate" />
         <StatCard icon={ClipboardCheck} label="Waiting for your review" value={review.length} tone="violet" />
         <StatCard icon={CalendarClock} label="Approved, need a slot" value={needSlot.length} tone="emerald" />
         <StatCard icon={Cpu} label={training ? `Training: ${who(training)}` : 'Training GPU idle'} value={training ? 1 : 0} tone="blue" />
@@ -125,6 +133,31 @@ function Overview({ overview, onAction }) {
                 <Button variant="dark" size="sm" onClick={() => navigate(`/review/${job.id}`)}>Open</Button>
               </li>
             ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-3">
+          <h2 className="font-semibold text-slate-900">Booked recording sessions</h2>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500">{recordingOpen} open session{recordingOpen === 1 ? '' : 's'} not picked yet</span>
+            <Button variant="outline" size="sm" onClick={() => navigate('/sessions')}><CalendarClock size={13} /> Calendar</Button>
+          </div>
+        </div>
+        {recordingBooked.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">Nobody has a recording session booked yet.</p> : (
+          <ul className="divide-y divide-slate-100">
+            {recordingBooked.map((slot) => {
+              const live = Date.parse(slot.start) <= now;
+              return (
+                <li key={slot.id} className="flex flex-wrap items-center gap-3 px-5 py-2.5 text-sm">
+                  <span className={cn('h-2.5 w-2.5 rounded-full', live ? 'bg-rose-500' : 'bg-indigo-500')} />
+                  <span className="w-48 font-medium text-slate-800">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
+                  <span className="min-w-0 flex-1 truncate">{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}</span></span>
+                  <span className="text-xs text-slate-500">{live ? 'recording now' : relativeFromNow(slot.start, now)}{slot.claimedAt ? ' · picked by them' : ' · assigned'}</span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Card>
@@ -342,8 +375,8 @@ function JobDetail({ overview, onAction }) {
               <ul className="mt-2 space-y-2">
                 {job.feedback.map((entry) => (
                   <li key={entry.at} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                    <Stars value={entry.rating} /> <span className="text-xs text-slate-500">{formatSgt(entry.at)}</span>
-                    {entry.comment && <p className="mt-1 text-slate-700">{entry.comment}</p>}
+                    <p className="mb-1 text-xs text-slate-500">{formatSgt(entry.at)}</p>
+                    <FeedbackEntry entry={entry} overview={overview} />
                   </li>
                 ))}
               </ul>
@@ -389,95 +422,166 @@ function JobDetail({ overview, onAction }) {
   );
 }
 
-// ── Super user: schedule (draft → edit → Publish) ────────────────────────
+// ── Super user: schedule (calendar; draft → edit → Publish) ───────────────
 
 const LENGTHS = [30, 45, 60, 90, 120, 180, 240];
+const START_STEPS = Array.from({ length: 96 }, (_, i) => i * 15);
 
-function timeOf(value) {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+function slotTone(slot, now) {
+  if (Date.parse(slot.start) <= now && now < Date.parse(slot.end)) return 'live';
+  if (slot.status === 'draft') return 'draft';
+  return slot.assigneeEmail ? 'booked' : 'open';
 }
 
-function SlotEditor({ kind = 'test', initial, people, onSave, onCancel, saveLabel }) {
-  const [date, setDate] = useState(initial?.start ? SGT_DATE(initial.start) : SGT_DATE(Date.now() + 24 * 3600_000));
-  const [time, setTime] = useState(initial?.start ? timeOf(initial.start) : '13:00');
-  const [minutes, setMinutes] = useState(initial ? Math.round((Date.parse(initial.end) - Date.parse(initial.start)) / 60000) : 60);
-  const [person, setPerson] = useState(initial?.assigneeEmail || '');
-  const [name, setName] = useState(initial?.assigneeName || '');
+function PersonField({ kind, people, person, onPerson }) {
   const known = people.find((entry) => entry.email === person);
-  const start = sgtToIso(date, time);
-  const end = start ? new Date(Date.parse(start) + minutes * 60_000).toISOString() : '';
+  const typing = !known && person !== '';
   return (
-    <form
-      className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[auto_auto_auto_minmax(0,1fr)_auto]"
-      onSubmit={(event) => { event.preventDefault(); onSave({ kind, start, end, assigneeEmail: person.trim(), assigneeName: (known?.name || name).trim() }); }}
-    >
-      <label className="text-xs font-medium text-slate-600">Date (SGT)
-        <input type="date" required value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" />
-      </label>
-      <label className="text-xs font-medium text-slate-600">Start
-        <input type="time" required step={900} value={time} onChange={(event) => setTime(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" />
-      </label>
-      <label className="text-xs font-medium text-slate-600">Length
-        <select value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm">
-          {[...new Set([...LENGTHS, minutes])].sort((a, b) => a - b).map((value) => <option key={value} value={value}>{value >= 60 ? `${value / 60} h` : `${value} min`}</option>)}
+    <div className="text-xs font-medium text-slate-600">
+      {kind === 'recording' ? 'Who (optional)' : 'Who'}
+      <select
+        value={known ? person : typing ? '__typed' : ''}
+        onChange={(event) => { const value = event.target.value; onPerson(value === '__typed' ? ' ' : value); }}
+        className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm"
+      >
+        <option value="">{kind === 'recording' ? 'Open — a lecturer picks it' : 'Choose a person…'}</option>
+        {people.map((entry) => (
+          <option key={entry.email} value={entry.email}>{entry.name || entry.email}{entry.approvedVoices.length ? ` · ${entry.approvedVoices.length} approved voice(s)` : ' · not approved yet'}</option>
+        ))}
+        <option value="__typed">Someone else (type email)…</option>
+      </select>
+      {typing && (
+        <input value={person.trim()} onChange={(event) => onPerson(event.target.value || ' ')} placeholder="their email" type="email" autoFocus className="mt-2 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" />
+      )}
+    </div>
+  );
+}
+
+function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCancel }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const person = draft.person || '';
+  const canSave = kind !== 'test' || person.trim();
+  const end = draft.start + draft.minutes;
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{draft.id ? 'Edit' : 'New'} {kind === 'recording' ? 'recording session' : 'test slot'}</p>
+          <p className="text-sm font-semibold text-slate-900">{formatDay(draft.day)} · {formatMinutes(draft.start)} – {formatMinutes(end % (24 * 60))}</p>
+        </div>
+        <button type="button" onClick={onCancel} className="rounded p-1 text-slate-400 hover:bg-slate-200" aria-label="Close"><X size={16} /></button>
+      </div>
+      <label className="block text-xs font-medium text-slate-600">Starts
+        <select value={draft.start} onChange={(event) => setDraft({ ...draft, start: Number(event.target.value) })} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm">
+          {START_STEPS.map((minutes) => <option key={minutes} value={minutes}>{formatMinutes(minutes)}</option>)}
         </select>
       </label>
-      <div className="text-xs font-medium text-slate-600">
-        Name
-        <div className="mt-1 flex gap-2">
-          <select value={known ? person : person ? '__typed' : ''} onChange={(event) => { const value = event.target.value; if (value !== '__typed') { setPerson(value); setName(''); } else setPerson(' '); }} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-sm">
-            <option value="">{kind === 'recording' ? 'Open — a lecturer picks it' : 'Choose a person…'}</option>
-            {people.map((entry) => (
-              <option key={entry.email} value={entry.email}>{entry.name || entry.email}{entry.approvedVoices.length ? ` · ${entry.approvedVoices.length} approved voice(s)` : ' · not approved yet'}</option>
-            ))}
-            <option value="__typed">Someone else (type email)…</option>
-          </select>
-          {!known && person && (
-            <input value={person.trim()} onChange={(event) => setPerson(event.target.value)} placeholder="email" type="email" className="h-10 w-44 rounded-lg border border-slate-300 px-2 text-sm" />
-          )}
+      <div className="text-xs font-medium text-slate-600">Length
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {[...new Set([...LENGTHS, draft.minutes])].sort((a, b) => a - b).map((value) => (
+            <button key={value} type="button" onClick={() => setDraft({ ...draft, minutes: value })} className={cn('h-8 rounded-full px-3 text-xs font-semibold', draft.minutes === value ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')}>
+              {formatLength(value)}
+            </button>
+          ))}
         </div>
       </div>
-      <div className="flex items-end gap-2">
-        <Button type="submit" variant="dark" disabled={!start || (kind === 'test' && !person.trim())}>{saveLabel}</Button>
-        {onCancel && <Button variant="ghost" onClick={onCancel}>Cancel</Button>}
+      <PersonField kind={kind} people={people} person={person} onPerson={(value) => setDraft({ ...draft, person: value })} />
+      <div className="flex flex-wrap gap-2 pt-1">
+        <Button variant="dark" disabled={!canSave} onClick={onSave}>{draft.id ? 'Save changes' : kind === 'recording' ? 'Add session' : 'Add slot'}</Button>
+        {draft.id && (confirmDelete
+          ? <Button variant="danger" onClick={onDelete}>Confirm delete</Button>
+          : <Button variant="ghost" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete</Button>)}
       </div>
-    </form>
+      {draft.id && <p className="text-[11px] text-slate-500">Saving a published one makes it a draft again until you publish.</p>}
+    </div>
   );
 }
 
 const SCHEDULE_COPY = {
   recording: {
-    title: 'Add a recording session',
-    help: 'In-person sessions (no GPU). Leave the name open so a lecturer can pick it, or put someone in it. Sessions may run in parallel. New and edited sessions stay drafts until you publish.',
-    footer: 'Lecturers sign in and pick one open session each. The recording page unlocks for them only during it.',
+    title: 'Recording sessions',
+    help: 'In-person sessions (no GPU). Click a time on the day to add one; leave "Who" open so a lecturer can pick it. Sessions may run in parallel. New and edited sessions stay drafts until you publish.',
+    footer: 'Lecturers sign in and pick one open session each (they can change it before it starts). The recording page unlocks for them only during it.',
     list: 'Upcoming recording sessions',
     open: 'Open — lecturers can pick',
+    tones: ['open', 'booked', 'draft', 'live'],
   },
   test: {
-    title: 'Allocate a GPU test slot',
-    help: 'After QC, give a lecturer GPU time to test their voices. One person per slot, never overlapping. New and edited slots stay drafts until you publish.',
+    title: 'GPU test slots',
+    help: 'After QC, give a lecturer GPU time to test their voices. Click a time on the day to add one. One person per slot, never overlapping. New and edited slots stay drafts until you publish.',
     footer: 'Publishing emails the person their time. The GPU starts 15 minutes before, loads their voice and emails them that it starts soon.',
     list: 'Upcoming test slots',
     open: '—',
+    tones: ['booked', 'draft', 'live'],
   },
 };
 
 function Schedule({ overview, onAction, kind = 'test' }) {
   const copy = SCHEDULE_COPY[kind];
   const [params] = useSearchParams();
-  const [editing, setEditing] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState('');
-  const now = Date.parse(overview.now);
   const prefill = params.get('person') || '';
-  const slots = overview.slots.filter((slot) => (slot.kind === 'recording' ? 'recording' : 'test') === kind && Date.parse(slot.end) > now);
-  const days = [...new Set(slots.map((slot) => SGT_DATE(slot.start)))];
+  const nowMs = Date.parse(overview.now) || Date.now();
+  const today = sgtDayKey(nowMs);
+  const slots = overview.slots.filter((slot) => (slot.kind === 'recording' ? 'recording' : 'test') === kind && Date.parse(slot.end) > nowMs);
+  const [day, setDay] = useState(today);
+  const [month, setMonth] = useState(monthOf(today));
+  const [draft, setDraft] = useState(() => (prefill ? { day: today, start: 13 * 60, minutes: 60, person: prefill } : null));
+  const people = overview.people || [];
   const drafts = overview.draftCount || 0;
 
+  const marks = useMemo(() => {
+    const map = new Map();
+    for (const slot of slots) {
+      const key = sgtDayKey(slot.start);
+      map.set(key, [...(map.get(key) || []), slotTone(slot, nowMs)]);
+    }
+    return map;
+  }, [slots, nowMs]);
+  const daySlots = slots.filter((slot) => sgtDayKey(slot.start) === day || sgtDayKey(slot.end) === day);
+  const hours = dayHours(daySlots);
+  const blocks = daySlots.map((slot) => ({
+    id: slot.id,
+    start: slot.start,
+    end: slot.end,
+    tone: slotTone(slot, nowMs),
+    title: slot.assigneeEmail ? (slot.assigneeName || slot.assigneeEmail) : copy.open,
+    subtitle: `${formatSgt(slot.start, { withDate: false })} – ${formatSgt(slot.end, { withDate: false })}${slot.status === 'draft' ? ' · draft' : ''}${slot.assigneeEmail && slot.assigneeName ? ` · ${slot.assigneeEmail}` : ''}`,
+  }));
+
+  function selectDay(key) {
+    setDay(key);
+    if (draft && !draft.id) setDraft({ ...draft, day: key });
+  }
+  function edit(slot) {
+    const original = slots.find((item) => item.id === slot.id);
+    if (!original) return;
+    const key = sgtDayKey(original.start);
+    setDay(key);
+    setMonth(monthOf(key));
+    setDraft({
+      id: original.id, day: key, start: sgtMinutes(original.start),
+      minutes: Math.round((Date.parse(original.end) - Date.parse(original.start)) / 60000),
+      person: original.assigneeEmail || '', name: original.assigneeName || '',
+    });
+  }
+  async function save() {
+    const start = sgtIso(draft.day, draft.start);
+    const end = new Date(Date.parse(start) + draft.minutes * 60_000).toISOString();
+    const email = (draft.person || '').trim();
+    const known = people.find((entry) => entry.email === email);
+    const body = { kind, start, end, assigneeEmail: email, assigneeName: (known?.name || (email === draft.person ? draft.name : '') || '').trim() };
+    const done = await onAction(() => (draft.id ? editSlot(draft.id, body) : addSlot(body)));
+    if (!done) return;
+    // Adding a run of sessions: the composer moves on to the next free time.
+    setDraft(draft.id ? null : { day: draft.day, start: Math.min(23 * 60 + 45, draft.start + draft.minutes), minutes: draft.minutes, person: kind === 'test' ? draft.person : '' });
+  }
+
+  const upcomingDays = [...new Set(slots.map((slot) => sgtDayKey(slot.start)))].sort();
   return (
     <div className="space-y-5">
       <Card className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="max-w-2xl">
             <h2 className="font-semibold text-slate-900">{copy.title}</h2>
             <p className="mt-1 text-sm text-slate-600">{copy.help}</p>
           </div>
@@ -485,72 +589,75 @@ function Schedule({ overview, onAction, kind = 'test' }) {
             Publish {drafts ? `${drafts} change${drafts === 1 ? '' : 's'}` : '(nothing to publish)'}
           </Button>
         </div>
-        <div className="mt-4">
-          <SlotEditor
-            key={`${kind}-${prefill}`}
-            kind={kind}
-            initial={prefill ? { assigneeEmail: prefill } : null}
-            people={overview.people || []}
-            saveLabel={kind === 'recording' ? 'Add session' : 'Add slot'}
-            onSave={(slot) => onAction(() => addSlot(slot))}
-          />
-        </div>
-        <p className="mt-3 text-xs text-slate-500">{copy.footer}</p>
+        <div className="mt-3"><Legend tones={copy.tones} /></div>
       </Card>
 
-      <Card>
-        <div className="border-b border-slate-200 px-5 py-3">
-          <h2 className="font-semibold text-slate-900">{copy.list}</h2>
+      <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="space-y-5">
+          <Card className="p-4">
+            <MonthCalendar month={month} onMonth={setMonth} selected={day} onSelect={selectDay} marks={marks} today={today} />
+          </Card>
+          {draft && (
+            <SlotComposer
+              key={draft.id || 'new'}
+              kind={kind}
+              draft={draft}
+              setDraft={setDraft}
+              people={people}
+              onSave={save}
+              onCancel={() => setDraft(null)}
+              onDelete={() => onAction(() => deleteSlot(draft.id)).then((done) => { if (done) setDraft(null); })}
+            />
+          )}
         </div>
-        {days.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No upcoming slots yet.</p> : days.map((day) => {
-          const daySlots = slots.filter((slot) => SGT_DATE(slot.start) === day);
-          return (
-            <div key={day} className="border-b border-slate-100 px-5 py-4 last:border-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">{formatSgt(`${day}T12:00:00+08:00`).split(',')[0]} · {day}</p>
-              <div className="relative mt-2 h-8 rounded-lg bg-slate-100" aria-hidden="true">
-                {daySlots.map((slot) => {
-                  const dayStart = Date.parse(`${day}T00:00:00+08:00`);
-                  const span = 24 * 3600_000;
-                  const left = ((Date.parse(slot.start) - dayStart) / span) * 100;
-                  const width = Math.max(1.5, ((Date.parse(slot.end) - Date.parse(slot.start)) / span) * 100);
-                  const live = Date.parse(slot.start) <= now && now < Date.parse(slot.end);
-                  return <span key={slot.id} className={cn('absolute top-1 h-6 rounded', live ? 'bg-emerald-500' : slot.status === 'draft' ? 'bg-amber-400' : slot.assigneeEmail ? 'bg-primary/80' : 'bg-sky-300')} style={{ left: `${left}%`, width: `${width}%` }} />;
-                })}
-              </div>
-              <div className="mt-1 flex justify-between text-[10px] text-slate-400"><span>12 am</span><span>6 am</span><span>12 pm</span><span>6 pm</span><span>12 am</span></div>
-              <ul className="mt-3 space-y-2">
-                {daySlots.map((slot) => (
-                  <li key={slot.id} className="rounded-xl border border-slate-200 px-3 py-2">
-                    {editing === slot.id ? (
-                      <SlotEditor
-                        kind={kind}
-                        initial={slot}
-                        people={overview.people || []}
-                        saveLabel="Save"
-                        onCancel={() => setEditing('')}
-                        onSave={(changes) => onAction(() => editSlot(slot.id, changes)).then((done) => { if (done) setEditing(''); })}
-                      />
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-3 text-sm">
-                        <span className="w-36 font-medium text-slate-800">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</span>
-                        <span className="min-w-0 flex-1 text-slate-700">
-                          {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}</span></> : <span className="text-sky-700">{copy.open}</span>}
-                        </span>
-                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', slot.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>
-                          {slot.status === 'draft' ? 'Draft' : 'Published'}
-                        </span>
-                        <Button size="sm" variant="ghost" onClick={() => setEditing(slot.id)}>Edit</Button>
-                        {confirmDelete === slot.id
-                          ? <Button size="sm" variant="danger" onClick={() => onAction(() => deleteSlot(slot.id)).then(() => setConfirmDelete(''))}>Confirm delete</Button>
-                          : <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(slot.id)} aria-label="Delete slot"><Trash2 size={14} /></Button>}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+        <Card className="min-w-0 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold text-slate-900">{formatDay(day)}</h3>
+            <div className="flex gap-2">
+              {day !== today && <Button size="sm" variant="ghost" onClick={() => { setDay(today); setMonth(monthOf(today)); }}>Today</Button>}
+              <Button size="sm" variant="outline" onClick={() => setDraft({ day, start: Math.max(hours.start, 9 * 60), minutes: draft?.minutes || 60, person: kind === 'test' ? prefill : '' })}><CalendarClock size={13} /> Add on this day</Button>
             </div>
-          );
-        })}
+          </div>
+          <p className="mb-2 text-xs text-slate-500">Click an empty time to add {kind === 'recording' ? 'a session' : 'a slot'} there; click a block to edit it.</p>
+          <div className="max-h-[620px] overflow-y-auto pr-1 pt-2">
+            <DayTimeline
+              day={day}
+              hours={hours}
+              slots={blocks}
+              nowMs={nowMs}
+              selectedId={draft?.id}
+              pending={draft && !draft.id && draft.day === day ? { start: draft.start, minutes: draft.minutes } : null}
+              onSlotClick={edit}
+              onEmptyClick={(minutes) => setDraft({ day, start: minutes, minutes: draft?.minutes || 60, person: draft && !draft.id ? draft.person : (kind === 'test' ? prefill : '') })}
+            />
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <div className="border-b border-slate-200 px-5 py-3"><h2 className="font-semibold text-slate-900">{copy.list}</h2></div>
+        {upcomingDays.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">Nothing upcoming yet — pick a day above and click a time.</p> : (
+          <ul className="divide-y divide-slate-100">
+            {upcomingDays.map((key) => slots.filter((slot) => sgtDayKey(slot.start) === key).sort((a, b) => a.start.localeCompare(b.start)).map((slot) => {
+              const tone = slotTone(slot, nowMs);
+              return (
+                <li key={slot.id}>
+                  <button type="button" onClick={() => edit(slot)} className="flex w-full flex-wrap items-center gap-3 px-5 py-2.5 text-left text-sm hover:bg-slate-50">
+                    <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', TONES[tone].dot)} />
+                    <span className="w-44 font-medium text-slate-800">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
+                    <span className="min-w-0 flex-1 truncate text-slate-700">
+                      {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}{slot.claimedAt ? ' · picked it themselves' : ''}</span></> : <span className="text-sky-700">{copy.open}</span>}
+                    </span>
+                    <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', tone === 'draft' ? 'bg-amber-100 text-amber-800' : tone === 'live' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800')}>
+                      {tone === 'draft' ? 'Draft' : tone === 'live' ? 'Now' : 'Published'}
+                    </span>
+                  </button>
+                </li>
+              );
+            }))}
+          </ul>
+        )}
+        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">{copy.footer}</p>
       </Card>
     </div>
   );
@@ -645,13 +752,12 @@ function FeedbackList({ overview }) {
         <ul className="divide-y divide-slate-100">
           {items.map((item) => (
             <li key={`${item.job.id}-${item.at}`} className="px-5 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Stars value={item.rating} />
+              <div className="mb-1 flex flex-wrap items-center gap-2">
                 <span className="font-medium text-slate-800">{who(item.job)}</span>
                 <span className="text-xs text-slate-500">{item.job.label} · {formatSgt(item.at)}</span>
                 <button type="button" onClick={() => navigate(`/review/${item.job.id}`)} className="ml-auto text-xs font-medium text-primary hover:underline">Open</button>
               </div>
-              {item.comment && <p className="mt-1 text-sm text-slate-700">{item.comment}</p>}
+              <FeedbackEntry entry={item} overview={overview} />
             </li>
           ))}
         </ul>
@@ -810,17 +916,41 @@ function SuperuserConsole() {
 
 // ── Lecturer ─────────────────────────────────────────────────────────────
 
+// Lecturer feedback: a few taps, the words it got wrong, then free text.
+// Kept short on purpose — the aim is useful detail without a questionnaire.
+const FEEDBACK_ISSUES = {
+  'wrong-words': 'Says some words wrongly',
+  'skips-words': 'Skips or repeats words',
+  robotic: 'Sounds flat or robotic',
+  pace: 'Too fast or too slow',
+  'not-like-me': 'Does not sound like me',
+  noise: 'Buzz, hiss or glitches',
+};
+const FEEDBACK_LIKENESS = { yes: 'Sounds like me', mostly: 'Mostly', no: 'Not really' };
+
+function Chip({ active, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={active} className={cn('rounded-full px-3 py-1.5 text-xs font-semibold transition', active ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')}>
+      {children}
+    </button>
+  );
+}
+
 function FeedbackForm({ job }) {
   const [rating, setRating] = useState(0);
+  const [likeness, setLikeness] = useState('');
+  const [issues, setIssues] = useState([]);
+  const [words, setWords] = useState('');
   const [comment, setComment] = useState('');
   const [state, setState] = useState('');
+  const wordsWanted = issues.includes('wrong-words') || issues.includes('skips-words');
   async function submit(event) {
     event.preventDefault();
     setState('saving');
     try {
-      await sendFeedback(job.id, rating, comment);
+      await sendFeedback(job.id, { rating, likeness, issues, words: wordsWanted ? words : '', comment });
       setState('saved');
-      setComment('');
+      setRating(0); setLikeness(''); setIssues([]); setWords(''); setComment('');
     } catch (err) {
       setState(errorText(err));
     }
@@ -828,21 +958,61 @@ function FeedbackForm({ job }) {
   return (
     <Card className="p-5">
       <h3 className="font-semibold text-slate-900">How does it sound?</h3>
-      <p className="mt-1 text-sm text-slate-600">Your feedback goes to the Voice Studio team.</p>
-      <form onSubmit={submit} className="mt-3 space-y-3">
-        <div className="flex gap-1" role="radiogroup" aria-label="Rating">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <button key={n} type="button" role="radio" aria-checked={rating === n} aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} className="rounded p-0.5">
-              <Star size={26} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300'} />
-            </button>
-          ))}
+      <p className="mt-1 text-sm text-slate-600">About a minute. It goes straight to the Voice Studio team, who use it to retrain your voice.</p>
+      <form onSubmit={submit} className="mt-4 space-y-4">
+        <div>
+          <p className="text-xs font-semibold text-slate-700">Overall</p>
+          <div className="mt-1 flex gap-1" role="radiogroup" aria-label="Rating">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} type="button" role="radio" aria-checked={rating === n} aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} className="rounded p-0.5">
+                <Star size={26} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300'} />
+              </button>
+            ))}
+          </div>
         </div>
-        <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} placeholder="What sounds right or wrong? Any words it says oddly?" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-        <Button type="submit" variant="dark" disabled={!rating || state === 'saving'}>Send feedback</Button>
-        {state === 'saved' && <p className="text-sm text-emerald-700">Thank you — sent.</p>}
+        <div>
+          <p className="text-xs font-semibold text-slate-700">Does it sound like you?</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {Object.entries(FEEDBACK_LIKENESS).map(([key, label]) => <Chip key={key} active={likeness === key} onClick={() => setLikeness(likeness === key ? '' : key)}>{label}</Chip>)}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-700">Anything off? <span className="font-normal text-slate-500">(tick any)</span></p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {Object.entries(FEEDBACK_ISSUES).map(([key, label]) => (
+              <Chip key={key} active={issues.includes(key)} onClick={() => setIssues(issues.includes(key) ? issues.filter((item) => item !== key) : [...issues, key])}>{label}</Chip>
+            ))}
+          </div>
+        </div>
+        {wordsWanted && (
+          <label className="block text-xs font-semibold text-slate-700">Which words? <span className="font-normal text-slate-500">(separate with commas — names and medical terms especially)</span>
+            <input value={words} onChange={(event) => setWords(event.target.value)} maxLength={500} placeholder="e.g. cohesin, apoptosis, Nanyang" className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal" />
+          </label>
+        )}
+        <label className="block text-xs font-semibold text-slate-700">Anything else? <span className="font-normal text-slate-500">(optional)</span>
+          <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} placeholder="What you liked, what felt wrong, where it happened…" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+        </label>
+        <Button type="submit" variant="dark" disabled={!rating || state === 'saving'}>{rating ? 'Send feedback' : 'Pick a star rating to send'}</Button>
+        {state === 'saved' && <p className="text-sm text-emerald-700">Thank you — sent. You can send more any time.</p>}
         {state && !['saving', 'saved'].includes(state) && <p className="text-sm text-rose-600">{state}</p>}
       </form>
     </Card>
+  );
+}
+
+function FeedbackEntry({ entry, overview }) {
+  const issues = overview?.feedbackIssues || FEEDBACK_ISSUES;
+  const likeness = overview?.feedbackLikeness || FEEDBACK_LIKENESS;
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <Stars value={entry.rating} />
+        {entry.likeness && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', entry.likeness === 'yes' ? 'bg-emerald-100 text-emerald-800' : entry.likeness === 'no' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800')}>{likeness[entry.likeness] || entry.likeness}</span>}
+        {(entry.issues || []).map((issue) => <span key={issue} className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-700">{issues[issue] || issue}</span>)}
+      </div>
+      {entry.words && <p className="text-sm text-slate-700"><span className="font-semibold">Words:</span> {entry.words}</p>}
+      {entry.comment && <p className="text-sm text-slate-700">{entry.comment}</p>}
+    </div>
   );
 }
 
@@ -887,80 +1057,107 @@ function MyVoicesStatus({ jobs, now }) {
   );
 }
 
-function SessionTable({ me, onChanged }) {
+// Lecturer: pick ONE recording session on a calendar. Once booked, other
+// times can only be used to Change (move) it — never to book a second one.
+function SessionPicker({ me, onChanged }) {
   const auth = useAuth();
+  const nowMs = Date.now();
+  const today = sgtDayKey(nowMs);
+  const sessions = me.sessions || [];
+  const mine = sessions.find((slot) => slot.mine) || null;
+  const mineStarted = mine ? Date.parse(mine.start) <= nowMs : false;
+  const firstOpen = sessions.find((slot) => slot.open);
+  const startDay = mine ? sgtDayKey(mine.start) : firstOpen ? sgtDayKey(firstOpen.start) : today;
+  const [day, setDay] = useState(startDay);
+  const [month, setMonth] = useState(monthOf(startDay));
+  const [confirming, setConfirming] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const [day, setDay] = useState('all');
-  const [picking, setPicking] = useState('');
-  const [name, setName] = useState(auth.user?.name || '');
-  const sessions = me.sessions || [];
-  const days = [...new Set(sessions.map((slot) => SGT_DATE(slot.start)))];
-  const rows = sessions.filter((slot) => day === 'all' || SGT_DATE(slot.start) === day);
-  const hasBooking = sessions.some((slot) => slot.mine);
+  const [name, setName] = useState(auth.user?.name && auth.user.name !== auth.user.email ? auth.user.name : '');
+
+  const marks = new Map();
+  for (const slot of sessions) {
+    const key = sgtDayKey(slot.start);
+    marks.set(key, [...(marks.get(key) || []), slot.mine ? 'mine' : slot.open ? 'open' : 'taken']);
+  }
+  const daySessions = sessions.filter((slot) => sgtDayKey(slot.start) === day);
+
   async function act(id, call) {
     setBusy(id);
     setError('');
     try {
       onChanged(await call());
-      setPicking('');
+      setConfirming('');
     } catch (err) {
       setError(errorText(err));
     } finally {
       setBusy('');
     }
   }
+
   return (
     <Card>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-3">
-        <div>
-          <h2 className="font-semibold text-slate-900">Recording sessions</h2>
-          <p className="text-xs text-slate-500">Pick one open session. The recording page opens for you during it.</p>
-        </div>
-        <select value={day} onChange={(event) => setDay(event.target.value)} className="h-9 rounded-lg border border-slate-300 px-2 text-sm" aria-label="Filter by date">
-          <option value="all">All dates</option>
-          {days.map((value) => <option key={value} value={value}>{formatSgt(`${value}T12:00:00+08:00`).split(',')[0]} {value}</option>)}
-        </select>
+      <div className="border-b border-slate-200 px-5 py-3">
+        <h2 className="font-semibold text-slate-900">{mine ? 'Your recording session' : 'Book a recording session'}</h2>
+        <p className="text-xs text-slate-500">
+          {mine
+            ? (mineStarted ? 'Your session is on now.' : 'You have one session. To move it, pick another open time and choose "Change to this time".')
+            : 'Pick a day, then an open time. You book one session; you can change it later.'}
+        </p>
       </div>
+      {mine && (
+        <div className="mx-5 mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200">
+          <CheckCircle2 size={20} className="text-emerald-600" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-emerald-900">{formatRange(mine.start, mine.end)}</p>
+            <p className="text-xs text-emerald-800">{mineStarted ? 'Happening now' : relativeFromNow(mine.start, nowMs)}</p>
+          </div>
+          {!mineStarted && (
+            confirming === `release-${mine.id}`
+              ? <Button size="sm" variant="danger" disabled={busy === mine.id} onClick={() => act(mine.id, () => releaseSlot(mine.id))}>Confirm cancel</Button>
+              : <Button size="sm" variant="ghost" onClick={() => setConfirming(`release-${mine.id}`)}>Cancel booking</Button>
+          )}
+        </div>
+      )}
       {error && <Notice tone="error" className="mx-5 mt-3">{error}</Notice>}
-      {rows.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No sessions are published yet — please check back soon.</p> : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-[0.06em] text-slate-500">
-              <tr><th className="px-5 py-2">Date</th><th className="px-3 py-2">Time (SGT)</th><th className="px-3 py-2">Name</th><th className="px-3 py-2" /></tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rows.map((slot) => (
-                <React.Fragment key={slot.id}>
-                  <tr className={slot.mine ? 'bg-emerald-50' : ''}>
-                    <td className="px-5 py-2.5 font-medium text-slate-800">{formatSgt(slot.start).split(',')[0]} {SGT_DATE(slot.start)}</td>
-                    <td className="px-3 py-2.5">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</td>
-                    <td className="px-3 py-2.5">{slot.mine ? <b className="text-emerald-700">You</b> : slot.open ? <span className="text-sky-700">Open</span> : slot.name}</td>
-                    <td className="px-3 py-2.5 text-right">
-                      {slot.open && !hasBooking && <Button size="sm" variant="dark" onClick={() => setPicking(picking === slot.id ? '' : slot.id)}>Pick</Button>}
-                      {slot.mine && Date.parse(slot.start) > Date.now() && <Button size="sm" variant="ghost" disabled={busy === slot.id} onClick={() => act(slot.id, () => releaseSlot(slot.id))}>Release</Button>}
-                    </td>
-                  </tr>
-                  {picking === slot.id && (
-                    <tr className="bg-slate-50">
-                      <td colSpan={4} className="px-5 py-3">
-                        <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => { event.preventDefault(); act(slot.id, () => claimSlot(slot.id, name.trim())); }}>
-                          <label className="text-xs font-medium text-slate-600">Your name
-                            <input required value={name} onChange={(event) => setName(event.target.value)} maxLength={80} className="mt-1 block h-9 w-56 rounded-lg border border-slate-300 px-2 text-sm" />
-                          </label>
-                          <label className="text-xs font-medium text-slate-600">Email (your sign-in)
-                            <input value={auth.user?.email || me.email} readOnly className="mt-1 block h-9 w-64 rounded-lg border border-slate-200 bg-slate-100 px-2 text-sm text-slate-600" />
-                          </label>
-                          <Button type="submit" variant="success" disabled={busy === slot.id || !name.trim()}>Confirm this session</Button>
-                          <Button variant="ghost" onClick={() => setPicking('')}>Cancel</Button>
-                        </form>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
+      {sessions.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No sessions are published yet — please check back soon.</p> : (
+        <div className="grid gap-5 p-5 md:grid-cols-[300px_minmax(0,1fr)]">
+          <div>
+            <MonthCalendar month={month} onMonth={setMonth} selected={day} onSelect={(key) => { setDay(key); setConfirming(''); }} marks={marks} today={today} />
+            <div className="mt-3"><Legend tones={['open', 'mine', 'taken']} /></div>
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900">{formatDay(day)}</p>
+            {!mine && (
+              <label className="mt-3 block text-xs font-medium text-slate-600">Your name (shown to the Voice Studio team)
+                <input required value={name} onChange={(event) => setName(event.target.value)} maxLength={80} className="mt-1 block h-9 w-full max-w-xs rounded-lg border border-slate-300 px-2 text-sm" />
+              </label>
+            )}
+            {daySessions.length === 0 ? <p className="mt-3 text-sm text-slate-500">No sessions on this day. Days with a blue dot have open times.</p> : (
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {daySessions.map((slot) => {
+                  const length = Math.round((Date.parse(slot.end) - Date.parse(slot.start)) / 60000);
+                  const isConfirming = confirming === slot.id;
+                  return (
+                    <li key={slot.id} className={cn('rounded-xl border p-3', slot.mine ? 'border-emerald-300 bg-emerald-50' : slot.open ? 'border-sky-200 bg-white' : 'border-slate-200 bg-slate-50')}>
+                      <p className="font-semibold text-slate-900">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</p>
+                      <p className="text-xs text-slate-500">{formatLength(length)} · {slot.mine ? 'your session' : slot.open ? 'open' : 'taken'}</p>
+                      <div className="mt-2">
+                        {slot.mine && <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={13} /> Booked for you</span>}
+                        {slot.open && !mine && (isConfirming
+                          ? <Button size="sm" variant="success" disabled={busy === slot.id || !name.trim()} onClick={() => act(slot.id, () => claimSlot(slot.id, name.trim()))}>{name.trim() ? 'Confirm booking' : 'Enter your name first'}</Button>
+                          : <Button size="sm" variant="dark" onClick={() => setConfirming(slot.id)}>Book this time</Button>)}
+                        {slot.open && mine && !mineStarted && (isConfirming
+                          ? <Button size="sm" variant="success" disabled={busy === slot.id} onClick={() => act(slot.id, () => moveSlot(slot.id))}>Confirm change</Button>
+                          : <Button size="sm" variant="outline" onClick={() => setConfirming(slot.id)}>Change to this time</Button>)}
+                        {!slot.open && !slot.mine && <span className="text-xs text-slate-400">Not available</span>}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </div>
       )}
     </Card>
@@ -1029,17 +1226,16 @@ function LecturerHome({ me: initialMe, refresh }) {
       body = <p className="mt-2 text-slate-600">Follow its training below. We email you when it passes the quality check, with your test time.</p>;
     } else if (booked) {
       title = 'Your recording session is booked';
-      body = <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">The recording page unlocks here when it starts. Meanwhile, read the FAQ and consent form.</p></>;
+      body = <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">The recording page unlocks here when it starts. You can change the time below until then.</p></>;
     } else {
       title = 'Book a recording session';
-      body = <p className="mt-2 text-slate-600">Pick an open time below. During your session this page becomes your recording studio.</p>;
+      body = <p className="mt-2 text-slate-600">Pick an open time on the calendar below. During your session this page becomes your recording studio.</p>;
     }
     hero = (
       <Card className="p-6 text-center sm:p-8">
         <CalendarClock size={30} className="mx-auto text-slate-400" />
         <h1 className="mt-3 text-2xl font-semibold text-slate-900">{title}</h1>
         {body}
-        <a href="/faq" target="_blank" rel="noreferrer" className="mt-4 inline-block text-sm font-semibold text-primary hover:underline">Read the FAQ and consent form</a>
       </Card>
     );
   }
@@ -1051,7 +1247,7 @@ function LecturerHome({ me: initialMe, refresh }) {
         {hero}
         <div className={cn('grid gap-5', submitted.length > 0 && 'xl:grid-cols-2')}>
           {submitted.length > 0 && <MyVoicesStatus jobs={me.jobs} now={now} />}
-          {!recordingOpen && !testing && <SessionTable me={me} onChanged={setMe} />}
+          {!recordingOpen && !testing && <SessionPicker me={me} onChanged={setMe} />}
         </div>
         {feedbackTarget && (
           <div className="space-y-2">
@@ -1086,27 +1282,36 @@ function StudioHome() {
   return content;
 }
 
+function StudioSignIn() {
+  const auth = useAuth();
+  async function onPasswordSignIn(mode, fields) {
+    const session = await passwordSignIn(mode, fields);
+    saveStudioSession(session);
+    await auth.refreshAuthState();
+  }
+  return (
+    <SignInScreen
+      product="Voice Studio"
+      headline="Your teaching voice, recorded, trained and tested in one place."
+      lines={[
+        ['Book a recording session', 'Pick a time on the calendar; the recording page opens for you then.'],
+        ['We train and check it', 'Follow its progress here; we email you when it passes quality control.'],
+        ['Test it in your slot', 'The GPU is yours: chat, have it read text aloud, fix pronunciations.'],
+      ]}
+      accent="from-[#052e2b] via-[#0f3d3a] to-[#1e1b4b]"
+      onPasswordSignIn={onPasswordSignIn}
+      faq={<FaqList />}
+    />
+  );
+}
+
 export default function StudioApp() {
   return (
     <TooltipProvider>
       <PostLoginRedirectHandler />
       <Routes>
         <Route path="/faq" element={<FaqPage />} />
-        <Route
-          path="/login"
-          element={(
-            <SignInScreen
-              product="Voice Studio"
-              headline="Your teaching voice, recorded, trained and tested in one place."
-              lines={[
-                ['Book a recording session', 'Pick a time; the recording page opens for you then.'],
-                ['We train and check it', 'Follow its progress here; we email you when it passes quality control.'],
-                ['Test it in your slot', 'The GPU is yours: chat, have it read text aloud, fix pronunciations.'],
-              ]}
-              accent="from-[#052e2b] via-[#0f3d3a] to-[#1e1b4b]"
-            />
-          )}
-        />
+        <Route path="/login" element={<StudioSignIn />} />
         <Route
           path="*"
           element={(

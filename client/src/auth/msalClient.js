@@ -5,6 +5,7 @@ import {
 import { config } from "@/config";
 import { POST_LOGIN_PATH_STORAGE_KEY } from "./constants";
 import { tokenNeedsRefresh } from "./tokenExpiry.js";
+import { studioSessionToken } from "./studioSession.js";
 import {
   ID_TOKEN,
   NO_TOKEN,
@@ -67,11 +68,14 @@ function getInteractionScopes() {
  * docs/user-transcript-storage-plan.md.
  */
 export function shouldAttachApiToken() {
-  return resolveApiTokenMode(apiTokenModeInputs()) !== NO_TOKEN;
+  return Boolean(studioSessionToken()) || resolveApiTokenMode(apiTokenModeInputs()) !== NO_TOKEN;
 }
 
 /** The token for whichever mode is configured. */
 export async function acquireApiToken() {
+  // Voice Studio email + password sign-in stands in for the Microsoft token.
+  const studioToken = studioSessionToken();
+  if (studioToken) return studioToken;
   return resolveApiTokenMode(apiTokenModeInputs()) === ID_TOKEN
     ? acquireMicrosoftIdToken()
     : acquireApiAccessToken();
@@ -260,6 +264,8 @@ export async function signOutFromMicrosoft() {
  * response to a deliberate user action.
  */
 export async function acquireApiTokenSilent() {
+  const studioToken = studioSessionToken();
+  if (studioToken) return studioToken;
   const mode = resolveApiTokenMode(apiTokenModeInputs());
   if (mode === NO_TOKEN) {
     return "";
@@ -291,6 +297,8 @@ export async function acquireApiTokenSilent() {
 }
 
 export async function acquireApiAccessToken() {
+  const studioToken = studioSessionToken();
+  if (studioToken) return studioToken;
   const instance = await getMsalInstance();
   const account = await getCurrentAccount();
 
@@ -330,6 +338,8 @@ export async function acquireApiAccessToken() {
 }
 
 export async function acquireMicrosoftIdToken() {
+  const studioToken = studioSessionToken();
+  if (studioToken) return studioToken;
   const instance = await getMsalInstance();
   const account = await getCurrentAccount();
 

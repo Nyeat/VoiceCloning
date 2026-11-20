@@ -21,6 +21,7 @@ import {
 } from '../config.js';
 import { createDynamoPutItem } from '../services/dynamoTranscriptClient.js';
 import { createEntraVerifier, TokenError } from '../services/entraToken.js';
+import { isStudioSessionToken, verifyStudioSession } from '../services/studioSession.js';
 import {
   AUTH_TIMEOUT_MS,
   closeCodeForError,
@@ -79,15 +80,24 @@ export function buildConfiguredAuthenticator() {
 export function buildConfiguredStudioAuthenticator() {
   if (!LIVE_AUTH_ENABLED || STUDIO_SITE_ORIGINS.length === 0 || !ENTRA_TENANT_ID || !ENTRA_AUDIENCE) return null;
   return createLiveChatAuthenticator({
-    verifier: createEntraVerifier({
+    verifier: withStudioPasswordSessions(createEntraVerifier({
       tenantId: ENTRA_TENANT_ID,
       audience: ENTRA_AUDIENCE,
       allowedEmailDomains: STUDIO_ALLOWED_EMAIL_DOMAINS,
       multiTenant: true,
       homeDomains: STUDIO_HOME_DOMAINS,
-    }),
+    })),
     loadTestSecret: '',
   });
+}
+
+/** Studio email + password sessions are checked with STUDIO_SESSION_PUBLIC_KEY; everything else goes to Entra. */
+export function withStudioPasswordSessions(entraVerifier, env = process.env) {
+  return {
+    async verify(token) {
+      return isStudioSessionToken(token) ? verifyStudioSession(token, { env }) : entraVerifier.verify(token);
+    },
+  };
 }
 
 export function isStudioOrigin(origin, origins = STUDIO_SITE_ORIGINS) {

@@ -172,3 +172,22 @@ test('pronunciation entries are validated', () => {
   assert.throws(() => validatePronunciation({ word: 'x' }), /Give/u);
   assert.equal(validatePronunciation({ word: 'GI bleed', soundsLike: 'gee eye bleed' }).soundsLike, 'gee eye bleed');
 });
+
+test('test fixtures show up but never reach the GPU or real lecturers', () => {
+  const state = wf.emptyState();
+  const fixture = job(state, 'f1', 'queued@voice-studio.test', 0);
+  fixture.fixture = true;
+  const realJob = job(state, 'r1', 'real@ntu.edu.sg', 5);
+  assert.equal(wf.nextJobToTrain(state, T0).id, 'r1', 'a fixture is never dispatched, even first in line');
+  const estimates = wf.estimateQueue(state, { now: T0, env: {} });
+  assert.deepEqual(estimates.map((entry) => entry.jobId), ['r1', 'f1'], 'fixtures queue behind real jobs');
+  realJob.status = 'cancelled';
+  assert.equal(wf.gpuDemand(state, T0), '', 'a queued fixture does not start the GPU');
+  state.slots.push({ id: 'ts', kind: 'test', fixture: true, status: 'published', assigneeEmail: 'ready@voice-studio.test', start: new Date(T0).toISOString(), end: new Date(T0 + 60 * MIN).toISOString() });
+  assert.equal(wf.currentSlot(state, T0 + MIN), null, 'a fixture test slot never locks the GPU');
+  assert.equal(wf.slotsToPreload(state, T0).length, 0);
+  state.slots.push({ id: 'rs', kind: 'recording', fixture: true, status: 'published', assigneeEmail: '', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 120 * MIN).toISOString() });
+  assert.equal(wf.publicSlots(state, 'real@ntu.edu.sg', T0).length, 0, 'real lecturers do not see fixture sessions');
+  assert.equal(wf.publicSlots(state, 'new@voice-studio.test', T0).length, 1);
+  assert.throws(() => wf.claimSlot(state, 'rs', { email: 'real@ntu.edu.sg', name: 'R', now: T0 }), { statusCode: 404 });
+});

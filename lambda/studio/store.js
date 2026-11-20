@@ -25,18 +25,18 @@ async function bodyToString(body) {
   return Buffer.concat(chunks).toString('utf-8');
 }
 
-export function createS3StateStore({ env = process.env, send = (command) => s3().send(command) } = {}) {
+export function createS3StateStore({ env = process.env, send = (command) => s3().send(command), key = STATE_KEY, normalize = normalizeState } = {}) {
   const Bucket = env.S3_BUCKET;
-  const Key = fullKey(STATE_KEY, env);
+  const Key = fullKey(key, env);
   return {
     async read() {
       if (!Bucket) throw new Error('S3_BUCKET env var is not set');
       try {
         const response = await send(new GetObjectCommand({ Bucket, Key }));
-        return { state: normalizeState(JSON.parse(await bodyToString(response.Body))), etag: response.ETag || null };
+        return { state: normalize(JSON.parse(await bodyToString(response.Body))), etag: response.ETag || null };
       } catch (error) {
         if (error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) {
-          return { state: normalizeState(null), etag: null };
+          return { state: normalize(null), etag: null };
         }
         throw error;
       }
@@ -83,12 +83,12 @@ export async function updateState(store, mutate) {
 }
 
 /** In-memory store with the same conflict semantics, for tests. */
-export function createMemoryStore(initial = null) {
+export function createMemoryStore(initial = null, normalize = normalizeState) {
   let current = initial ? JSON.stringify(initial) : null;
   let version = initial ? 1 : 0;
   return {
     async read() {
-      return { state: normalizeState(current ? JSON.parse(current) : null), etag: current ? String(version) : null };
+      return { state: normalize(current ? JSON.parse(current) : null), etag: current ? String(version) : null };
     },
     async write(state, etag) {
       const expected = current ? String(version) : null;

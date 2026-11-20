@@ -9,6 +9,7 @@ import {
   signOutFromMicrosoft,
 } from "./msalClient";
 import { MOCK_AUTH_STORAGE_KEY } from "./constants";
+import { clearStudioSession, studioSessionUser } from "./studioSession.js";
 
 const AuthContext = createContext(null);
 
@@ -44,6 +45,13 @@ export function AuthProvider({ children, bootstrapError = null }) {
         error: buildErrorMessage(bootstrapError),
         user: null,
       });
+      return;
+    }
+
+    // Voice Studio email + password session (no Microsoft account).
+    const passwordUser = studioSessionUser();
+    if (passwordUser) {
+      setState({ isAuthenticated: true, isLoading: false, error: "", user: passwordUser });
       return;
     }
 
@@ -127,6 +135,12 @@ export function AuthProvider({ children, bootstrapError = null }) {
   );
 
   const signOut = useCallback(async () => {
+    if (studioSessionUser()) {
+      clearStudioSession();
+      setState({ isAuthenticated: false, isLoading: false, error: "", user: null });
+      return;
+    }
+
     if (config.authMode === "mock") {
       window.localStorage.removeItem(MOCK_AUTH_STORAGE_KEY);
       setState({

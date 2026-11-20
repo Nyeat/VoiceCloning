@@ -147,3 +147,168 @@ export function createRecorder({ onLevel } = {}) {
     },
   };
 }
+
+// ── Continuous recording (the guided script, start to finish) ─────────────
+//
+// One recording for the whole script: the lecturer moves between sections
+// (swipe, arrows, keys) without stopping, and may pause for a break. The
+// microphone is captured as raw PCM, resampled to 32 kHz and kept as 16-bit
+// chunks, so 30 minutes is ~115 MB held once (no decode/re-encode copies), and
+// the WAV is assembled from those chunks without concatenating them.
+
+/** Pure: a 44-byte PCM WAV header for `dataBytes` of mono 16-bit audio. */
+export function wavHeader(dataBytes, sampleRate = TARGET_SAMPLE_RATE) {
+  const header = encodeWav(new Float32Array(0), sampleRate);
+  const view = new DataView(header.buffer);
+  view.setUint32(4, 36 + dataBytes, true);
+  view.setUint32(40, dataBytes, true);
+  return header;
+}
+
+/**
+ * Pure, streaming: resamples Float32 blocks from inRate to outRate (linear
+ * interpolation, continuous across blocks) and returns 16-bit samples.
+ */
+export function createResampler(inRate, outRate = TARGET_SAMPLE_RATE) {
+  const step = inRate / outRate;
+  let position = 0; // next output position, in input samples relative to `previous`
+  let previous = 0; // last input sample of the previous block (index -1)
+  return function push(block) {
+    const out = [];
+    // Needs block[index + 1]; the remainder waits for the next block.
+    while (position < block.length - 1) {
+      const index = Math.floor(position);
+      const frac = position - index;
+      const left = index < 0 ? previous : block[index];
+      const right = block[index + 1];
+      const value = left + (right - left) * frac;
+      const clamped = Math.max(-1, Math.min(1, value));
+      out.push(clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff);
+      position += step;
+    }
+    position -= block.length;
+    previous = block[block.length - 1] ?? previous;
+    return Int16Array.from(out);
+  };
+}
+
+const WORKLET_SOURCE = `
+class VsCapture extends AudioWorkletProcessor {
+  process(inputs) {
+    const channel = inputs[0] && inputs[0][0];
+    if (channel) this.port.postMessage(channel.slice(0));
+    return true;
+  }
+}
+registerProcessor('vs-capture', VsCapture);
+`;
+
+/**
+ * start() -> recording; pause()/resume(); seconds() = recorded time;
+ * finish(name) -> { file, url, duration, levels }; cancel().
+ * onLevel(0..1) is called with the live peak (also while paused, so the meter
+ * still shows the microphone works).
+ */
+export function createContinuousRecorder({ onLevel } = {}) {
+  let stream = null;
+  let context = null;
+  let node = null;
+  let mute = null;
+  let paused = false;
+  let push = null;
+  let chunks = [];
+  let samples = 0;
+  let peak = 0;
+  let clipped = 0;
+  let inputSamples = 0;
+
+  function onBlock(block) {
+    let blockPeak = 0;
+    for (let i = 0; i < block.length; i += 1) {
+      const value = Math.abs(block[i]);
+      if (value > blockPeak) blockPeak = value;
+    }
+    onLevel?.(blockPeak);
+    if (paused) return;
+    for (let i = 0; i < block.length; i += 1) if (Math.abs(block[i]) >= 0.99) clipped += 1;
+    inputSamples += block.length;
+    if (blockPeak > peak) peak = blockPeak;
+    const pcm = push(block);
+    if (pcm.length) {
+      chunks.push(pcm);
+      samples += pcm.length;
+    }
+  }
+
+  function teardown() {
+    try { node?.disconnect(); } catch { /* gone */ }
+    try { mute?.disconnect(); } catch { /* gone */ }
+    if (node?.port) node.port.onmessage = null;
+    if (node && 'onaudioprocess' in node) node.onaudioprocess = null;
+    node = null;
+    mute = null;
+    context?.close().catch(() => {});
+    context = null;
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+  }
+
+  return {
+    async start() {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      });
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      context = new AudioCtx();
+      if (context.state === 'suspended') await context.resume().catch(() => {});
+      push = createResampler(context.sampleRate, TARGET_SAMPLE_RATE);
+      chunks = [];
+      samples = 0;
+      peak = 0;
+      clipped = 0;
+      inputSamples = 0;
+      paused = false;
+      const source = context.createMediaStreamSource(stream);
+      mute = context.createGain();
+      mute.gain.value = 0; // keeps the graph pulled without playing the mic back
+      try {
+        const url = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'application/javascript' }));
+        await context.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        node = new window.AudioWorkletNode(context, 'vs-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+        node.port.onmessage = (event) => onBlock(event.data);
+      } catch {
+        // Older browsers or a strict policy on blob: workers.
+        node = context.createScriptProcessor(4096, 1, 1);
+        node.onaudioprocess = (event) => onBlock(event.inputBuffer.getChannelData(0));
+      }
+      source.connect(node);
+      node.connect(mute);
+      mute.connect(context.destination);
+    },
+    pause() { paused = true; },
+    resume() { paused = false; },
+    isPaused() { return paused; },
+    seconds() { return samples / TARGET_SAMPLE_RATE; },
+    async finish(fileName = 'reading.wav') {
+      if (!context) throw new Error('Not recording');
+      teardown();
+      const dataBytes = samples * 2;
+      const file = new File([wavHeader(dataBytes), ...chunks], fileName, { type: 'audio/wav' });
+      const duration = samples / TARGET_SAMPLE_RATE;
+      const levels = {
+        peak,
+        clippedRatio: inputSamples ? clipped / inputSamples : 0,
+        tooQuiet: peak < 0.05,
+        tooLoud: inputSamples > 0 && clipped / inputSamples > 0.001,
+      };
+      chunks = [];
+      return { file, url: URL.createObjectURL(file), duration, levels };
+    },
+    cancel() {
+      teardown();
+      chunks = [];
+      samples = 0;
+    },
+  };
+}

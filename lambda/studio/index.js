@@ -17,6 +17,10 @@ import { gpuGet, gpuPost, inferencePost } from '../shared/gpuWorker.js';
 import { listTrainedVoiceNames, bestModelsForVoice } from '../shared/trainedVoices.js';
 import * as wf from './workflow.js';
 import { createS3StateStore, updateState } from './store.js';
+import {
+  ACCOUNTS_KEY, findAccount, hashPassword, normalizeAccounts, passwordMatches, validateRegistration,
+} from './accounts.js';
+import { signStudioSession, STUDIO_SESSION_DAYS } from '../shared/studioSession.js';
 import { createMailer, templates } from './mailer.js';
 import { validatePronunciation, voiceDictionaryKey } from './pronunciation.js';
 
@@ -61,6 +65,7 @@ async function readJsonObject(key) {
 
 export function createStudioService({
   store = createS3StateStore(),
+  accountStore = createS3StateStore({ key: ACCOUNTS_KEY, normalize: normalizeAccounts }),
   mailer = createMailer(),
   env = process.env,
   clock = () => Date.now(),
@@ -238,7 +243,7 @@ export function createStudioService({
     return { skipped: false, demand, dispatched, preloaded, workerReachable: Boolean(worker), gpuStart };
   }
 
-  return { store, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer };
+  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer };
 }
 
 // ── HTTP ─────────────────────────────────────────────────────────────────
@@ -281,11 +286,52 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       throw wf.clientError(401, 'Please sign in with your Microsoft account');
     }
     if (identity?.synthetic || !identity?.email) throw wf.clientError(403, 'A signed-in account is required');
-    return { email: String(identity.email).trim().toLowerCase() };
+    return { email: String(identity.email).trim().toLowerCase(), passwordAccount: identity.passwordAccount === true };
   }
 
-  function requireSuperuser(state, email) {
-    if (!wf.isSuperuser(state, email, env)) throw wf.clientError(403, 'Super users only');
+  // Email + password addresses are not verified, so they are never super users.
+  function superuserOf(state, email, passwordAccount) {
+    return !passwordAccount && wf.isSuperuser(state, email, env);
+  }
+
+  function requireSuperuser(state, email, passwordAccount) {
+    if (!superuserOf(state, email, passwordAccount)) throw wf.clientError(403, 'Super users only');
+  }
+
+  async function register(body) {
+    const { email, name } = validateRegistration(body, env);
+    const { state } = await store.read();
+    // A Microsoft user's studio work stays theirs: nobody can take over that address with a password.
+    if (wf.isSuperuser(state, email, env)
+      || state.jobs.some((job) => wf.sameNtuPerson(job.ownerEmail, email))
+      || state.slots.some((slot) => slot.status !== 'cancelled' && wf.sameNtuPerson(slot.assigneeEmail, email))) {
+      throw wf.clientError(409, 'This address already uses Voice Studio with Microsoft sign-in. Please sign in with Microsoft.');
+    }
+    const passwordHash = await hashPassword(body.password);
+    await updateState(service.accountStore, (accounts) => {
+      if (findAccount(accounts, email)) throw wf.clientError(409, 'An account with this email already exists — sign in instead');
+      accounts.accounts.push({ email, name, passwordHash, createdAt: new Date(clock()).toISOString() });
+      return null;
+    });
+    return session({ email, name });
+  }
+
+  async function login(body) {
+    const { state: accounts } = await service.accountStore.read();
+    const account = findAccount(accounts, body.email);
+    // Same answer and similar work whether or not the address exists.
+    const matches = await passwordMatches(String(body.password || ''), account?.passwordHash || 'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
+    if (!account || !matches) throw wf.clientError(401, 'Email or password is not right');
+    return session(account);
+  }
+
+  function session({ email, name }) {
+    const now = clock();
+    try {
+      return { token: signStudioSession({ email, name }, { env, now }), email, name, expiresAt: new Date(now + STUDIO_SESSION_DAYS * 86400_000).toISOString() };
+    } catch (error) {
+      throw wf.clientError(503, error.message);
+    }
   }
 
   function ownJob(state, id, email) {
@@ -303,8 +349,9 @@ export function createHandler({ service = createStudioService(), authGuard = cre
     }
   }
 
-  async function lecturerView(state, email) {
+  async function lecturerView(state, email, passwordAccount = false) {
     const now = clock();
+    const superuser = superuserOf(state, email, passwordAccount);
     const estimates = new Map(wf.estimateQueue(state, { now, env }).map((entry) => [entry.jobId, entry]));
     const jobs = state.jobs
       .filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && job.status !== 'cancelled')
@@ -312,7 +359,8 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return {
       email,
-      role: wf.isSuperuser(state, email, env) ? 'superuser' : 'lecturer',
+      role: superuser ? 'superuser' : 'lecturer',
+      account: passwordAccount ? 'password' : 'microsoft',
       jobs,
       queueLength: wf.orderQueue(state.jobs).length + (state.jobs.some((job) => job.status === 'training') ? 1 : 0),
       trainingMinutes: wf.trainingMinutes(state, env),
@@ -322,7 +370,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       })),
       // Recording sessions: the table they pick from, and whether recording is open now.
       sessions: wf.publicSlots(state, email, now),
-      recording: wf.recordingAccess(state, { email, now, superuser: wf.isSuperuser(state, email, env) }),
+      recording: wf.recordingAccess(state, { email, now, superuser }),
       // GPU test slot (allocated by a super user after QC).
       mySlot: wf.upcomingSlotFor(state, email, now, 'test'),
       activeSlot: (() => {
@@ -362,6 +410,8 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       trainingMinutes: wf.trainingMinutes(state, env),
       maxAttempts: wf.MAX_TRAINING_ATTEMPTS,
       rejectReasons: wf.REJECT_REASONS,
+      feedbackIssues: wf.FEEDBACK_ISSUES,
+      feedbackLikeness: wf.FEEDBACK_LIKENESS,
       emailConfigured: Boolean(env.EMAIL_USER && env.EMAIL_PASS),
       worker: worker
         ? { reachable: true, status: worker.status || 'idle', expName: worker.expName || '', busy: workerBusy(worker) }
@@ -370,9 +420,9 @@ export function createHandler({ service = createStudioService(), authGuard = cre
     };
   }
 
-  async function voiceAccessFor(email, voiceName) {
+  async function voiceAccessFor(email, voiceName, passwordAccount = false) {
     const { state } = await store.read();
-    const superuser = wf.isSuperuser(state, email, env);
+    const superuser = superuserOf(state, email, passwordAccount);
     const visible = wf.visibleVoices(state, { email, superuser });
     if (!visible.includes(voiceName)) throw wf.clientError(404, 'Voice not found');
     return { state, superuser, access: wf.voiceAccess(state, { email, voiceName, now: clock(), superuser }) };
@@ -392,7 +442,11 @@ export function createHandler({ service = createStudioService(), authGuard = cre
     }
 
     try {
-      const { email } = await identify(event);
+      // Email + password sign-in (no Microsoft account): the only routes without a token.
+      if (method === 'POST' && parts.length === 2 && parts[0] === 'auth' && ['register', 'login'].includes(parts[1])) {
+        return ok(parts[1] === 'register' ? await register(body) : await login(body), {}, event);
+      }
+      const { email, passwordAccount } = await identify(event);
       const now = clock();
       const route = `${method} ${parts.map((part, index) => (index > 0 && part !== 'publish' && ['submissions', 'jobs', 'voices', 'superusers', 'slots'].includes(parts[index - 1]) ? ':id' : part)).join('/')}`;
 
@@ -400,24 +454,25 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       if (route === 'GET me') {
         await maybeTick();
         const { state } = await store.read();
-        return ok(await lecturerView(state, email), {}, event);
+        return ok(await lecturerView(state, email, passwordAccount), {}, event);
       }
 
       if (route === 'POST submissions') {
         const identity = describeVoiceIdentity(email, STUDIO_IDENTITY);
         if (!identity.valid) throw wf.clientError(400, identity.error);
-        if (body.consent?.accepted !== true || !String(body.consent?.version || '').trim()) {
-          throw wf.clientError(400, 'Please read and accept the consent form first');
-        }
         const { result } = await updateState(store, async (state) => {
-          const superuser = wf.isSuperuser(state, email, env);
+          const superuser = superuserOf(state, email, passwordAccount);
+          // Super users record their own reference voices and do not sign the lecturer consent.
+          if (!superuser && (body.consent?.accepted !== true || !String(body.consent?.version || '').trim())) {
+            throw wf.clientError(400, 'Please read and accept the consent form first');
+          }
           const access = wf.recordingAccess(state, { email, now, superuser });
           if (!access.allowed) throw wf.clientError(403, 'Recording opens during your booked recording session');
           const open = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && ['uploading', 'queued'].includes(job.status));
           if (open.length >= 5) throw wf.clientError(429, 'You already have 5 recording sets waiting. Please wait for them to train.');
           const expName = nextVoiceName(email, await service.takenVoiceNames(state), STUDIO_IDENTITY);
           if (!expName) throw wf.clientError(409, 'You have too many voices; ask a super user to remove one');
-          const job = wf.createJob(state, { id: newId(), ownerEmail: email, ownerName: body.name, expName, label: body.label, consent: body.consent, now });
+          const job = wf.createJob(state, { id: newId(), ownerEmail: email, ownerName: body.name, expName, label: body.label, consent: superuser ? null : body.consent, now });
           job.recordingSlotId = access.slot?.id || '';
           return { job };
         });
@@ -428,7 +483,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         const { state } = await store.read();
         const job = ownJob(state, parts[1], email);
         if (job.status !== 'uploading') throw wf.clientError(409, 'This recording set was already submitted');
-        if (!wf.uploadWindowOpen(state, job, { now, superuser: wf.isSuperuser(state, email, env) })) {
+        if (!wf.uploadWindowOpen(state, job, { now, superuser: superuserOf(state, email, passwordAccount) })) {
           throw wf.clientError(403, 'Your recording session has ended');
         }
         const files = Array.isArray(body.files) ? body.files : [];
@@ -449,7 +504,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       if (route === 'POST submissions/:id/submit') {
         const { state: snapshot } = await store.read();
         const job = ownJob(snapshot, parts[1], email);
-        if (!wf.uploadWindowOpen(snapshot, job, { now, superuser: wf.isSuperuser(snapshot, email, env) })) {
+        if (!wf.uploadWindowOpen(snapshot, job, { now, superuser: superuserOf(snapshot, email, passwordAccount) })) {
           throw wf.clientError(403, 'Your recording session has ended');
         }
         const prefix = `training/datasets/${job.sourceExpName}/raw/`;
@@ -477,7 +532,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         await service.notify(submitted.id, 'submissionReceived', submitted.ownerEmail, templates.submissionReceived({
           job: submitted, estimate, minutes: wf.trainingMinutes(state, env), env,
         }));
-        return ok(await lecturerView((await store.read()).state, email), {}, event);
+        return ok(await lecturerView((await store.read()).state, email, passwordAccount), {}, event);
       }
 
       if (route === 'POST submissions/:id/cancel') {
@@ -488,32 +543,34 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           return null;
         });
         const { state } = await store.read();
-        return ok(await lecturerView(state, email), {}, event);
+        return ok(await lecturerView(state, email, passwordAccount), {}, event);
       }
 
       if (route === 'POST submissions/:id/feedback') {
         await updateState(store, (state) => {
           const job = ownJob(state, parts[1], email);
           if (!['scheduled', 'approved'].includes(job.status)) throw wf.clientError(409, 'Feedback opens once your voice is ready to test');
-          wf.addFeedback(job, { email, rating: body.rating, comment: body.comment, now });
+          wf.addFeedback(job, {
+            email, rating: body.rating, comment: body.comment, likeness: body.likeness, issues: body.issues, words: body.words, now,
+          });
           return null;
         });
         return ok({ saved: true }, {}, event);
       }
 
       if (route === 'GET voices/:id/access') {
-        const { access, superuser } = await voiceAccessFor(email, parts[1]);
+        const { access, superuser } = await voiceAccessFor(email, parts[1], passwordAccount);
         return ok({ voiceName: parts[1], superuser, ...access }, {}, event);
       }
 
       if (route === 'GET voices/:id/pronunciations') {
-        await voiceAccessFor(email, parts[1]);
+        await voiceAccessFor(email, parts[1], passwordAccount);
         const stored = await service.readJson(voiceDictionaryKey(parts[1]));
         return ok({ voiceName: parts[1], entries: Array.isArray(stored?.entries) ? stored.entries : [] }, {}, event);
       }
 
       if (route === 'POST voices/:id/pronunciations' || route === 'DELETE voices/:id/pronunciations') {
-        await voiceAccessFor(email, parts[1]);
+        await voiceAccessFor(email, parts[1], passwordAccount);
         const stored = await service.readJson(voiceDictionaryKey(parts[1]));
         const entries = Array.isArray(stored?.entries) ? stored.entries : [];
         const word = String(body.word || '').trim().toLowerCase();
@@ -532,10 +589,18 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       }
 
       if (route === 'POST voices/:id/pronunciations/apply') {
-        const { access } = await voiceAccessFor(email, parts[1]);
+        const { access } = await voiceAccessFor(email, parts[1], passwordAccount);
         if (!access.allowed) throw wf.clientError(409, 'The GPU is not yours right now; changes apply when your slot starts');
         const result = await service.applyPronunciation(parts[1]);
         return ok({ applied: true, restarted: Boolean(result?.restarted), ready: result?.ready !== false }, {}, event);
+      }
+
+      if (route === 'POST slots/:id/move') {
+        const { result } = await updateState(store, (state) => ({ moved: wf.moveSlot(state, parts[1], { email, now }) }));
+        const { state } = await store.read();
+        await service.mailer.send(email, templates.recordingBooked({ slot: result.moved.to, moved: true, env }));
+        await service.mailer.send(wf.listSuperusers(state, env).map((entry) => entry.email), templates.slotPicked({ slot: result.moved.to, email, claiming: true, env }));
+        return ok(await lecturerView(state, email, passwordAccount), {}, event);
       }
 
       if (route === 'POST slots/:id/claim' || route === 'POST slots/:id/release') {
@@ -552,13 +617,13 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         }
         const people = wf.listSuperusers(state, env).map((entry) => entry.email);
         await service.mailer.send(people, templates.slotPicked({ slot: result.slot, email, claiming, env }));
-        return ok(await lecturerView(state, email), {}, event);
+        return ok(await lecturerView(state, email, passwordAccount), {}, event);
       }
 
       // ── Super users ──
       if (parts[0] === 'admin') {
         const { state: snapshot } = await store.read();
-        requireSuperuser(snapshot, email);
+        requireSuperuser(snapshot, email, passwordAccount);
 
         if (route === 'GET admin/overview') {
           await maybeTick();
@@ -725,9 +790,11 @@ export async function studioTick(options = {}) {
 }
 
 /** Voice-profile /mine?scope=studio: which voices this person may use right now. */
-export async function studioVoiceScope(email, { store = sharedService().store, env = process.env, now = Date.now() } = {}) {
+export async function studioVoiceScope(email, {
+  store = sharedService().store, env = process.env, now = Date.now(), passwordAccount = false,
+} = {}) {
   const { state } = await store.read();
-  const superuser = wf.isSuperuser(state, email, env);
+  const superuser = !passwordAccount && wf.isSuperuser(state, email, env);
   const names = wf.visibleVoices(state, { email, superuser })
     .filter((voiceName) => wf.voiceAccess(state, { email, voiceName, now, superuser }).allowed);
   // Who each studio voice really belongs to, so a profile created while a super

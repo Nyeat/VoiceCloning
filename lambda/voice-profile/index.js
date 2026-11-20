@@ -289,7 +289,7 @@ export function createHandler({
   resolveCapacityBody = createVoiceProfileResolver(),
   prepareModelCapacity = prepareCoordinatedModel,
   peekModelCapacity = peekCoordinatedModel,
-  studioScope = async (email) => (await import('../studio/index.js')).studioVoiceScope(email),
+  studioScope = async (email, options = {}) => (await import('../studio/index.js')).studioVoiceScope(email, options),
 } = {}) {
   return async function handler(event) {
     if (event.requestContext?.http?.method === 'OPTIONS') {
@@ -339,7 +339,7 @@ export function createHandler({
         let studioVoices = null;
         if (requestedScope === 'studio') {
           try {
-            studioVoices = new Set((await studioScope(identity?.email)).voiceNames);
+            studioVoices = new Set((await studioScope(identity?.email, { passwordAccount: identity?.passwordAccount === true })).voiceNames);
           } catch (error) {
             return err(503, `Voice Studio is unavailable: ${error.message}`, event);
           }
@@ -468,7 +468,7 @@ export function createHandler({
         let studioOwner = '';
         if (identity?.studio) {
           try {
-            const scope = await studioScope(identity.email);
+            const scope = await studioScope(identity.email, { passwordAccount: identity.passwordAccount === true });
             if (scope.voiceNames.includes(voiceName)) studioOwner = scope.owners?.[voiceName] || normalizeEmail(identity.email);
           } catch {
             studioOwner = '';
