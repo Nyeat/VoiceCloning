@@ -1,11 +1,9 @@
 # Active TODO
 
 - [ ] Voice Studio (2026-11-20): admin adds SPA redirect URIs on Entra app 9b5c52c0 for https://d2frajvvqbg86o,
-  d1zffrwq7b2rri, d23jqgg46rozb7, d271zk8d8curic (.cloudfront.net); update dev + staging training/inference workers to
-  25c1673+ (headless queue + per-voice pronunciation; staging ASG needs an AMI bake for the latter); then a signed-in
-  end-to-end run. Owner asks (pending build): any-email sign-in on record/studio; super user publishes/edits slot
-  lists, lecturers pick a slot from a table.
-
+  d1zffrwq7b2rri, d23jqgg46rozb7, d271zk8d8curic (.cloudfront.net); then signed-in end-to-end run (record -> queue ->
+  review -> publish slot -> pick -> preload -> test -> feedback). Canary LT v43 on a fresh boot. Open owner asks:
+  any-email sign-in (needs Entra account-type decision + non-NTU voice naming); SMTP mailbox.
 - [ ] Live-test the admin TTS single-GPU rule (deployed 2026-11-20): on staging TTS pick two voices in turn; same GPU switches (log `reassign`, no `scale`).
 - [ ] Live-check 64d34f7 (deployed 2026-11-20): enter training site -> one GPU only even when picking another voice; it switches to that voice once up; fixed GPU stays on while clicking around Test your voice; naming a voice shows in Your voices.
 - [ ] Admin cleanup (role lacks the permissions): terminate stopped i-0f6c399842bd8cc38 and i-0d4172699706f7121 (v42 test GPU) with their 500 GB disks; delete LT versions 1-40; delete 24 orphan 500 GB snapshots of deleted staging images incl. snap-03997dabc64f1d8c0 (v40), list in CHANGELOG 2026-11-20; KEEP snap-08ec74499a13176f7 (dev backup).

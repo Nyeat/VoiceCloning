@@ -2492,3 +2492,16 @@
 - Tests: lambda 408/408, client 556/556, inference worker 273/273, training worker 27/27. Smoke: /faq 200 on all four,
   /api/studio/me 401 unsigned. NOT done: GPU workers not updated (headless queue runs fail until they are),
   Entra redirect URIs for the 4 domains (admin), SMTP still unset (emails recorded as skipped), no signed-in browser test.
+
+## 2026-11-20 (afternoon) — Voice Studio slots by person; workers + staging AMI v43 (9262c24, deployed 12:35-13:00 SGT)
+
+- Slots belong to a person: super users add drafts (date picker, time, length, name or open), edit, delete, Publish
+  (emails only new/changed/removed). Lecturers see the published table, pick one open slot, can release it; in their
+  slot they switch between all their approved voices. Studio origins added to TTS_SITE_ORIGINS (dev d1zffrwq7b2rri;
+  staging + d271zk8d8curic): a pick switches the one GPU at once. Tick preloads the latest approved voice 15 min
+  before. Super-user voice testing is locked (banner) during a lecturer's slot. Approval emails the lecturer.
+- Deployed: dev + staging main Lambdas, 4 record/studio clients, workers on dev GPU and staging fixed GPU (both were
+  on aeca6595), staging ASG worker i-0cb1c56c6bf29ac0e updated (EC2 health during restart, boot warm 73 s OK, ELB
+  restored, target healthy) -> AMI ami-0130f727166b5e0d8 -> LT v43 default (rollback v42 ami-0acc935a0205d142c).
+- Tests: lambda 409/409 (studio 15), client 556/556. Smoke: /faq 200 and /api/studio/me 401 on all four sites.
+  NOT done: v43 not canaried on a fresh boot; no signed-in test (Entra redirect URIs pending); SMTP unset.

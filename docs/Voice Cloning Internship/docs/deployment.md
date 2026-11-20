@@ -91,8 +91,8 @@ Reapplying provisioning/daily-schedule scripts can restore automatic operation.
 - ASG replacement after an EC2 member is stopped is capacity maintenance, not synthesis scale-out.
   Check scaling activity cause and EC2 state-transition reason before combining those incidents.
 - Worker runtime changes must be baked into and canaried from the launch-template AMI; patching current
-  workers alone does not update future scale-outs. Current: LT v42 / ami-0acc935a0205d142c (c4d928a, 2026-11-20),
-  rollback v41. Canary a new image outside the ASG with `run-instances --launch-template ...,Version=N
+  workers alone does not update future scale-outs. Current: LT v43 / ami-0130f727166b5e0d8 (9262c24, 2026-11-20),
+  rollback v42 (ami-0acc935a0205d142c). Canary a new image outside the ASG with `run-instances --launch-template ...,Version=N
   --subnet-id subnet-0c1937ef298f54500` (the LT has no subnet); the role cannot terminate it, only stop it.
   Host repo files on the image are root-owned: chown to ubuntu before `git checkout`; SSM runs `sh`, not bash.
 - The shared DynamoDB table is partitioned logically by `MODEL_COORDINATOR_SCOPE=dev|staging` for
