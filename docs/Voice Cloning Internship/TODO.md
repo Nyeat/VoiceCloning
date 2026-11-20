@@ -1,6 +1,6 @@
 # Active TODO
 
-- [ ] Deploy 60f8bf1 (admin TTS single-GPU): deploy-lambda dev + staging with fresh AWS creds; then on the TTS site pick two voices in turn and confirm the same GPU switches (log `reassign`, no `scale`).
+- [ ] Live-test the admin TTS single-GPU rule (deployed 2026-11-20): on staging TTS pick two voices in turn; same GPU switches (log `reassign`, no `scale`).
 - [ ] Live-check 64d34f7 (deployed 2026-11-20): enter training site -> one GPU only even when picking another voice; it switches to that voice once up; fixed GPU stays on while clicking around Test your voice; naming a voice shows in Your voices.
 - [ ] Admin cleanup (role lacks the permissions): terminate stopped i-0f6c399842bd8cc38 and i-0d4172699706f7121 (v42 test GPU) with their 500 GB disks; delete LT versions 1-40; delete 24 orphan 500 GB snapshots of deleted staging images incl. snap-03997dabc64f1d8c0 (v40), list in CHANGELOG 2026-11-20; KEEP snap-08ec74499a13176f7 (dev backup).
 - [ ] Update dev GPUs to HEAD the next time they run (stopped during the 2026-11-20 audit).

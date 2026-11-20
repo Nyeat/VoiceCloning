@@ -2463,11 +2463,14 @@
   Not tested live (not deployed): hold, prewarm switch, keep-alive, naming. Needs main Lambda (dev+staging),
   staging coordinator and all clients deployed from one commit.
 
-## 2026-11-20 — admin TTS site: one GPU, switch on selection (60f8bf1, NOT deployed)
+## 2026-11-20 — admin TTS site: one GPU, switch on selection (60f8bf1, deployed 12:02 SGT via 25c1673)
 
 - Owner rules confirmed: lectures (GI) prepare the lecture's published voice and autoscale on demand (unchanged);
   admin TTS site (TTS_SITE_ORIGINS = staging live-fast dfzrfr93t2ruf) switches an idle GPU on selection with no
   10 min protection, adds a GPU only when none exists, else waits (`single-gpu-await-idle`). Main Lambda
   `ttsSiteOption` -> coordinator `singleGpu`. Generate requests keep the ordinary synthesis rules.
-- Tests: coordinator 82/82, lambda 394/394 (clean tree). Deploy blocked: pasted AWS session expired. Needs
-  deploy-lambda dev + staging (main Lambda + coordinator, env adds TTS_SITE_ORIGINS); no client change.
+- Tests: coordinator 82/82, lambda 394/394 (clean tree). Deployed by the Voice Studio session's Lambda deploy from
+  25c1673 (contains 60f8bf1), 12:01-12:02 SGT; staging TTS_SITE_ORIGINS read back; dev unset (routing-only). Not
+  live-tested.
+- Live MC: on-demand like lectures (same capacity preflight) but its voice is hard-coded deanvoice-v1
+  (McSessionPage.jsx:13), not a published voice; owner decided 2026-11-20 to keep it on Dean's voice.
