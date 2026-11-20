@@ -6,6 +6,7 @@ export function chooseCapacityAction({
   reassignIdleMs = 0,
   reassigningWorkerIds = [],
   ownedWorkerIds = [],
+  foreignOwnedWorkerIds = [],
 } = {}) {
   const available = workers.filter((worker) => (
     ['READY', 'UNASSIGNED'].includes(worker.state) && worker.reachable !== false
@@ -30,6 +31,7 @@ export function chooseCapacityAction({
 
   const reassignable = reassignCandidates({
     workers, requestedModelKey, lastDemandByModel, now, reassignIdleMs, reassigningWorkerIds, ownedWorkerIds,
+    foreignOwnedWorkerIds,
   });
   if (reassignable.length > 0) return { type: 'reassign', worker: reassignable[0] };
 
@@ -67,6 +69,7 @@ export function reassignCandidates({
   reassignIdleMs = 0,
   reassigningWorkerIds = [],
   ownedWorkerIds = [],
+  foreignOwnedWorkerIds = [],
 } = {}) {
   // A worker already promised to another model is not spare capacity. Without
   // this, three selections arriving before the first switch begins each see the
@@ -77,6 +80,10 @@ export function reassignCandidates({
     ['READY', 'UNASSIGNED'].includes(worker.state) && worker.reachable !== false
   ));
   const owned = new Set(ownedWorkerIds.filter(Boolean));
+  // Training site: another account's GPU is theirs from the moment it starts.
+  // It is never "idle at once" after warming up; only the ordinary idle rule,
+  // timed from when it came up, frees it for someone else.
+  const foreign = new Set(foreignOwnedWorkerIds.filter(Boolean));
   const ownSwitchable = (worker) => owned.has(worker.instanceId)
     && Number(worker.active || 0) === 0
     && Number(worker.queued || 0) === 0;
@@ -95,7 +102,7 @@ export function reassignCandidates({
       if (ownSwitchable(worker)) return true;
       const spareCopy = (holders.get(worker.modelKey) || 0) > 1;
       const selectedAt = spareCopy ? 0 : Number(lastDemandByModel[worker.modelKey] || 0);
-      const warmUpOnly = !spareCopy && Boolean(worker.modelKey)
+      const warmUpOnly = !spareCopy && Boolean(worker.modelKey) && !foreign.has(worker.instanceId)
         && Number(worker.residencyUpdatedAt || 0) > Number(worker.lastActivityAt || 0);
       // A GPU that has finished warming up and that nobody has spoken through is
       // idle at once (owner rule 2026-11-20), whatever its age. Only someone
@@ -105,7 +112,11 @@ export function reassignCandidates({
       const stillWanted = selectedAt >= Number(worker.residencyUpdatedAt || 0) - BOOT_WAITER_GRACE_MS;
       const idleSince = warmUpOnly
         ? (stillWanted ? selectedAt : 0)
-        : Math.max(Number(worker.lastActivityAt || 0), selectedAt);
+        : Math.max(
+          Number(worker.lastActivityAt || 0),
+          selectedAt,
+          foreign.has(worker.instanceId) ? Number(worker.residencyUpdatedAt || 0) : 0,
+        );
       return now - idleSince >= reassignIdleMs;
     })
     .sort((a, b) => {

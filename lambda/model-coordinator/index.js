@@ -467,11 +467,25 @@ function launchingInstanceCount(group) {
   return (group?.Instances || []).filter((item) => /^Pending/u.test(String(item.LifecycleState || ''))).length;
 }
 
-function holdForFirstGpu(items, workers, group, now) {
+function holdForFirstGpu(items, workers, group, now, ownerKey = '') {
   if (routingOnly()) return null;
+  const scoped = items.filter((item) => itemInScope(item));
+  if (ownerKey) {
+    // Training site: a GPU starting for ANOTHER account is theirs. When only
+    // other people's GPUs are starting, this account gets its own instead of
+    // waiting for (and then taking) theirs.
+    const live = (item) => item.entity === 'PENDING' && now - Number(item.requestedAt || 0) < pendingTtlMs;
+    const foreign = scoped.filter((item) => live(item) && item.ownerKey && item.ownerKey !== ownerKey).length;
+    const others = scoped.filter((item) => live(item) && !(item.ownerKey && item.ownerKey !== ownerKey)).length;
+    const booting = Math.max(
+      workers.filter((worker) => worker.state !== 'READY' && worker.state !== 'DRAINING').length,
+      launchingInstanceCount(group),
+    );
+    if (foreign > 0 && others === 0 && booting <= foreign) return null;
+  }
   return firstGpuHold({
     workers,
-    coordinationItems: items.filter((item) => itemInScope(item)),
+    coordinationItems: scoped,
     launchingInstances: launchingInstanceCount(group),
     now,
     pendingTtlMs,
@@ -507,6 +521,18 @@ async function recordGpuOwner(instanceId, ownerKey, modelKey, now = Date.now()) 
       expiresAt: Math.floor((now + 86_400_000) / 1_000),
     },
   })).catch((error) => console.error('[model-coordinator][owner]', error?.message || error));
+}
+
+// Training site: GPUs another account loaded that still hold that account's
+// voice. Not someone else's to take straight after they warm up.
+function foreignOwnedWorkerIds(items, workers, ownerKey) {
+  if (!ownerKey) return [];
+  const owners = new Map(items
+    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey && item.ownerKey !== ownerKey)
+    .map((item) => [item.instanceId, item.modelKey]));
+  return workers
+    .filter((worker) => owners.has(worker.instanceId) && owners.get(worker.instanceId) === worker.modelKey)
+    .map((worker) => worker.instanceId);
 }
 
 // GPUs this account loaded that still hold the voice it loaded on them.
@@ -583,6 +609,7 @@ async function runReassignment(id, now = Date.now()) {
       now,
       reassignIdleMs: Math.max(0, Number(pending.requiredIdleMs) || 0),
       ownedWorkerIds: ownedWorkerIds(existing, workers, clean(pending.ownerKey)),
+      foreignOwnedWorkerIds: foreignOwnedWorkerIds(existing, workers, clean(pending.ownerKey)),
     };
     // Re-evaluate immediately before the destructive model switch. New work or
     // renewed demand for the resident voice invalidates the old decision. The
@@ -1149,7 +1176,7 @@ async function prepareCapacity(event) {
 
   // The first GPU is still starting: every voice waits for it (it switches to
   // this voice once up) instead of buying a second one.
-  const firstGpu = holdForFirstGpu(existing, workers, group, now);
+  const firstGpu = holdForFirstGpu(existing, workers, group, now, ownerKey);
   if (firstGpu) {
     console.log('[model-coordinator][decision]', JSON.stringify({
       request: 'prepare', source, decision: 'await-first-gpu', allowScale,
@@ -1214,6 +1241,7 @@ async function prepareCapacity(event) {
     now,
     reassigningWorkerIds: promisedWorkerIds(existing, now),
     ownedWorkerIds: ownedWorkerIds(existing, workers, ownerKey),
+    foreignOwnedWorkerIds: foreignOwnedWorkerIds(existing, workers, ownerKey),
   };
   // A GPU used within the grace belongs to whoever used it: autoscaled staging
   // adds a GPU (2026-11-19 feedback: switching a voice someone just used is

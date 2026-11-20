@@ -680,3 +680,22 @@ test('admin TTS (no idle wait) switches a GPU used seconds ago, and never a busy
     ...input, workers: [{ ...gpu, active: 1 }], reassignIdleMs: 0, allowScale: false,
   }).type, 'defer');
 });
+
+test('training site: another account\'s freshly warmed GPU is theirs, not idle at once', () => {
+  const now = 95_000_000;
+  // Came up 2 min ago for user 1's voice, nobody has spoken through it yet.
+  const theirs = {
+    instanceId: 'i-u1', reachable: true, state: 'READY', modelKey: 'u1-voice', active: 0, queued: 0,
+    firstSeenAt: now - 15 * 60_000, lastActivityAt: now - 3 * 60_000, residencyUpdatedAt: now - 2 * 60_000,
+  };
+  const input = { workers: [theirs], requestedModelKey: 'u2-voice', now, reassignIdleMs: 600_000 };
+  // Without ownership (other sites) the warm-up-only rule frees it at once.
+  assert.equal(chooseCapacityAction(input).type, 'reassign');
+  // User 2 on the training site: user 1's GPU -> add a GPU instead.
+  assert.equal(chooseCapacityAction({ ...input, foreignOwnedWorkerIds: ['i-u1'] }).type, 'scale');
+  // After 10 min unused since it came up, it is free for anyone.
+  const later = { ...input, now: now + 9 * 60_000, foreignOwnedWorkerIds: ['i-u1'] };
+  assert.equal(chooseCapacityAction(later).type, 'reassign');
+  // User 1 switching between their own voices still switches it.
+  assert.equal(chooseCapacityAction({ ...input, ownedWorkerIds: ['i-u1'] }).type, 'reassign');
+});
