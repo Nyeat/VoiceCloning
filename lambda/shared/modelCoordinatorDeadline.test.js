@@ -45,3 +45,11 @@ test('one-GPU-per-person ownership is the signed-in account, only on the trainin
   assert.equal(await trainingOwnerKey(training, { authorize: async () => { throw new Error('no'); } }, env), '');
   assert.equal(await trainingOwnerKey(training, null, env), '');
 });
+
+test('only the admin TTS site gets single-GPU switching', async () => {
+  const { ttsSiteOption } = await import('./modelCoordinator.js');
+  const env = { TTS_SITE_ORIGINS: 'https://dfzrfr93t2ruf.cloudfront.net' };
+  assert.deepEqual(ttsSiteOption({ headers: { origin: 'https://dfzrfr93t2ruf.cloudfront.net/' } }, env), { singleGpu: true });
+  assert.deepEqual(ttsSiteOption({ headers: { origin: 'https://lectures.lkcmedicine.org' } }, env), {});
+  assert.deepEqual(ttsSiteOption({ headers: {} }, env), {});
+});

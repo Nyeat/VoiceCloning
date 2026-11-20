@@ -176,6 +176,22 @@ export async function peekCoordinatedModel(body = {}) {
 // The voice-cloning (training) site, where each person tests only their own
 // voices: TRAINING_SITE_ORIGINS, else the origin of TRAINING_PUBLIC_URL. Lecture
 // and other sites share voices across many users and never match.
+function requestOrigin(event) {
+  const headers = event?.headers || {};
+  const key = Object.keys(headers).find((name) => name.toLowerCase() === 'origin');
+  return key ? String(headers[key] || '').trim().replace(/\/+$/u, '') : '';
+}
+
+// The admin Text-to-Speech site (TTS_SITE_ORIGINS): one person auditioning
+// voices on what is essentially one GPU. Selecting a voice switches an idle GPU
+// at once (no 10 min protection) and never adds a GPU while one exists.
+export function ttsSiteOption(event, env = process.env) {
+  const allowed = String(env.TTS_SITE_ORIGINS || '').split(',')
+    .map((origin) => origin.trim().replace(/\/+$/u, '')).filter(Boolean);
+  const origin = requestOrigin(event);
+  return origin && allowed.includes(origin) ? { singleGpu: true } : {};
+}
+
 export function isTrainingSiteRequest(event, env = process.env) {
   const configured = String(env.TRAINING_SITE_ORIGINS || '').split(',');
   try {
@@ -212,6 +228,7 @@ export async function prepareCoordinatedModel(body = {}, {
   allowScale = false,
   source = 'preflight',
   ownerKey = '',
+  singleGpu = false,
 } = {}) {
   const pausedMessage = gpuPausedMessage();
   if (pausedMessage) {
@@ -235,6 +252,7 @@ export async function prepareCoordinatedModel(body = {}, {
   }
   const result = await invokeCoordinator({
     action: 'prepare', body, allowScale, source, ...(ownerKey ? { ownerKey } : {}),
+    ...(singleGpu ? { singleGpu: true } : {}),
   });
   if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
   return { ...result, coordinatorConfigured: true };

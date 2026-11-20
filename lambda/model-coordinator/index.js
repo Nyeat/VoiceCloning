@@ -1042,6 +1042,9 @@ async function prepareCapacity(event) {
   const source = clean(event.source) || 'preflight';
   // Training site only: one person, one GPU across their own voices.
   const ownerKey = clean(event.ownerKey);
+  // Admin TTS site: switch on selection with no idle wait; add a GPU only when
+  // there is none (ttsSiteOption in the main Lambda).
+  const singleGpu = event.singleGpu === true;
   const existing = await scanState();
   // A prewarm is a guess (the person's latest voice), not someone using it, so
   // it must not protect the GPU it lands on from switching to a real selection.
@@ -1207,11 +1210,29 @@ async function prepareCapacity(event) {
     && allowScale
     && chooseCapacityAction({ ...capacityInput, reassignIdleMs: preflightReassignIdleMs }).type === 'scale'
     && chooseCapacityAction({ ...capacityInput, reassignIdleMs: 0 }).type === 'reassign';
+  const switchIdleMs = singleGpu ? 0 : preflightReassignIdleMs;
+  const noGpuYet = !workers.some((worker) => worker.reachable !== false);
   const action = choosePreparationAction({
     ...capacityInput,
-    reassignIdleMs: preflightReassignIdleMs,
-    allowScale: allowScale && !fleetInMotion && !gracedOnly,
+    reassignIdleMs: switchIdleMs,
+    allowScale: allowScale && !fleetInMotion && !gracedOnly && (!singleGpu || noGpuYet),
   });
+  if (action.type === 'defer' && singleGpu && !fleetInMotion) {
+    // Every GPU is busy right now: wait for one to finish, never add one.
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'prepare', source, decision: 'single-gpu-await-idle', allowScale,
+      voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
+      desiredCapacity: group.DesiredCapacity,
+    }));
+    return capacityResponse({
+      state: 'WARMING',
+      canStartConversation: false,
+      model,
+      capacityAction: 'reassign',
+      startedAt: now - selectionDwellMs,
+      message: 'The GPU is finishing other work. It switches to this voice as soon as it is free; no extra GPU is added.',
+    });
+  }
   if (action.type === 'defer' && gracedOnly && !fleetInMotion) {
     console.log('[model-coordinator][decision]', JSON.stringify({
       request: 'prepare', source, decision: 'await-reassign-grace', allowScale,
@@ -1271,7 +1292,7 @@ async function prepareCapacity(event) {
       workerId: action.worker.instanceId, desiredCapacity: group.DesiredCapacity,
     }));
     const scheduled = await scheduleReassignment(action.worker, modelKey, body, now, {
-      requiredIdleMs: preflightReassignIdleMs,
+      requiredIdleMs: switchIdleMs,
       ownerKey,
     });
     return capacityResponse({

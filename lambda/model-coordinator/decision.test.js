@@ -660,3 +660,17 @@ test('training site: one person, one GPU — the GPU your account loaded', () =>
     }).type, 'scale');
   }
 });
+
+test('admin TTS (no idle wait) switches a GPU used seconds ago, and never a busy one', () => {
+  const now = 70_000_000;
+  const gpu = {
+    instanceId: 'i-a', reachable: true, state: 'READY', modelKey: 'lecture-voice', active: 0, queued: 0,
+    lastActivityAt: now - 5_000, residencyUpdatedAt: now - 600_000,
+  };
+  const input = { workers: [gpu], requestedModelKey: 'tts-voice', now, lastDemandByModel: { 'lecture-voice': now - 2_000 } };
+  assert.equal(chooseCapacityAction({ ...input, reassignIdleMs: 600_000 }).type, 'scale');
+  assert.equal(chooseCapacityAction({ ...input, reassignIdleMs: 0 }).type, 'reassign');
+  assert.equal(choosePreparationAction({
+    ...input, workers: [{ ...gpu, active: 1 }], reassignIdleMs: 0, allowScale: false,
+  }).type, 'defer');
+});
