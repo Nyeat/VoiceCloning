@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory)][ValidateSet('dev','staging')] [string]$Env,
-  [Parameter(Mandatory)][ValidateSet('training','live-fast','chatbot','chatbot-text','mc')] [string]$Mode,
+  [Parameter(Mandatory)][ValidateSet('training','live-fast','chatbot','chatbot-text','mc','record','studio')] [string]$Mode,
   [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'

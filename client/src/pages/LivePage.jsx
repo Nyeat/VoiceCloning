@@ -339,7 +339,7 @@ const VOICE_TEST_SYSTEM_PROMPT = 'You are a friendly assistant helping a lecture
   + 'Reply naturally in two or three short, clear sentences. Vary sentence length and include the occasional '
   + 'question so the voice can be heard in different intonations. Always respond only in English.';
 
-export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant = '', voiceTestNotice = '' }) {
+export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant = '', voiceTestNotice = '', voiceScope = '' }) {
   // 'voice-test': the training site's "Test your voice" tab. A kiosk-style chat
   // limited to the signed-in lecturer's own trained voices — no stock voices,
   // no lectures, no instructions to publish.
@@ -360,7 +360,9 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
   // name a real pair of GPT-SoVITS weights, and a stock voice has none.
   const [standardVoices, setStandardVoices] = useState([]);
   const [selectedStandardVoiceId, setSelectedStandardVoiceId] = useState('');
-  const [myVoicesScope, setMyVoicesScope] = useState('mine');
+  // voiceScope='studio' (Voice Studio): the server lists exactly the voices this
+  // person may use right now; it is never downgraded to 'mine'.
+  const [myVoicesScope, setMyVoicesScope] = useState(voiceScope === 'studio' ? 'studio' : 'mine');
   const [myVoicesAdmin, setMyVoicesAdmin] = useState(false);
   const [myVoicesLoading, setMyVoicesLoading] = useState(false);
   const [myVoicesError, setMyVoicesError] = useState('');
@@ -3601,7 +3603,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
         setStandardVoices(!voiceTest && Array.isArray(res.data?.standardVoices) ? res.data.standardVoices : []);
         setMyVoicesAdmin(res.data?.isAdmin === true);
         // The server decides the scope it actually served; trust that, not the request.
-        setMyVoicesScope(res.data?.scope === 'all' ? 'all' : 'mine');
+        setMyVoicesScope(res.data?.scope === 'studio' ? 'studio' : res.data?.scope === 'all' ? 'all' : 'mine');
       })
       .catch((err) => {
         if (ignore) return;

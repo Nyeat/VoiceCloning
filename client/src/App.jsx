@@ -22,6 +22,8 @@ import { describeGpuStatus } from '@/lib/gpuStatusModel';
 import GpuInstanceControl from '@/components/GpuInstanceControl.jsx';
 import { GpuClosedNotice, GpuInstanceWaitDialog } from '@/components/GpuWaitDialog.jsx';
 import TrainingApp from './training/TrainingApp.jsx';
+import RecordApp from './studio/RecordApp.jsx';
+import StudioApp from './studio/StudioApp.jsx';
 import { fetchLiveDemoLockout } from '@/lib/runtimeConfig';
 
 // Live-fast (doovx…) and the Dean demo have no training UI — those are the builds
@@ -142,6 +144,11 @@ function LiveDemoLockoutScreen() {
 }
 
 export default function App() {
+  // Voice Studio sites: their own sign-in and chrome. The recording portal
+  // never touches the GPU; the studio starts nothing itself (the server starts
+  // the GPU for queued training and booked slots).
+  if (APP_MODE_CONFIG.mode === 'record') return <RecordApp />;
+  if (APP_MODE_CONFIG.mode === 'studio') return <StudioApp />;
   // The gi build is a full app (search → lesson → chat) with its own chrome and
   // auth gate, so it replaces AppShell entirely. The GPU still auto-starts in
   // the background, but the blocking overlay is deliberately not rendered —

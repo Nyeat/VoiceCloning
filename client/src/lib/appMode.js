@@ -1,4 +1,4 @@
-const APP_MODES = new Set(['combined', 'training', 'live-fast', 'chatbot', 'gi', 'mc']);
+const APP_MODES = new Set(['combined', 'training', 'live-fast', 'chatbot', 'gi', 'mc', 'record', 'studio']);
 
 const LIVE_DEMO_LOCKOUT_EXEMPT_HOSTS = new Set([
   'd3k2rz0hqm8nxi.cloudfront.net',

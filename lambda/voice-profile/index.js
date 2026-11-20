@@ -289,6 +289,7 @@ export function createHandler({
   resolveCapacityBody = createVoiceProfileResolver(),
   prepareModelCapacity = prepareCoordinatedModel,
   peekModelCapacity = peekCoordinatedModel,
+  studioScope = async (email) => (await import('../studio/index.js')).studioVoiceScope(email),
 } = {}) {
   return async function handler(event) {
     if (event.requestContext?.http?.method === 'OPTIONS') {
@@ -330,8 +331,20 @@ export function createHandler({
         }
 
         const isAdmin = isAdminIdentity(identity);
-        const wantsAll = String(event?.queryStringParameters?.scope || '').trim().toLowerCase() === 'all';
-        const scope = wantsAll && isAdmin ? 'all' : 'mine';
+        const requestedScope = String(event?.queryStringParameters?.scope || '').trim().toLowerCase();
+        const wantsAll = requestedScope === 'all';
+        // Voice Studio: exactly the voices this person may use right now — a
+        // super user's review list, or a lecturer's approved voice during their
+        // booked slot. Studio decides; this route only lists.
+        let studioVoices = null;
+        if (requestedScope === 'studio') {
+          try {
+            studioVoices = new Set((await studioScope(identity?.email)).voiceNames);
+          } catch (error) {
+            return err(503, `Voice Studio is unavailable: ${error.message}`, event);
+          }
+        }
+        const scope = studioVoices ? 'studio' : wantsAll && isAdmin ? 'all' : 'mine';
         const email = identity?.email;
 
         // Trained models are the source of truth for which voices exist; saved
@@ -371,7 +384,9 @@ export function createHandler({
             profile: profilesByName.get(voiceName) || null,
             email,
           });
-          if (scope === 'all' || summary.isMine) voices.push(summary);
+          if (studioVoices) {
+            if (studioVoices.has(voiceName)) voices.push({ ...summary, isMine: true, ownedByCaller: summary.isMine });
+          } else if (scope === 'all' || summary.isMine) voices.push(summary);
         }
 
         voices.sort((left, right) => String(left.displayName || '').localeCompare(String(right.displayName || '')));
@@ -384,7 +399,7 @@ export function createHandler({
         // owned by nobody, so the isMine filter above would drop them from the
         // 'mine' scope — which is the scope every lecturer actually sees. They
         // are offered to everyone alike, in both scopes.
-        const standardVoices = await listStandardVoices();
+        const standardVoices = studioVoices ? [] : await listStandardVoices();
         return ok({
           email: normalizeEmail(email),
           isAdmin,

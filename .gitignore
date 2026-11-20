@@ -4,6 +4,8 @@ client/dist-mc/
 dist/
 .superpowers/
 client/dist-training/
+client/dist-record/
+client/dist-studio/
 client/dist-chatbot/
 client/dist-live-fast/
 client/dist-combined/

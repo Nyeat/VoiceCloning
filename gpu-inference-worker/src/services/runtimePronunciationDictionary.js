@@ -220,8 +220,86 @@ export async function prepareTextWithRuntimeDictionary(text, options = {}) {
   return applySynthesisAliases(text, entries);
 }
 
+// ── Per-voice libraries (Voice Studio) ──────────────────────────────────
+// pronunciation-dictionary/voices/<voice>.json holds one voice's own entries.
+// "soundsLike" respellings are swapped in per request, so they only ever touch
+// that voice. ARPAbet entries join the engine's phoneme dictionary when that
+// voice is applied (POST /inference/start { pronunciationVoice }); on a
+// one-voice-per-slot GPU that makes them per-voice too.
+const VOICE_DICTIONARY_PREFIX = 'pronunciation-dictionary/voices/';
+const voiceCache = new Map();
+let activePronunciationVoice = '';
+
+export function voiceNameFromModelRef(ref) {
+  const basename = String(ref || '').split(/[\/]/u).pop() || '';
+  const match = basename.match(/^(.+?)[-_]e\d+(?:[_-]s\d+)?\.(?:ckpt|pth)$/iu);
+  return match ? match[1] : '';
+}
+
+export function voiceNameFromRequest(voiceModel) {
+  if (!voiceModel || typeof voiceModel !== 'object') return '';
+  return voiceNameFromModelRef(voiceModel.gptRef) || voiceNameFromModelRef(voiceModel.sovitsRef);
+}
+
+export async function loadVoicePronunciationEntries(voiceName, {
+  readObject = getObject,
+  force = false,
+} = {}) {
+  const name = String(voiceName || '');
+  if (!/^[A-Za-z0-9._-]+$/u.test(name)) return [];
+  const cached = voiceCache.get(name);
+  const now = Date.now();
+  if (!force && cached && now - cached.at < CACHE_TTL_MS / 2) return cached.entries;
+  let entries = [];
+  try {
+    const parsed = JSON.parse((await readObject(`${VOICE_DICTIONARY_PREFIX}${name}.json`)).toString('utf-8'));
+    entries = (Array.isArray(parsed.entries) ? parsed.entries : [])
+      .filter((entry) => normalizeWord(entry?.word))
+      .map((entry) => ({
+        word: normalizeWord(entry.word),
+        arpabet: normalizeArpabet(entry.arpabet),
+        soundsLike: String(entry.soundsLike || '').trim(),
+      }));
+  } catch {
+    entries = []; // no library yet (NoSuchKey) or unreadable: the voice simply has none
+  }
+  voiceCache.set(name, { at: now, entries });
+  return entries;
+}
+
+export function applyVoiceSoundsLike(text, entries = []) {
+  let result = String(text || '');
+  const respellings = entries
+    .filter((entry) => entry.soundsLike && /^[A-Za-z]+(?:[ '-][A-Za-z]+)*$/u.test(entry.soundsLike))
+    .sort((a, b) => b.word.length - a.word.length);
+  for (const entry of respellings) {
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}'])${escapeRegExp(entry.word)}(?![\\p{L}\\p{N}'])`, 'giu');
+    result = result.replace(pattern, entry.soundsLike);
+  }
+  return result;
+}
+
+// Voice ARPAbet entries outrank the shared dictionary for the same word.
+export function mergeVoiceArpabet(globalEntries = [], voiceEntries = []) {
+  const voiceArpabet = voiceEntries
+    .filter((entry) => entry.arpabet && !entry.soundsLike)
+    .map((entry) => ({ word: entry.word, arpabet: entry.arpabet, category: 'voice', updatedAt: '9999-12-31T00:00:00.000Z' }));
+  return [...globalEntries, ...voiceArpabet];
+}
+
+export function getActivePronunciationVoice() {
+  return activePronunciationVoice;
+}
+
 export async function syncHotDictionaryOverrides(options = {}) {
-  const entries = await loadRuntimePronunciationEntries({ ...options, force: true });
+  if (typeof options.pronunciationVoice === 'string' && /^[A-Za-z0-9._-]*$/u.test(options.pronunciationVoice)) {
+    activePronunciationVoice = options.pronunciationVoice;
+  }
+  const globalEntries = await loadRuntimePronunciationEntries({ ...options, force: true });
+  const voiceEntries = activePronunciationVoice
+    ? await loadVoicePronunciationEntries(activePronunciationVoice, { force: true })
+    : [];
+  const entries = mergeVoiceArpabet(globalEntries, voiceEntries);
   const result = writeHotDictionaryOverrides(options.gptSovitsRoot || GPT_SOVITS_ROOT, entries);
   if (result.written) {
     console.log(

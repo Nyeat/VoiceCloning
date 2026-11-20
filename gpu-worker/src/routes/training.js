@@ -32,7 +32,9 @@ async function runNextTrainingSession() {
   });
 
   try {
-    await sseManager.waitForClient(sessionId);
+    // Voice Studio queues runs server-side with no browser watching, so a
+    // headless run starts without waiting for a progress stream.
+    if (!session.headless) await sseManager.waitForClient(sessionId);
     session.status = 'running';
     trainingState.setStatus('running');
     await runPipelineWithS3(sessionId, session.pipeline);
@@ -87,8 +89,18 @@ router.post('/train', (req, res) => {
     });
   }
 
+  // A retrain is a new voice name trained from the first attempt's recordings.
+  // The source must be the same lecturer's, checked the same way as expName.
+  const sourceExpName = String(config.sourceExpName || '').trim() || expName;
+  if (sourceExpName !== expName && !ownsVoiceName(identity.email, sourceExpName)) {
+    return res.status(403).json({
+      error: `${identity.email} does not own recordings called ${sourceExpName}`,
+    });
+  }
+  const headless = config.headless === true;
+
   const sessionId = uuidv4();
-  const s3Prefix = `training/datasets/${expName}/raw/`;
+  const s3Prefix = `training/datasets/${sourceExpName}/raw/`;
 
   const queuedAt = Date.now();
   sessions.set(sessionId, {
@@ -96,9 +108,12 @@ router.post('/train', (req, res) => {
     email: identity.email,
     queuedAt,
     status: 'queued',
+    headless,
     pipeline: {
       expName,
-      email: identity.email,
+      // notifyOwner=false: Voice Studio emails its reviewers instead, and the
+      // lecturer only hears once the voice passes quality control.
+      email: config.notifyOwner === false ? '' : identity.email,
       ownerEmail: identity.email,
       s3Prefix,
       batchSize: config.batchSize,

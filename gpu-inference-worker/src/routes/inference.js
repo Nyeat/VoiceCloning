@@ -41,6 +41,9 @@ import {
 import {
   applySynthesisAliases,
   syncHotDictionaryOverrides,
+  loadVoicePronunciationEntries,
+  applyVoiceSoundsLike,
+  voiceNameFromRequest,
   loadRuntimePronunciationEntries,
   collectArpabetWords,
 } from '../services/runtimePronunciationDictionary.js';
@@ -150,10 +153,19 @@ async function chunkingDictionaryWords() {
 // admin ARPAbet word stays intact so GPT-SoVITS can match its hot-dictionary key.
 export async function prepareTextBeforeNormalization(text, {
   loadEntries = loadRuntimePronunciationEntries,
+  voiceModel = null,
+  loadVoiceEntries = loadVoicePronunciationEntries,
 } = {}) {
   const entries = await loadEntries();
+  // The voice's own "sounds like" respellings run first, so they win over the
+  // shared dictionary for that voice only.
+  const voiceName = voiceNameFromRequest(voiceModel);
+  const voiceEntries = voiceName ? await loadVoiceEntries(voiceName) : [];
   const protectedWords = collectArpabetWords(entries);
-  const expandedText = expandSsml(text, { protectedWords });
+  for (const entry of voiceEntries) {
+    if (entry.arpabet && !entry.soundsLike) protectedWords.add(entry.word.toUpperCase().replace(/[^A-Z0-9']/gu, ''));
+  }
+  const expandedText = expandSsml(applyVoiceSoundsLike(text, voiceEntries), { protectedWords });
   const dictionaryText = applySynthesisAliases(expandedText, entries);
   return applyEmphasisAndSpelling(dictionaryText, { protectedWords });
 }
@@ -400,8 +412,9 @@ export async function handleLiveTtsRequest(body, {
   // acquireSynthesisLease. The weights it names are already loaded by the time we
   // get here, and these params are forwarded to GPT-SoVITS' /tts verbatim, so drop
   // it the same way the Full path does (services/longTextInference.js).
+  const requestVoiceModel = resolvedParams.voice_model;
   delete resolvedParams.voice_model;
-  const emphasizedText = await prepareTextBeforeNormalization(resolvedParams.text);
+  const emphasizedText = await prepareTextBeforeNormalization(resolvedParams.text, { voiceModel: requestVoiceModel });
   // Formula expansion is a deterministic in-process text rewrite, not a quality
   // pass. Reuse it on Live Fast so scientific notation is spoken consistently
   // without adding a model call, verifier pass, or synthesis retry.
@@ -490,9 +503,10 @@ router.get('/inference/status', async (_req, res) => {
   }
 });
 
-router.post('/inference/start', async (_req, res) => {
+router.post('/inference/start', async (req, res) => {
   try {
-    const sync = await syncHotDictionaryOverrides();
+    const pronunciationVoice = typeof req.body?.pronunciationVoice === 'string' ? req.body.pronunciationVoice : undefined;
+    const sync = await syncHotDictionaryOverrides(pronunciationVoice === undefined ? {} : { pronunciationVoice });
     // engdict-hot.rep is only read by api_v2.py when it rebuilds the compiled
     // dictionary (engdict_cache.pickle). The sync rewrites the hot file AND drops a
     // stale cache so the rebuild actually happens; either event means a running
@@ -506,7 +520,7 @@ router.post('/inference/start', async (_req, res) => {
     }
     const status = await inferenceServer.start();
     activityState.mark();
-    res.json(status);
+    res.json({ ...status, restarted: Boolean(sync.changed || sync.cacheInvalidated) });
   } catch (err) {
     res.status(500).json({
       ready: false,
@@ -676,7 +690,7 @@ router.post('/inference', async (req, res) => {
 
     activityState.mark();
     const resolvedParams = await resolveRefAudioParams(params);
-    resolvedParams.text = await prepareTextBeforeNormalization(resolvedParams.text);
+    resolvedParams.text = await prepareTextBeforeNormalization(resolvedParams.text, { voiceModel: req.body?.voice_model });
     const qualityParams = {
       ...applyFullInferenceQualityPreset(resolvedParams),
       ...(req.body?.voice_model ? { voice_model: { ...req.body.voice_model } } : {}),
@@ -720,7 +734,7 @@ router.post('/inference/generate', async (req, res) => {
       return res.status(503).json({ error: status.error || 'Inference server is not ready. Load models first.' });
     }
     const resolvedParams = await resolveRefAudioParams(params);
-    resolvedParams.text = await prepareTextBeforeNormalization(resolvedParams.text);
+    resolvedParams.text = await prepareTextBeforeNormalization(resolvedParams.text, { voiceModel: req.body?.voice_model });
     const qualityParams = {
       ...applyFullInferenceQualityPreset(resolvedParams),
       ...(req.body?.voice_model ? { voice_model: { ...req.body.voice_model } } : {}),
@@ -773,7 +787,7 @@ router.post('/inference/regenerate-chunk', async (req, res) => {
     const { session } = acquired;
     let preparedReplacement = '';
     if (replacementText) {
-      preparedReplacement = await prepareTextBeforeNormalization(replacementText);
+      preparedReplacement = await prepareTextBeforeNormalization(replacementText, { voiceModel: session.params?.voice_model });
     }
     const result = await regenerateLongTextChunk(sessionId, index, fullInferenceQualityOptions({
       ...(session.options || {}),
@@ -868,7 +882,7 @@ router.post('/inference/insert-chunk', async (req, res) => {
     const acquired = await acquireSessionLease(req, res, sessionId);
     lease = acquired.lease;
     const { session } = acquired;
-    const preparedText = await prepareTextBeforeNormalization(displayText);
+    const preparedText = await prepareTextBeforeNormalization(displayText, { voiceModel: session.params?.voice_model });
     const result = await insertLongTextChunk(sessionId, index, fullInferenceQualityOptions({
       ...(session.options || {}),
       ...verificationOptions(session.params || {}, { finalWordTailCheck: true }),

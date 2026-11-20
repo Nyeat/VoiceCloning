@@ -417,7 +417,7 @@ export function setVoiceLabel(voiceName, label) {
 }
 
 export function getMyVoiceProfiles(scope = 'mine') {
-  return api.get('/voice-profile/mine', { params: scope === 'all' ? { scope: 'all' } : {} });
+  return api.get('/voice-profile/mine', { params: scope === 'all' || scope === 'studio' ? { scope } : {} });
 }
 
 // Creates the saved profile record for a trained voice that has none. Synthesis
@@ -744,3 +744,7 @@ export async function getUploadedRefAudioUrl(filePath) {
 
   return resolveApiPath(`/api/ref-audio?filePath=${encodeURIComponent(filePath)}`);
 }
+
+// Voice Studio (client/src/studio) calls its /api/studio routes through this
+// same client so they get the sign-in token and signed-body headers.
+export { api as apiClient };

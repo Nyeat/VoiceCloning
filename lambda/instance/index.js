@@ -416,6 +416,12 @@ async function getStatus(target = '') {
   return payload;
 }
 
+// Voice Studio starts the fixed GPU itself when training is queued or a booked
+// test slot is about to begin (lambda/studio).
+export async function startGpuInstance() {
+  return (await startInstance()).body;
+}
+
 async function startInstance() {
   const id = instanceId();
   if (!id) {
@@ -646,7 +652,18 @@ export const handler = async (event) => {
     }
 
     if ((method === 'POST' || method === 'GET') && routePath.endsWith('/instance/idle-check')) {
-      const result = await stopInstanceIfIdle();
+      // Voice Studio rides on this schedule: it advances the training queue and
+      // keeps the GPU on while training is queued or a booked slot is near.
+      let studio = null;
+      try {
+        const { studioTick } = await import('../studio/index.js');
+        studio = await studioTick({ force: true });
+      } catch (error) {
+        console.error('[idle-check] studio tick failed', error?.message || error);
+      }
+      const result = studio?.demand
+        ? { checked: true, stopped: false, reason: `studio-${studio.demand}`, studio }
+        : await stopInstanceIfIdle();
       // The coordinator's per-GPU scale-in otherwise runs only after a request,
       // so a fleet nobody is using would never shrink (the legacy no-traffic
       // alarm that covered that case is disabled). Best effort; no-op without

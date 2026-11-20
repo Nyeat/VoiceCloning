@@ -17,6 +17,7 @@ export const ROUTES = [
   { name: 'VoiceProfileFunction', methods: ['GET', 'POST'], pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|label|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u, modulePath: './voice-profile/index.js' },
   { name: 'VoiceProfileConfigsFunction', methods: ['GET', 'POST', 'PUT', 'DELETE'], pattern: /^\/api\/voice-profile\/configs\/[^/]+(?:\/[^/]+)?\/?$/u, modulePath: './voice-profile-configs/index.js' },
   { name: 'PronunciationDictionaryFunction', methods: ['GET', 'POST'], pattern: /^\/api\/pronunciation-dictionary\/?$/u, modulePath: './pronunciation-dictionary/index.js' },
+  { name: 'StudioFunction', methods: ['GET', 'POST', 'PUT', 'DELETE'], pattern: /^\/api\/studio\/[A-Za-z0-9._@%:-]+(?:\/[A-Za-z0-9._@%:-]+){0,4}\/?$/u, modulePath: './studio/index.js' },
   { name: 'InstanceFunction', methods: ['GET', 'POST'], pattern: /^\/api\/instance\/(?:status|start|activity|idle-check)\/?$/u, modulePath: './instance/index.js' },
 ];
 
