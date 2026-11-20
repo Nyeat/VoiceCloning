@@ -51,13 +51,13 @@ export const BOOT_WAITER_GRACE_MS = 60_000;
 // Only someone still waiting for its voice protects it, so a GPU that came up
 // for a prewarm guess (or for someone who left) switches to the voice someone is
 // actually waiting for instead of a second GPU being bought (2026-11-20).
-// Training site, one person one GPU: a GPU the signed-in account itself loaded
-// (its boot or switch, still holding that voice) may switch to another voice
-// that account picks, even inside the 10 min window. Only while it is quiet
-// (nothing running or waiting, no speech for this long), so a busy voice still
-// gets an extra GPU. Ownership is the account, never the voice name: a GPU
-// someone else loaded with your published voice is not yours to switch.
-export const OWNER_SWITCH_QUIET_MS = 60_000;
+// Training site, one person one GPU: a GPU holding one of the signed-in
+// account's own voices (its boot or switch loaded it, or the account picked a
+// voice already on it) switches to another voice that account picks at once,
+// even inside the 10 min window, whenever nothing is running or waiting on it.
+// While it is busy the pick waits for it; the account never gets a second GPU
+// (owner rule 2026-11-21). Ownership is the account, never the voice name: a
+// GPU someone else loaded with your published voice is not yours to switch.
 
 export function reassignCandidates({
   workers = [],
@@ -79,8 +79,7 @@ export function reassignCandidates({
   const owned = new Set(ownedWorkerIds.filter(Boolean));
   const ownSwitchable = (worker) => owned.has(worker.instanceId)
     && Number(worker.active || 0) === 0
-    && Number(worker.queued || 0) === 0
-    && now - Number(worker.lastActivityAt || 0) >= OWNER_SWITCH_QUIET_MS;
+    && Number(worker.queued || 0) === 0;
   const holders = new Map();
   for (const worker of available) {
     if (worker.state === 'READY' && worker.modelKey) {

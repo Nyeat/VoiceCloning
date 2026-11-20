@@ -1072,6 +1072,18 @@ async function prepareCapacity(event) {
     await document.send(new DeleteCommand({ TableName: tableName, Key: { id: booting.id } })).catch(() => {});
     booting = null;
   }
+  // Training-site voices are private to their account, so a GPU already
+  // holding this account's voice is its GPU, however it got loaded (a message,
+  // the first GPU, a prewarm). Without this, the account's next pick saw no GPU
+  // of its own and added one instead of switching it.
+  if (ownerKey) {
+    await Promise.all(readyMatching
+      .filter((worker) => !existing.some((item) => (
+        item.entity === 'OWNER' && itemInScope(item) && item.instanceId === worker.instanceId
+        && item.ownerKey === ownerKey && item.modelKey === modelKey
+      )))
+      .map((worker) => recordGpuOwner(worker.instanceId, ownerKey, modelKey, now)));
+  }
   if (freeSlots > 0) {
     console.log('[model-coordinator][decision]', JSON.stringify({
       request: 'prepare', source, decision: 'route', allowScale, voiceProfileId: clean(model.voiceProfileId),
@@ -1212,11 +1224,31 @@ async function prepareCapacity(event) {
     && chooseCapacityAction({ ...capacityInput, reassignIdleMs: 0 }).type === 'reassign';
   const switchIdleMs = singleGpu ? 0 : preflightReassignIdleMs;
   const noGpuYet = !workers.some((worker) => worker.reachable !== false);
+  // Training site: this account already has a GPU (holding one of its own
+  // voices). It switches to this pick when free; never a second GPU.
+  const ownGpu = capacityInput.ownedWorkerIds.some((id) => workers.some((worker) => (
+    worker.instanceId === id && worker.reachable !== false && worker.state !== 'DRAINING'
+  )));
   const action = choosePreparationAction({
     ...capacityInput,
     reassignIdleMs: switchIdleMs,
-    allowScale: allowScale && !fleetInMotion && !gracedOnly && (!singleGpu || noGpuYet),
+    allowScale: allowScale && !fleetInMotion && !gracedOnly && !ownGpu && (!singleGpu || noGpuYet),
   });
+  if (action.type === 'defer' && ownGpu) {
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'prepare', source, decision: 'own-gpu-await-idle', allowScale,
+      voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
+      desiredCapacity: group.DesiredCapacity,
+    }));
+    return capacityResponse({
+      state: 'WARMING',
+      canStartConversation: false,
+      model,
+      capacityAction: 'reassign',
+      startedAt: now - selectionDwellMs,
+      message: 'Your GPU is finishing its current reply. It switches to this voice as soon as it is free; one GPU per person.',
+    });
+  }
   if (action.type === 'defer' && singleGpu && !fleetInMotion) {
     // Every GPU is busy right now: wait for one to finish, never add one.
     console.log('[model-coordinator][decision]', JSON.stringify({

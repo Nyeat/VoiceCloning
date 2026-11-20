@@ -649,6 +649,11 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     : (selectedVoiceResolvesPerRequest || selectedVoicePinsOwnWeights)
       ? (selectedProfile || loadedProfile)
       : (loadedProfile || selectedProfile);
+  // A trained voice's saved name ("francisco") wherever the page names it; the
+  // id (cs-…_7) only when it has none.
+  const voiceNameLabel = (voiceName) => (voiceName
+    ? myVoices.find((voice) => voice.displayName === voiceName)?.label || voiceName
+    : '');
 
   const liveLanguage = normalizeLiveLanguage(selectedLanguage);
   const liveLanguageConfig = getLiveLanguageConfig(liveLanguage);
@@ -4777,7 +4782,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
               <div>
                 <p className="text-sm font-semibold text-slate-800">Input text</p>
                 <p className="mt-1 text-xs text-slate-400">
-                  {speakingProfile?.displayName || 'Selected voice'} · {liveLanguageConfig.label} · {loadedConfigId || 'current config'}
+                  {voiceNameLabel(speakingProfile?.displayName) || 'Selected voice'} · {liveLanguageConfig.label} · {loadedConfigId || 'current config'}
                 </p>
               </div>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-500">
@@ -5349,7 +5354,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
                               {index === 0 ? 'Latest' : new Date(result.createdAt).toLocaleTimeString()}
                             </p>
                             <p className="mt-0.5 truncate text-[11px] text-slate-400">
-                              {result.voiceName || 'Selected voice'} · {result.languageLabel || liveLanguageConfig.label}
+                              {voiceNameLabel(result.voiceName) || 'Selected voice'} · {result.languageLabel || liveLanguageConfig.label}
                             </p>
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
@@ -5613,7 +5618,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
           <div className="mt-4 text-center">
             <p className="text-sm font-medium text-slate-700">{statusText}</p>
             <p className="mt-0.5 text-xs text-slate-400">
-              {speakingProfile?.displayName || '—'} · {liveLanguageConfig.label}
+              {voiceNameLabel(speakingProfile?.displayName) || '—'} · {liveLanguageConfig.label}
             </p>
           </div>
         </div>
@@ -5666,7 +5671,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
                   : voiceResident === false
                     ? 'Not on a GPU now (loads when you talk): '
                     : 'Loaded on the GPU: '}
-                <span className="font-medium text-slate-800">{myVoices.find((voice) => voice.displayName === selectedProfile.displayName)?.label || selectedProfile.displayName}</span>
+                <span className="font-medium text-slate-800">{voiceNameLabel(selectedProfile.displayName)}</span>
               </span>
             </p>
           ) : null}

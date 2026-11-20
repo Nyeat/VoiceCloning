@@ -653,8 +653,14 @@ test('training site: one person, one GPU — the GPU your account loaded', () =>
   const mine = chooseCapacityAction({ ...input, ownedWorkerIds: ['i-own'] });
   assert.equal(mine.type, 'reassign');
   assert.equal(mine.worker.instanceId, 'i-own');
-  // Busy or just spoke: heavy use still adds a GPU.
-  for (const busy of [{ active: 1 }, { queued: 1 }, { lastActivityAt: now - 10_000 }]) {
+  // Spoke seconds ago but nothing running: still switches (2026-11-21).
+  const justSpoke = chooseCapacityAction({
+    ...input, ownedWorkerIds: ['i-own'], workers: [other, { ...own, lastActivityAt: now - 5_000 }],
+  });
+  assert.equal(justSpoke.type, 'reassign');
+  assert.equal(justSpoke.worker.instanceId, 'i-own');
+  // Running or queued: not switchable now (the coordinator then waits for it, never adds).
+  for (const busy of [{ active: 1 }, { queued: 1 }]) {
     assert.equal(chooseCapacityAction({
       ...input, ownedWorkerIds: ['i-own'], workers: [other, { ...own, ...busy }],
     }).type, 'scale');
