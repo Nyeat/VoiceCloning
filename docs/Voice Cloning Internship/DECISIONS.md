@@ -298,3 +298,16 @@ These live in runtime configuration and will not appear in any branch diff:
   adds GPUs only through real queue overflow, never on page open. Fixed-GPU Dev keeps 3 min and waits.
 - Every coordinator capacity code must reach the browser unchanged (one shared Lambda helper); a bare 503
   reads as "engine not ready" and is not auto-retried.
+
+## 2026-11-20 — Per-site GPU rules on one shared GPU pool (owner decision; RISK)
+
+- Rules: lectures/faculty follow the published voice and autoscale on demand; training site = one GPU per
+  signed-in account (its own quiet GPU switches inside 10 min); admin TTS site = switch an idle GPU on selection
+  with no 10 min wait, add only when no GPU exists; Live MC = on demand, fixed Dean voice. While the first GPU is
+  starting nothing adds another; a warmed-up, never-used GPU is idle at once.
+- RISK: every site shares ONE coordinator, ONE ASG (max 3) and the same worker addresses; the per-site flags come
+  only from the request Origin. A fast-switch rule on one site can take a GPU another site is using: a TTS or
+  training-site selection may switch a GPU lecture students used seconds earlier (only "nothing running/queued"
+  protects it), and their next reply waits for a switch or a new GPU. Origin is client-supplied, so a script can
+  claim the TTS/training behaviour. Revisit (separate pools per site or a minimum resident lecture GPU via
+  residency locks) if lecture users see unexpected waits.

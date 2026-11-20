@@ -18,7 +18,6 @@ Last updated: 2026-11-20
 - 11-20 (64d34f7, deployed all): first-GPU hold, one GPU per account (training site), honest/live GPU status, keep-alive, naming.
 - 2026-11-16: training site launched (SSO + domain, consent, guide, Test your voice); staging fixed GPU 30-min
   idle stop; staging ASG min 0 / max 3; per-voice boots (d1a0b35). Superseded where 2026-11-17 differs.
-- 2026-11-03: audit, hardening and coordinator robustness deployed (Lambda URLs AWS_IAM, ALB origin header, voice switching proven). Details in CHANGELOG.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
@@ -75,6 +74,7 @@ CONTRADICTION: the lecture badge showed `cs-nathanael-ng` while `client/env/stag
 
 ## Queue and Scaling Contract
 
+- RISK (2026-11-20): all sites share one GPU pool; TTS/training-site fast switches can take a lecture GPU (DECISIONS).
 - Selecting a voice PREPARES it. TTS, Faculty and lecture opening run one preflight: route to a
   resident free slot, else reassign a truly idle worker, else scale.
 - Guard 1 (fleet in motion): never scale on selection while any live reassignment, pending boot or
