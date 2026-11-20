@@ -1,7 +1,8 @@
 # Active TODO
 
-- [ ] Voice Studio (2026-11-21, d1b5ff9, all deployed): switch training + studio email to the official lkcmedicine
-  mailbox when its credentials exist (now a personal Gmail). Browser-check the calendars, continuous recorder on a real
+- [ ] Voice Studio (2026-11-21, d1b5ff9, all deployed): switch training + studio email to the lkcmedicine Office 365
+  mailbox (admin reportedly enabled SMTP AUTH; see BUGS) — EMAIL_HOST=smtp.office365.com, then test-send to an
+  @assoc.main address. Browser-check the calendars, continuous recorder on a real
   mic (30 min take), and fixtures (@voice-studio.test, password with the owner) on https://d271zk8d8curic.cloudfront.net.
 - [ ] Voice Studio (2026-11-20): Entra redirect URIs done (verified 15:xx SGT). Next: signed-in end-to-end run on
   https://d271zk8d8curic.cloudfront.net (publish recording session -> pick -> record in session -> queue -> review ->
