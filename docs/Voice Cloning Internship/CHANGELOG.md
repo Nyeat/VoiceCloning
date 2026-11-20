@@ -2556,3 +2556,14 @@
 - Later 11-21: deploy-worker dev + staging (d1b5ff9; gateway has STUDIO_SESSION_PUBLIC_KEY, all healthy). Studio email ON:
   both Lambdas got the training worker's EMAIL_USER/PASS/FROM + EMAIL_HOST=smtp.gmail.com:587 (sender is a personal
   Gmail, same as training). Not test-sent; check the job "Emails" panel on the first real event.
+
+## 2026-11-21 — Own-GPU switch without waiting; saved voice names on Test your voice (74722fd, NOT deployed)
+
+- Coordinator (training site, ownerKey): selecting a voice already on a GPU records that GPU as the account's
+  (OWNER row), however it was loaded (message, first GPU, prewarm). The account's own GPU switches to its next pick
+  as soon as nothing runs/queues on it (60 s quiet + 10 min rule dropped for it). Own GPU busy -> the pick waits
+  (`own-gpu-await-idle`, WARMING) and never adds a second GPU. Files: lambda/model-coordinator/decision.js, index.js.
+- Client: LivePage `voiceNameLabel` — status line, composer footer, TTS input header and result labels show the
+  saved name (e.g. "francisco") instead of cs-…_7. Name save/list backend unchanged (already worked).
+- Tests: coordinator 82/82, lambda 419/419, client 560/560, client build OK. Not deployed (AWS session token
+  expired); not live-tested.
