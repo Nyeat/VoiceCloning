@@ -710,5 +710,9 @@ training + gateway (`idle-threshold-not-met`), dev Lambda has `GPU_GATEWAY_ACTIV
 - Lambda env (in `.env.deployment*`): STUDIO_SUPERUSERS, STUDIO_PUBLIC_URL/RECORD_URL, STUDIO_SITE_ORIGINS,
   STUDIO_ALLOWED_EMAIL_DOMAINS (empty = any), STUDIO_HOME_DOMAINS, TTS_SITE_ORIGINS (+ studio origin), EMAIL_* (unset).
   Gateway gets STUDIO_* via `deploy-worker.ps1` (synced keys). `package-function-url.ps1` must include `studio/`.
+- Email sign-in (2026-11-21): STUDIO_SESSION_PRIVATE_KEY lives ONLY in the live Lambda env (dev + staging, set
+  2026-11-21; lost = regenerate pair, all sessions end); STUDIO_SESSION_PUBLIC_KEY in `.env.deployment*` and the gateway
+  templates (synced by deploy-worker). Fixtures: `STUDIO_FIXTURE_PASSWORD=... node lambda/scripts/seed-studio-fixtures.mjs
+  --env staging [--remove]`.
 - Workers need 25c1673+ (headless runs, per-voice pronunciation); staging ASG image LT v43 has it. Coordinator zip
   uploads to Seoul occasionally drop: rerun with `--cli-read-timeout 300`.

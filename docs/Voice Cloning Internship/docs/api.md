@@ -205,7 +205,9 @@ Notes:
 
 Signed-in (any Microsoft account on the studio site). Lecturer routes: `GET me` (jobs + ETA, recording sessions,
 recording access, test slot), `POST submissions` (needs consent + an open recording session),
-`POST submissions/:id/presign|submit|cancel|feedback`, `POST slots/:id/claim|release` (recording sessions),
+`POST submissions/:id/presign|submit|cancel|feedback` (feedback: rating, likeness, issues[], words, comment),
+`POST slots/:id/claim|release|move` (recording sessions; one per person, move = change), unauthenticated
+`POST auth/register|login` (email + password -> `{ token }`, sent as X-VCS-Entra-Token; super users exempt from consent),
 `GET voices/:voice/access`, `GET|POST|DELETE voices/:voice/pronunciations`, `POST voices/:voice/pronunciations/apply`.
 Super users (`admin/...`): `GET overview`, `POST tick`, `POST jobs/:id/review|retry|cancel|request-recordings`,
 `POST slots` (kind recording|test), `PUT|DELETE slots/:id`, `POST slots/publish`, `POST|PUT|DELETE superusers[/:email]`.

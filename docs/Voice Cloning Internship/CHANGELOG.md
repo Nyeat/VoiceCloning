@@ -2533,3 +2533,23 @@
 - Deployed both Lambdas, both studio clients, workers on dev + staging fixed GPU (staging SSM reported a D-Bus reset
   but services restarted 08:18 UTC, healthy, .env has the studio keys). Tests: lambda 410, gateway 190, client 556,
   worker 27. Not tested with a real personal/Gmail account sign-in yet.
+
+## 2026-11-21 — Voice Studio: calendars, one session per person, email sign-in, continuous reading (2d37a57)
+
+- Calendars (client/src/studio/SlotCalendar.jsx, slotCalendar.js): super users add/edit sessions + test slots on a
+  month view + day timeline; lecturers book ONE recording session on a calendar, Change it (POST slots/:id/move,
+  atomic) or cancel; a second booking is refused. Console Overview now lists booked recording sessions.
+- Email + password sign-in (any address): POST /api/studio/auth/register|login, accounts in S3 studio/accounts.json
+  (scrypt). Ed25519 session tokens (lambda/shared/studioSession.js, gateway copy + parity test); private key only on
+  the live Lambdas, public key in .env.deployment* and gateway templates. Password accounts are never super users,
+  cannot register NTU, @voice-studio.test or addresses with Microsoft studio work.
+- BUG FIXED: client never sent the consent record, so every lecturer submission was refused (400). Super users now
+  record without consent.
+- Recording: one continuous take for the whole script (swipe/arrows/keys, Pause/Resume, Finish = one 32 kHz WAV).
+- FAQ glowing call-out on the sign-in page + header link. Feedback: stars, likeness, issue chips, words, comment.
+- Fixtures: `fixture: true` jobs/slots (@voice-studio.test) never dispatch/warm the GPU, never block real slots, are
+  hidden from real lecturers. Seeded 7 staging accounts (lambda/scripts/seed-studio-fixtures.mjs).
+- Deployed: dev + staging Lambdas (session keys set), both studio clients. NOT deployed: gateway (both GPU hosts
+  stopped) — password accounts cannot use "Chat with your voice" until deploy-worker runs; read-aloud works.
+- Tests: lambda 419, gateway 191, client 560; staging API smoke of all 7 fixture flows (login, me, one-booking
+  refusal, change). Not browser-tested (Chrome extension not connected); recorder not tried on a real mic.

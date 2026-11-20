@@ -1,5 +1,8 @@
 # Active TODO
 
+- [ ] Voice Studio (2026-11-21, 2d37a57): run deploy-worker dev+staging next time the GPUs are up (gateway needs
+  STUDIO_SESSION_PUBLIC_KEY for password-account chat). Browser-check the calendars, continuous recorder on a real
+  mic (30 min take), and fixtures (@voice-studio.test, password with the owner) on https://d271zk8d8curic.cloudfront.net.
 - [ ] Voice Studio (2026-11-20): Entra redirect URIs done (verified 15:xx SGT). Next: signed-in end-to-end run on
   https://d271zk8d8curic.cloudfront.net (publish recording session -> pick -> record in session -> queue -> review ->
   allocate test slot -> preload/reminder -> test -> feedback). Canary LT v43 on a fresh boot. SMTP mailbox pending.

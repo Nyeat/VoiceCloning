@@ -326,3 +326,13 @@ These live in runtime configuration and will not appear in any branch diff:
   STUDIO_SUPERUSERS (lkc-digitallearning@ntu.edu.sg, cs-tengyu.liu@assoc.main.ntu.edu.sg) plus in-app additions.
 - Pronunciation is per voice: sounds-like respellings per request; ARPAbet joins the hot dictionary when the voice is
   applied (engine reload). Email via SMTP from the Lambda, pending an NTU IT mailbox; every event is also in-app.
+
+## 2026-11-21 — Voice Studio: email + password accounts and test fixtures
+
+- Owner wants "any Gmail, we don't care": studio-only email + password accounts beside Microsoft. Addresses are not
+  verified, so they are never super users and cannot claim NTU or Microsoft-used addresses. Tokens are Ed25519
+  (signer key only on the Lambda; verifiers incl. the gateway hold the public key, safe in git). No email
+  verification or reset yet (needs SMTP).
+- Test fixtures are first-class (`fixture: true`, @voice-studio.test): shown in the UI, never touch the GPU or
+  real lecturers, so the live staging state can hold them safely.
+- Guided reading is one continuous recording (pause allowed), uploaded as one file, not per-section fragments.

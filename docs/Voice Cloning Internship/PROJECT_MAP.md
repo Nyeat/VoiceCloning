@@ -40,7 +40,7 @@
   - Scoring now prefers clean names/transcripts and ideal clip length (~3-9s).
 - `src/lib/pronunciationCsv.js` — Pronunciation dictionary CSV import/export.
 - `vite.config.js` — dev server + proxy rules. `src/auth/tokenExpiry.js` — refresh expiring ID tokens.
-- `client/src/studio/` + `lambda/studio/` — Voice Studio (build `studio`; `record` only forwards): sessions, queue, QC, test slots, /api/studio.
+- `client/src/studio/` + `lambda/studio/` — Voice Studio (build `studio`; `record` only forwards): sessions, queue, QC, test slots, /api/studio. Calendars `SlotCalendar.jsx`; email sign-in `studio/accounts.js`, `shared/studioSession.js`.
 ## Lambda REST Backend (`lambda/`)
 
 - `index.js`
