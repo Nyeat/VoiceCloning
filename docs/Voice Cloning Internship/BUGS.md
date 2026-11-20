@@ -23,7 +23,9 @@
   them. Needs an NTU Office 365 sender (shared mailbox + SMTP AUTH, or Graph Mail.Send) from NTU IT.
   2026-11-21: Voice Studio now uses the same Gmail sender, so it has the same gap (incl. super user
   cs-tengyu.liu@assoc.main...). Owner says admin enabled the lkcmedicine mailbox (SMTP AUTH): not yet tried —
-  needs its address/app password on the worker .env + fresh AWS keys, then copy to both Lambdas and test-send.
+  needs its address/app password on the worker .env, then copy to both Lambdas and test-send. Checked 11-21:
+  no lkcmedicine sender on either GPU host, either Lambda, Secrets Manager or SES (SES sandbox, identities
+  unverified) — the credentials must come from the admin.
 - Open 2026-11-19: Live MC (d32nzk2gacfhag) now has a hand-added CloudFront `/api/*` behaviour, so
   `scripts/test-staging-mc.mjs` fails its "no admin API" check. Exposure equals the GI site (instance/status,
   instance/start, voice-profile/active answer unsigned on both); decide whether to remove it or update the test.
