@@ -70,6 +70,22 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   const bob = 'bob@ntu.edu.sg';
   const boss = 'boss@ntu.edu.sg';
 
+  // Recording sessions: super user publishes open sessions; lecturers sign in and pick one.
+  const carol = 'carol@ntu.edu.sg';
+  const at0 = (m) => new Date(T0 + m * MIN).toISOString();
+  assert.equal((await h.call(carol, 'POST', 'submissions', { label: 'x', consent: { accepted: true, version: 'v' } })).status, 403, 'no session, no recording');
+  for (let i = 0; i < 2; i += 1) {
+    assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100) })).status, 200);
+  }
+  const sessions = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
+  assert.equal((await h.call(alice, 'POST', `slots/${sessions[0].id}/claim`, {})).status, 400, 'name required');
+  const claimed = await h.call(alice, 'POST', `slots/${sessions[0].id}/claim`, { name: 'Alice' });
+  assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
+  assert.equal(claimed.body.recording.allowed, true);
+  assert.equal((await h.call(bob, 'POST', `slots/${sessions[0].id}/claim`, { name: 'Bob' })).status, 409, 'one person per session');
+  assert.equal((await h.call(bob, 'POST', `slots/${sessions[1].id}/claim`, { name: 'Bob' })).status, 200);
+  assert.ok(h.sent.some((m) => m.to.includes(alice) && /recording session/u.test(m.subject)));
+
   const a1 = await submit(h, alice, 'Lecture voice');
   assert.equal(h.started.length, 1, 'first job dispatched straight away');
   assert.equal(h.started[0].config.headless, true);
@@ -119,33 +135,28 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   assert.equal(after.jobs.find((j) => j.id === a1).status, 'review');
   assert.equal(h.started.find((s) => s.expName === retry.expName).config.sourceExpName, 'alice');
 
-  // Approve -> lecturer emailed. Super user adds slots (drafts), publishes; Bob picks the open one.
+  // Approve -> lecturer emailed. Super user allocates GPU test slots (no overlaps) and publishes.
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${a1}/review`, { decision: 'approve' })).status, 200);
   assert.ok(h.sent.some((m) => m.to.includes(alice) && /passed quality control/u.test(m.subject)));
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${b1}/review`, { decision: 'approve' })).status, 200);
   const at = (m) => new Date(T0 + m * MIN).toISOString();
-  const added = await h.call(boss, 'POST', 'admin/slots', { start: at(300), end: at(360), assigneeEmail: alice, assigneeName: 'Alice' });
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(300), end: at(360) })).status, 400, 'test slot needs a person');
+  const added = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(300), end: at(360), assigneeEmail: alice, assigneeName: 'Alice' });
   assert.equal(added.status, 200, JSON.stringify(added.body));
-  const clash = await h.call(boss, 'POST', 'admin/slots', { start: at(330), end: at(400) });
+  const clash = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(330), end: at(400), assigneeEmail: bob });
   assert.equal(clash.status, 409);
   assert.equal(clash.body.code, 'SLOT_CLASH');
-  assert.equal((await h.call(boss, 'POST', 'admin/slots', { start: at(360), end: at(420) })).status, 200);
-  assert.equal((await h.call(bob, 'GET', 'me')).body.slots.length, 0, 'drafts are invisible to lecturers');
+  assert.equal((await h.call(bob, 'GET', 'me')).body.mySlot, null, 'drafts are invisible to lecturers');
   const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
   assert.equal(published.status, 200, JSON.stringify(published.body));
-  assert.deepEqual(published.body.published.map((p) => p.email), [alice]);
-  const bobView = (await h.call(bob, 'GET', 'me')).body;
-  assert.deepEqual(bobView.slots.map((row) => [row.open, row.name]), [[false, 'Alice'], [true, '']]);
-  const open = bobView.slots.find((row) => row.open);
-  const picked = await h.call(bob, 'POST', `slots/${open.id}/claim`, { name: 'Bob' });
-  assert.equal(picked.status, 200, JSON.stringify(picked.body));
-  assert.equal(picked.body.mySlot.id, open.id);
-  assert.equal((await h.call(alice, 'POST', `slots/${open.id}/claim`, {})).status, 409);
-  // Editing Alice's slot by a super user keeps it a draft until published again.
-  const aliceSlot = published.body.slots.find((slot) => slot.assigneeEmail === alice);
+  assert.deepEqual(published.body.published.map((p) => [p.email, p.kind]), [[alice, 'slotBooked']]);
+  // Editing Alice's test slot keeps it a draft until published again; republishing emails the change.
+  const aliceSlot = published.body.slots.find((slot) => slot.assigneeEmail === alice && slot.kind === 'test');
   assert.equal((await h.call(boss, 'PUT', `admin/slots/${aliceSlot.id}`, { start: at(290), end: at(360) })).status, 200);
   const republished = await h.call(boss, 'POST', 'admin/slots/publish', {});
   assert.ok(republished.body.published.some((p) => p.email === alice && p.kind === 'slotBooked'));
+  // Recording is closed again once the session is over.
+  assert.equal((await h.call(bob, 'GET', 'me')).body.recording.allowed, false);
 
   // Alice's voice is visible but not usable before her slot.
   const voice = retry.expName;
@@ -154,6 +165,7 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   h.advance(290 - 124 - 10); // 10 min before Alice's slot: GPU wanted, her voice preloaded
   await h.call(boss, 'POST', 'admin/tick');
   assert.deepEqual(h.preloaded, [voice]);
+  assert.ok(h.sent.some((m) => m.to.includes(alice) && /starts soon/u.test(m.subject)), 'reminder as the GPU warms');
   h.advance(11);
   // Super user is locked out of testing while Alice's slot runs.
   assert.equal((await h.call(boss, 'GET', `voices/${voice}/access`)).body.reason, 'slot-in-use');

@@ -17,6 +17,8 @@ import { GpuStatusProvider } from '@/lib/gpuStatus.jsx';
 import { cn } from '@/lib/utils';
 import LivePage from '@/pages/LivePage.jsx';
 import PronunciationPanel from './PronunciationPanel.jsx';
+import { RecordWorkspace } from './RecordApp.jsx';
+import { FaqPage } from './ConsentAndFaq.jsx';
 import {
   addSlot, addSuperuser, cancelJob, claimSlot, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
   publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob, runTick, sendFeedback, sgtToIso,
@@ -395,7 +397,7 @@ function timeOf(value) {
   return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
 }
 
-function SlotEditor({ initial, people, onSave, onCancel, saveLabel }) {
+function SlotEditor({ kind = 'test', initial, people, onSave, onCancel, saveLabel }) {
   const [date, setDate] = useState(initial?.start ? SGT_DATE(initial.start) : SGT_DATE(Date.now() + 24 * 3600_000));
   const [time, setTime] = useState(initial?.start ? timeOf(initial.start) : '13:00');
   const [minutes, setMinutes] = useState(initial ? Math.round((Date.parse(initial.end) - Date.parse(initial.start)) / 60000) : 60);
@@ -407,7 +409,7 @@ function SlotEditor({ initial, people, onSave, onCancel, saveLabel }) {
   return (
     <form
       className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[auto_auto_auto_minmax(0,1fr)_auto]"
-      onSubmit={(event) => { event.preventDefault(); onSave({ start, end, assigneeEmail: person.trim(), assigneeName: (known?.name || name).trim() }); }}
+      onSubmit={(event) => { event.preventDefault(); onSave({ kind, start, end, assigneeEmail: person.trim(), assigneeName: (known?.name || name).trim() }); }}
     >
       <label className="text-xs font-medium text-slate-600">Date (SGT)
         <input type="date" required value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" />
@@ -424,7 +426,7 @@ function SlotEditor({ initial, people, onSave, onCancel, saveLabel }) {
         Name
         <div className="mt-1 flex gap-2">
           <select value={known ? person : person ? '__typed' : ''} onChange={(event) => { const value = event.target.value; if (value !== '__typed') { setPerson(value); setName(''); } else setPerson(' '); }} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-sm">
-            <option value="">Open — lecturers pick it</option>
+            <option value="">{kind === 'recording' ? 'Open — a lecturer picks it' : 'Choose a person…'}</option>
             {people.map((entry) => (
               <option key={entry.email} value={entry.email}>{entry.name || entry.email}{entry.approvedVoices.length ? ` · ${entry.approvedVoices.length} approved voice(s)` : ' · not approved yet'}</option>
             ))}
@@ -436,20 +438,38 @@ function SlotEditor({ initial, people, onSave, onCancel, saveLabel }) {
         </div>
       </div>
       <div className="flex items-end gap-2">
-        <Button type="submit" variant="dark" disabled={!start}>{saveLabel}</Button>
+        <Button type="submit" variant="dark" disabled={!start || (kind === 'test' && !person.trim())}>{saveLabel}</Button>
         {onCancel && <Button variant="ghost" onClick={onCancel}>Cancel</Button>}
       </div>
     </form>
   );
 }
 
-function Schedule({ overview, onAction }) {
+const SCHEDULE_COPY = {
+  recording: {
+    title: 'Add a recording session',
+    help: 'In-person sessions (no GPU). Leave the name open so a lecturer can pick it, or put someone in it. Sessions may run in parallel. New and edited sessions stay drafts until you publish.',
+    footer: 'Lecturers sign in and pick one open session each. The recording page unlocks for them only during it.',
+    list: 'Upcoming recording sessions',
+    open: 'Open — lecturers can pick',
+  },
+  test: {
+    title: 'Allocate a GPU test slot',
+    help: 'After QC, give a lecturer GPU time to test their voices. One person per slot, never overlapping. New and edited slots stay drafts until you publish.',
+    footer: 'Publishing emails the person their time. The GPU starts 15 minutes before, loads their voice and emails them that it starts soon.',
+    list: 'Upcoming test slots',
+    open: '—',
+  },
+};
+
+function Schedule({ overview, onAction, kind = 'test' }) {
+  const copy = SCHEDULE_COPY[kind];
   const [params] = useSearchParams();
   const [editing, setEditing] = useState('');
   const [confirmDelete, setConfirmDelete] = useState('');
   const now = Date.parse(overview.now);
   const prefill = params.get('person') || '';
-  const slots = overview.slots.filter((slot) => Date.parse(slot.end) > now);
+  const slots = overview.slots.filter((slot) => (slot.kind === 'recording' ? 'recording' : 'test') === kind && Date.parse(slot.end) > now);
   const days = [...new Set(slots.map((slot) => SGT_DATE(slot.start)))];
   const drafts = overview.draftCount || 0;
 
@@ -458,8 +478,8 @@ function Schedule({ overview, onAction }) {
       <Card className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-slate-900">Add a test slot</h2>
-            <p className="mt-1 text-sm text-slate-600">Any day and time. Pick a lecturer, or leave it open for lecturers to choose. New and edited slots stay drafts until you publish.</p>
+            <h2 className="font-semibold text-slate-900">{copy.title}</h2>
+            <p className="mt-1 text-sm text-slate-600">{copy.help}</p>
           </div>
           <Button variant={drafts ? 'success' : 'outline'} size="lg" disabled={!drafts} onClick={() => onAction(publishSlots)}>
             Publish {drafts ? `${drafts} change${drafts === 1 ? '' : 's'}` : '(nothing to publish)'}
@@ -467,19 +487,20 @@ function Schedule({ overview, onAction }) {
         </div>
         <div className="mt-4">
           <SlotEditor
-            key={prefill}
+            key={`${kind}-${prefill}`}
+            kind={kind}
             initial={prefill ? { assigneeEmail: prefill } : null}
             people={overview.people || []}
-            saveLabel="Add slot"
+            saveLabel={kind === 'recording' ? 'Add session' : 'Add slot'}
             onSave={(slot) => onAction(() => addSlot(slot))}
           />
         </div>
-        <p className="mt-3 text-xs text-slate-500">Publishing emails each person whose slot is new or changed. The GPU starts 15 minutes before a slot and loads their voice; slots can never overlap.</p>
+        <p className="mt-3 text-xs text-slate-500">{copy.footer}</p>
       </Card>
 
       <Card>
         <div className="border-b border-slate-200 px-5 py-3">
-          <h2 className="font-semibold text-slate-900">Upcoming slots</h2>
+          <h2 className="font-semibold text-slate-900">{copy.list}</h2>
         </div>
         {days.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No upcoming slots yet.</p> : days.map((day) => {
           const daySlots = slots.filter((slot) => SGT_DATE(slot.start) === day);
@@ -502,6 +523,7 @@ function Schedule({ overview, onAction }) {
                   <li key={slot.id} className="rounded-xl border border-slate-200 px-3 py-2">
                     {editing === slot.id ? (
                       <SlotEditor
+                        kind={kind}
                         initial={slot}
                         people={overview.people || []}
                         saveLabel="Save"
@@ -512,7 +534,7 @@ function Schedule({ overview, onAction }) {
                       <div className="flex flex-wrap items-center gap-3 text-sm">
                         <span className="w-36 font-medium text-slate-800">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</span>
                         <span className="min-w-0 flex-1 text-slate-700">
-                          {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}</span></> : <span className="text-sky-700">Open — lecturers can pick</span>}
+                          {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}</span></> : <span className="text-sky-700">{copy.open}</span>}
                         </span>
                         <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', slot.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>
                           {slot.status === 'draft' ? 'Draft' : 'Published'}
@@ -701,7 +723,9 @@ function Superusers({ overview, onAction }) {
 
 const SUPER_NAV = [
   ['/', 'Overview', ClipboardCheck],
-  ['/schedule', 'Schedule', CalendarClock],
+  ['/sessions', 'Recording sessions', CalendarClock],
+  ['/schedule', 'Test slots', CalendarClock],
+  ['/record', 'Record a voice', Mic2],
   ['/test', 'Test voices', Mic2],
   ['/feedback', 'Feedback', MessageSquareText],
   ['/superusers', 'Super users', Users],
@@ -769,7 +793,9 @@ function SuperuserConsole() {
             <Routes>
               <Route path="/" element={<Overview overview={data} onAction={onAction} />} />
               <Route path="/review/:jobId" element={<JobDetail overview={data} onAction={onAction} />} />
-              <Route path="/schedule" element={<Schedule overview={data} onAction={onAction} />} />
+              <Route path="/schedule" element={<Schedule overview={data} onAction={onAction} kind="test" />} />
+              <Route path="/sessions" element={<Schedule key="recording" overview={data} onAction={onAction} kind="recording" />} />
+              <Route path="/record" element={<RecordWorkspace embedded />} />
               <Route path="/test" element={<SuperTest overview={data} />} />
               <Route path="/feedback" element={<FeedbackList overview={data} />} />
               <Route path="/superusers" element={<Superusers overview={data} onAction={onAction} />} />
@@ -839,12 +865,11 @@ function lecturerLine(job, now) {
 
 function MyVoicesStatus({ jobs, now }) {
   const shown = jobs.filter((job) => !['uploading', 'cancelled'].includes(job.status));
-  const recordUrl = String(import.meta.env.VITE_RECORD_APP_URL || '').replace(/\/+$/u, '');
   return (
     <Card>
       <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
         <h2 className="font-semibold text-slate-900">Your voices</h2>
-        {recordUrl && <a href={recordUrl} className="text-xs font-semibold text-primary hover:underline">Record another →</a>}
+        <span className="text-xs text-slate-500">To record another, book a recording session.</span>
       </div>
       {shown.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">Nothing submitted yet.</p> : (
         <ul className="divide-y divide-slate-100">
@@ -862,18 +887,23 @@ function MyVoicesStatus({ jobs, now }) {
   );
 }
 
-function SlotTable({ me, onChanged }) {
+function SessionTable({ me, onChanged }) {
   const auth = useAuth();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [day, setDay] = useState('all');
-  const days = [...new Set(me.slots.map((slot) => SGT_DATE(slot.start)))];
-  const rows = me.slots.filter((slot) => day === 'all' || SGT_DATE(slot.start) === day);
+  const [picking, setPicking] = useState('');
+  const [name, setName] = useState(auth.user?.name || '');
+  const sessions = me.sessions || [];
+  const days = [...new Set(sessions.map((slot) => SGT_DATE(slot.start)))];
+  const rows = sessions.filter((slot) => day === 'all' || SGT_DATE(slot.start) === day);
+  const hasBooking = sessions.some((slot) => slot.mine);
   async function act(id, call) {
     setBusy(id);
     setError('');
     try {
       onChanged(await call());
+      setPicking('');
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -884,8 +914,8 @@ function SlotTable({ me, onChanged }) {
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-3">
         <div>
-          <h2 className="font-semibold text-slate-900">Test times</h2>
-          <p className="text-xs text-slate-500">Published by the Voice Studio team. Pick an open time; during it the GPU is yours.</p>
+          <h2 className="font-semibold text-slate-900">Recording sessions</h2>
+          <p className="text-xs text-slate-500">Pick one open session. The recording page opens for you during it.</p>
         </div>
         <select value={day} onChange={(event) => setDay(event.target.value)} className="h-9 rounded-lg border border-slate-300 px-2 text-sm" aria-label="Filter by date">
           <option value="all">All dates</option>
@@ -893,7 +923,7 @@ function SlotTable({ me, onChanged }) {
         </select>
       </div>
       {error && <Notice tone="error" className="mx-5 mt-3">{error}</Notice>}
-      {rows.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No times are published yet. We will email you when there are.</p> : (
+      {rows.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No sessions are published yet — please check back soon.</p> : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-[0.06em] text-slate-500">
@@ -901,15 +931,33 @@ function SlotTable({ me, onChanged }) {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((slot) => (
-                <tr key={slot.id} className={slot.mine ? 'bg-emerald-50' : ''}>
-                  <td className="px-5 py-2.5 font-medium text-slate-800">{formatSgt(slot.start).split(',')[0]} {SGT_DATE(slot.start)}</td>
-                  <td className="px-3 py-2.5">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</td>
-                  <td className="px-3 py-2.5">{slot.mine ? <b className="text-emerald-700">You</b> : slot.open ? <span className="text-sky-700">Open</span> : slot.name}</td>
-                  <td className="px-3 py-2.5 text-right">
-                    {slot.open && !me.mySlot && <Button size="sm" variant="dark" disabled={busy === slot.id} onClick={() => act(slot.id, () => claimSlot(slot.id, auth.user?.name || ''))}>Pick this time</Button>}
-                    {slot.mine && Date.parse(slot.start) > Date.now() && <Button size="sm" variant="ghost" disabled={busy === slot.id} onClick={() => act(slot.id, () => releaseSlot(slot.id))}>Release</Button>}
-                  </td>
-                </tr>
+                <React.Fragment key={slot.id}>
+                  <tr className={slot.mine ? 'bg-emerald-50' : ''}>
+                    <td className="px-5 py-2.5 font-medium text-slate-800">{formatSgt(slot.start).split(',')[0]} {SGT_DATE(slot.start)}</td>
+                    <td className="px-3 py-2.5">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</td>
+                    <td className="px-3 py-2.5">{slot.mine ? <b className="text-emerald-700">You</b> : slot.open ? <span className="text-sky-700">Open</span> : slot.name}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      {slot.open && !hasBooking && <Button size="sm" variant="dark" onClick={() => setPicking(picking === slot.id ? '' : slot.id)}>Pick</Button>}
+                      {slot.mine && Date.parse(slot.start) > Date.now() && <Button size="sm" variant="ghost" disabled={busy === slot.id} onClick={() => act(slot.id, () => releaseSlot(slot.id))}>Release</Button>}
+                    </td>
+                  </tr>
+                  {picking === slot.id && (
+                    <tr className="bg-slate-50">
+                      <td colSpan={4} className="px-5 py-3">
+                        <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => { event.preventDefault(); act(slot.id, () => claimSlot(slot.id, name.trim())); }}>
+                          <label className="text-xs font-medium text-slate-600">Your name
+                            <input required value={name} onChange={(event) => setName(event.target.value)} maxLength={80} className="mt-1 block h-9 w-56 rounded-lg border border-slate-300 px-2 text-sm" />
+                          </label>
+                          <label className="text-xs font-medium text-slate-600">Email (your sign-in)
+                            <input value={auth.user?.email || me.email} readOnly className="mt-1 block h-9 w-64 rounded-lg border border-slate-200 bg-slate-100 px-2 text-sm text-slate-600" />
+                          </label>
+                          <Button type="submit" variant="success" disabled={busy === slot.id || !name.trim()}>Confirm this session</Button>
+                          <Button variant="ghost" onClick={() => setPicking('')}>Cancel</Button>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
@@ -924,73 +972,87 @@ function LecturerHome({ me: initialMe, refresh }) {
   const [me, setMe] = useState(initialMe);
   useEffect(() => setMe(initialMe), [initialMe]);
   const ready = me.jobs.filter((job) => job.status === 'ready');
-  const active = me.activeSlot && Date.parse(me.activeSlot.end) > now ? me.activeSlot : null;
-  const upcoming = me.mySlot && !active ? me.mySlot : null;
+  const submitted = me.jobs.filter((job) => !['uploading', 'cancelled'].includes(job.status));
+  const testing = me.activeSlot && Date.parse(me.activeSlot.end) > now ? me.activeSlot : null;
+  const testSlot = me.mySlot && !testing ? me.mySlot : null;
+  const recording = me.recording || {};
+  const recordingOpen = recording.allowed && recording.reason === 'in-session';
+  const booked = recording.slot && Date.parse(recording.slot.end) > now ? recording.slot : null;
   const voiceNames = ready.map((job) => job.voiceName).filter(Boolean);
   const [feedbackJob, setFeedbackJob] = useState('');
   const feedbackTarget = ready.find((job) => job.id === feedbackJob) || ready[0];
 
-  // Re-read at the slot boundary so the tester opens/closes on time.
+  // Re-read at session/slot boundaries so pages unlock and lock on time.
   useEffect(() => {
-    const boundary = active ? Date.parse(active.end) : upcoming ? Date.parse(upcoming.start) : 0;
-    if (!boundary) return undefined;
-    const id = window.setTimeout(refresh, Math.max(1000, boundary - Date.now() + 1500));
+    const times = [testing?.end, testSlot?.start, booked?.start, booked?.end].filter(Boolean).map((value) => Date.parse(value)).filter((value) => value > Date.now());
+    if (times.length === 0) return undefined;
+    const id = window.setTimeout(refresh, Math.max(1000, Math.min(...times) - Date.now() + 1500));
     return () => window.clearTimeout(id);
-  }, [active, upcoming, refresh]);
-  // Statuses (training, quality check) refresh on their own.
+  }, [testing, testSlot, booked, refresh]);
   useEffect(() => {
     const id = window.setInterval(refresh, 60_000);
     return () => window.clearInterval(id);
   }, [refresh]);
 
+  let hero = null;
+  if (testing) {
+    hero = (
+      <>
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-white">
+          <CheckCircle2 size={22} />
+          <div className="flex-1">
+            <p className="text-lg font-semibold">The GPU is yours until {formatSgt(testing.end, { withDate: false })} SGT</p>
+            <p className="text-sm text-white/85">
+              {voiceNames.length > 1 ? 'Switch between your voices — the GPU loads the one you pick straight away. ' : ''}
+              Chat with your voice, or switch to “Read text aloud” and type anything for it to say.
+            </p>
+          </div>
+        </div>
+        {voiceNames.length === 0
+          ? <Notice tone="warn">None of your voices has passed the quality check yet, so there is nothing to test in this slot.</Notice>
+          : <TestBench voiceNames={voiceNames} canApply header={null} />}
+      </>
+    );
+  } else if (recordingOpen) {
+    hero = <RecordWorkspace embedded sessionEnd={recording.slot?.end} onSubmitted={(view) => setMe(view)} />;
+  } else {
+    let title = '';
+    let body = null;
+    if (testSlot) {
+      title = 'Your voice is ready — your test time is booked';
+      body = <><p className="mt-2 text-slate-600"><b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}).</p><p className="mt-1 text-sm text-slate-500">We email you just before it starts; the GPU warms up with your voice and this page opens the tester automatically.</p></>;
+    } else if (ready.length > 0) {
+      title = 'Your voice passed quality control';
+      body = <p className="mt-2 text-slate-600">Our team will allocate your test time and email you. It will show here too.</p>;
+    } else if (submitted.length > 0) {
+      title = 'Your voice is on its way';
+      body = <p className="mt-2 text-slate-600">Follow its training below. We email you when it passes the quality check, with your test time.</p>;
+    } else if (booked) {
+      title = 'Your recording session is booked';
+      body = <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">The recording page unlocks here when it starts. Meanwhile, read the FAQ and consent form.</p></>;
+    } else {
+      title = 'Book a recording session';
+      body = <p className="mt-2 text-slate-600">Pick an open time below. During your session this page becomes your recording studio.</p>;
+    }
+    hero = (
+      <Card className="p-6 text-center sm:p-8">
+        <CalendarClock size={30} className="mx-auto text-slate-400" />
+        <h1 className="mt-3 text-2xl font-semibold text-slate-900">{title}</h1>
+        {body}
+        <a href="/faq" target="_blank" rel="noreferrer" className="mt-4 inline-block text-sm font-semibold text-primary hover:underline">Read the FAQ and consent form</a>
+      </Card>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Header product="Voice Studio" />
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
-        {active ? (
-          <>
-            <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-white">
-              <CheckCircle2 size={22} />
-              <div className="flex-1">
-                <p className="text-lg font-semibold">The GPU is yours until {formatSgt(active.end, { withDate: false })} SGT</p>
-                <p className="text-sm text-white/85">
-                  {voiceNames.length > 1 ? 'Switch between your voices in the panel — the GPU loads the one you pick straight away. ' : ''}
-                  Chat with your voice, or switch to “Read text aloud” and type anything for it to say.
-                </p>
-              </div>
-            </div>
-            {voiceNames.length === 0 ? <Notice tone="warn">None of your voices has passed the quality check yet, so there is nothing to test in this slot.</Notice> : (
-              <TestBench voiceNames={voiceNames} canApply header={null} />
-            )}
-          </>
-        ) : (
-          <Card className="p-6 text-center sm:p-8">
-            <CalendarClock size={30} className="mx-auto text-slate-400" />
-            {upcoming ? (
-              <>
-                <h1 className="mt-3 text-2xl font-semibold text-slate-900">Your test time is booked</h1>
-                <p className="mt-2 text-slate-600"><b>{formatRange(upcoming.start, upcoming.end)}</b> ({relativeFromNow(upcoming.start, now)}).</p>
-                <p className="mt-1 text-sm text-slate-500">Your voice is loaded just before it starts, and this page opens the tester automatically.</p>
-              </>
-            ) : ready.length > 0 ? (
-              <>
-                <h1 className="mt-3 text-2xl font-semibold text-slate-900">Your voice is ready — pick a test time</h1>
-                <p className="mt-2 text-slate-600">Choose an open time below.</p>
-              </>
-            ) : (
-              <>
-                <h1 className="mt-3 text-2xl font-semibold text-slate-900">Your voice is on its way</h1>
-                <p className="mt-2 text-slate-600">You can follow its training below. We email you when it passes the quality check.</p>
-              </>
-            )}
-          </Card>
-        )}
-
-        <div className="grid gap-5 xl:grid-cols-2">
-          <MyVoicesStatus jobs={me.jobs} now={now} />
-          <SlotTable me={me} onChanged={setMe} />
+        {hero}
+        <div className={cn('grid gap-5', submitted.length > 0 && 'xl:grid-cols-2')}>
+          {submitted.length > 0 && <MyVoicesStatus jobs={me.jobs} now={now} />}
+          {!recordingOpen && !testing && <SessionTable me={me} onChanged={setMe} />}
         </div>
-
         {feedbackTarget && (
           <div className="space-y-2">
             {ready.length > 1 && (
@@ -1029,16 +1091,17 @@ export default function StudioApp() {
     <TooltipProvider>
       <PostLoginRedirectHandler />
       <Routes>
+        <Route path="/faq" element={<FaqPage />} />
         <Route
           path="/login"
           element={(
             <SignInScreen
               product="Voice Studio"
-              headline="Hear your cloned voice, and shape how it speaks."
+              headline="Your teaching voice, recorded, trained and tested in one place."
               lines={[
-                ['Your reserved time', 'During your booked slot the GPU runs only your voice.'],
-                ['Talk and listen', 'Chat with your voice or have it read text aloud.'],
-                ['Tune it', 'Fix how it says any word, then tell us what you think.'],
+                ['Book a recording session', 'Pick a time; the recording page opens for you then.'],
+                ['We train and check it', 'Follow its progress here; we email you when it passes quality control.'],
+                ['Test it in your slot', 'The GPU is yours: chat, have it read text aloud, fix pronunciations.'],
               ]}
               accent="from-[#052e2b] via-[#0f3d3a] to-[#1e1b4b]"
             />

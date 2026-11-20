@@ -195,6 +195,17 @@ export function createStudioService({
       }
     }
 
+    // "Your test time starts soon" — sent once, as the GPU starts warming for it.
+    for (const slot of wf.slotsToRemind(state, now)) {
+      const claim = await updateState(store, (draft) => {
+        const current = wf.findSlot(draft, slot.id);
+        if (!current || current.reminderSentAt) return { skipWrite: true };
+        current.reminderSentAt = new Date(now).toISOString();
+        return { claimed: true };
+      });
+      if (claim.result?.claimed) await mailer.send(slot.assigneeEmail, templates.slotReminder({ slot, env }));
+    }
+
     // Load the person's voice before their slot starts, once the GPU is up.
     const preloaded = [];
     for (const slot of wf.slotsToPreload(state, now)) {
@@ -307,8 +318,11 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         voiceName,
         access: wf.voiceAccess(state, { email, voiceName, now, superuser: false }),
       })),
-      slots: wf.publicSlots(state, email, now),
-      mySlot: wf.upcomingSlotFor(state, email, now),
+      // Recording sessions: the table they pick from, and whether recording is open now.
+      sessions: wf.publicSlots(state, email, now),
+      recording: wf.recordingAccess(state, { email, now, superuser: wf.isSuperuser(state, email, env) }),
+      // GPU test slot (allocated by a super user after QC).
+      mySlot: wf.upcomingSlotFor(state, email, now, 'test'),
       activeSlot: (() => {
         const active = wf.currentSlot(state, now);
         return active && wf.sameNtuPerson(active.assigneeEmail, email) ? active : null;
@@ -394,11 +408,15 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           throw wf.clientError(400, 'Please read and accept the consent form first');
         }
         const { result } = await updateState(store, async (state) => {
+          const superuser = wf.isSuperuser(state, email, env);
+          const access = wf.recordingAccess(state, { email, now, superuser });
+          if (!access.allowed) throw wf.clientError(403, 'Recording opens during your booked recording session');
           const open = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && ['uploading', 'queued'].includes(job.status));
           if (open.length >= 5) throw wf.clientError(429, 'You already have 5 recording sets waiting. Please wait for them to train.');
           const expName = nextVoiceName(email, await service.takenVoiceNames(state));
           if (!expName) throw wf.clientError(409, 'You have too many voices; ask a super user to remove one');
           const job = wf.createJob(state, { id: newId(), ownerEmail: email, ownerName: body.name, expName, label: body.label, consent: body.consent, now });
+          job.recordingSlotId = access.slot?.id || '';
           return { job };
         });
         return ok({ job: wf.lecturerJob(result.job, null), jobId: result.job.id }, {}, event);
@@ -408,6 +426,9 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         const { state } = await store.read();
         const job = ownJob(state, parts[1], email);
         if (job.status !== 'uploading') throw wf.clientError(409, 'This recording set was already submitted');
+        if (!wf.uploadWindowOpen(state, job, { now, superuser: wf.isSuperuser(state, email, env) })) {
+          throw wf.clientError(403, 'Your recording session has ended');
+        }
         const files = Array.isArray(body.files) ? body.files : [];
         if (files.length === 0) throw wf.clientError(400, 'files array is required');
         if (files.length > MAX_FILES) throw wf.clientError(400, `At most ${MAX_FILES} files per recording set`);
@@ -426,6 +447,9 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       if (route === 'POST submissions/:id/submit') {
         const { state: snapshot } = await store.read();
         const job = ownJob(snapshot, parts[1], email);
+        if (!wf.uploadWindowOpen(snapshot, job, { now, superuser: wf.isSuperuser(snapshot, email, env) })) {
+          throw wf.clientError(403, 'Your recording session has ended');
+        }
         const prefix = `training/datasets/${job.sourceExpName}/raw/`;
         const keys = Array.isArray(body.keys) ? body.keys.map(String) : [];
         if (keys.length === 0) throw wf.clientError(400, 'Upload at least one audio file');
@@ -522,7 +546,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         });
         const { state } = await store.read();
         if (claiming) {
-          await service.mailer.send(email, templates.slotBooked({ slot: result.slot, moved: false, env }));
+          await service.mailer.send(email, templates.recordingBooked({ slot: result.slot, moved: false, env }));
         }
         const people = wf.listSuperusers(state, env).map((entry) => entry.email);
         await service.mailer.send(people, templates.slotPicked({ slot: result.slot, email, claiming, env }));
@@ -571,7 +595,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         if (route === 'POST admin/slots') {
           await updateState(store, (state) => {
             wf.addSlot(state, {
-              id: newId(), start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, actor: email, now,
+              id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, actor: email, now,
             });
             return null;
           });
@@ -591,7 +615,10 @@ export function createHandler({ service = createStudioService(), authGuard = cre
         if (route === 'DELETE admin/slots/:id') {
           const { result } = await updateState(store, (state) => ({ removed: wf.removeSlot(state, parts[2]) }));
           const told = result.removed.notify;
-          if (told) await service.mailer.send(told.assigneeEmail, templates.slotCancelled({ slot: told, env }));
+          if (told) {
+            const template = wf.slotKind(result.removed.slot) === 'recording' ? templates.recordingCancelled : templates.slotCancelled;
+            await service.mailer.send(told.assigneeEmail, template({ slot: told, env }));
+          }
           return ok(await adminView((await store.read()).state), {}, event);
         }
 
@@ -599,9 +626,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           const { result } = await updateState(store, (state) => ({ toNotify: wf.publishSlots(state, now) }));
           const sent = [];
           for (const item of result.toNotify) {
-            const message = item.kind === 'slotBooked'
-              ? templates.slotBooked({ slot: item.slot, moved: item.moved, env })
-              : templates.slotCancelled({ slot: item.slot, env });
+            const message = templates[item.kind]({ slot: item.slot, moved: item.moved, env });
             sent.push({ email: item.email, kind: item.kind, ...(await service.mailer.send(item.email, message)) });
           }
           return ok({ ...(await adminView((await store.read()).state)), published: sent }, {}, event);

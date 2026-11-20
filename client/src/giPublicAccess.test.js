@@ -388,7 +388,9 @@ test("faculty has no backend auth exemption and uses a lecturer table", () => {
   for (const source of [stagingGatewayEnv, stagingLambdaEnv]) {
     assert.match(
       source,
-      /^FACULTY_ENTRA_ALLOWED_EMAIL_DOMAINS=staff\.main\.ntu\.edu\.sg,assoc\.main\.ntu\.edu\.sg$/m,
+      // Exact @ntu.edu.sg admits staff/shared mailboxes such as lkc-digitallearning@ntu.edu.sg
+      // (Voice Studio super user); student addresses (e.ntu / student.main) stay out.
+      /^FACULTY_ENTRA_ALLOWED_EMAIL_DOMAINS=staff\.main\.ntu\.edu\.sg,assoc\.main\.ntu\.edu\.sg,ntu\.edu\.sg$/m,
     );
   }
 });

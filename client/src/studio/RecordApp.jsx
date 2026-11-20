@@ -389,7 +389,25 @@ function SubmittedDialog({ job, onClose }) {
   );
 }
 
-function RecordHome() {
+function PageShell({ children }) {
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <Header product="Record your voice" />
+      <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">{children}</main>
+    </div>
+  );
+}
+
+function EmbeddedShell({ children }) {
+  return <div className="space-y-5">{children}</div>;
+}
+
+/**
+ * The recording workspace: consent, guided script, recorder, uploads, submit.
+ * Voice Studio embeds it during a lecturer's recording session (and for super
+ * users); it is no longer a site of its own.
+ */
+export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted } = {}) {
   const auth = useAuth();
   const [me, setMe] = useState(null);
   const [takes, setTakes] = useState([]);
@@ -427,6 +445,7 @@ function RecordHome() {
       const view = await uploadAndSubmit(jobId, takes, { onProgress: setProgress });
       setMe(view);
       setSubmitted(view.jobs.find((job) => job.id === jobId) || { id: jobId });
+      onSubmitted?.(view);
       takes.forEach((take) => URL.revokeObjectURL(take.url));
       setTakes([]);
     } catch (err) {
@@ -449,10 +468,10 @@ function RecordHome() {
     return me.queueLength > 0 ? `${me.queueLength} voice${me.queueLength === 1 ? '' : 's'} in the training queue right now` : 'The training queue is empty — yours would start straight away';
   }, [me]);
 
+  const Shell = embedded ? EmbeddedShell : PageShell;
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Header product="Record your voice" />
-      <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+    <>
+      <Shell>
         <section className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Record your teaching voice</h1>
@@ -460,7 +479,10 @@ function RecordHome() {
               Read the script below section by section, upload recordings you already have, or both. About 30 minutes of clear speech gives the best voice.
             </p>
           </div>
-          {queueText && <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">{queueText}</span>}
+          <div className="flex flex-col items-end gap-1">
+            {sessionEnd && <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white">Your recording session is open until {formatSgt(sessionEnd, { withDate: false })} SGT</span>}
+            {queueText && <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">{queueText}</span>}
+          </div>
         </section>
 
         {tipsOpen && (
@@ -484,8 +506,9 @@ function RecordHome() {
           <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} />
         </div>
 
-        <MySubmissions me={me} onWithdraw={withdraw} />
+        {!embedded && <MySubmissions me={me} onWithdraw={withdraw} />}
 
+        {!embedded && (
         <Card className="p-5 sm:p-6" id="faq">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-slate-900">Questions &amp; answers</h2>
@@ -498,7 +521,8 @@ function RecordHome() {
           </div>
           <FaqList className="mt-4" />
         </Card>
-      </main>
+        )}
+      </Shell>
       {submitted && <SubmittedDialog job={submitted} onClose={() => setSubmitted(null)} />}
       {consentOpen && (
         <ConsentDialog
@@ -507,11 +531,31 @@ function RecordHome() {
           onDecline={() => setConsentOpen(false)}
         />
       )}
+    </>
+  );
+}
+
+// The recording site was merged into Voice Studio. Its old address now only
+// forwards (keeping the path, e.g. /faq), so links already shared still work.
+const STUDIO_HOME = String(import.meta.env.VITE_STUDIO_APP_URL || '').replace(/\/+$/u, '');
+
+function ForwardToStudio() {
+  useEffect(() => {
+    if (STUDIO_HOME) window.location.replace(`${STUDIO_HOME}${window.location.pathname}${window.location.search}`);
+  }, []);
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6 text-center text-sm text-slate-600">
+      {STUDIO_HOME ? <p>Voice Studio has moved. Taking you to <a className="font-semibold text-primary underline" href={STUDIO_HOME}>{STUDIO_HOME}</a>…</p> : <p>Voice Studio has moved.</p>}
     </div>
   );
 }
 
 export default function RecordApp() {
+  if (STUDIO_HOME) return <ForwardToStudio />;
+  return <LegacyRecordApp />;
+}
+
+function LegacyRecordApp() {
   return (
     <TooltipProvider>
       <PostLoginRedirectHandler />
@@ -531,7 +575,7 @@ export default function RecordApp() {
             />
           )}
         />
-        <Route path="*" element={<ProtectedRoute><RecordHome /></ProtectedRoute>} />
+        <Route path="*" element={<ProtectedRoute><RecordWorkspace /></ProtectedRoute>} />
       </Routes>
     </TooltipProvider>
   );

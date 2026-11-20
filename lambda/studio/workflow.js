@@ -211,8 +211,18 @@ export function trainingMinutes(state, env = process.env) {
 
 // A slot holds the GPU only once it is published AND someone is assigned to it.
 // Drafts and open (unclaimed) slots never block training or super users.
+// Two kinds of slot:
+//   'recording' — an in-person recording session (no GPU). Super users publish
+//                 open sessions; a lecturer picks one, and the record page
+//                 unlocks for them only during it.
+//   'test'      — GPU time to test an approved voice. Super users allocate it to
+//                 one person after QC; test slots never overlap (one GPU).
+export function slotKind(slot) {
+  return slot?.kind === 'recording' ? 'recording' : 'test';
+}
+
 export function slotHoldsGpu(slot) {
-  return slot.status === 'published' && Boolean(slot.assigneeEmail);
+  return slotKind(slot) === 'test' && slot.status === 'published' && Boolean(slot.assigneeEmail);
 }
 
 function activeSlotAt(slots, time) {
@@ -401,8 +411,10 @@ function validateTimes(start, end, now) {
   return { start: iso(startMs), end: iso(endMs) };
 }
 
-function assertNoClash(state, candidate, ignoreId = '') {
-  const clash = liveSlots(state).find((slot) => slot.id !== ignoreId && slotsOverlap(slot, candidate));
+function assertNoClash(state, candidate, ignoreId = '', kind = 'test') {
+  // Recording sessions are in person and may run in parallel; GPU test slots may not.
+  if (kind !== 'test') return;
+  const clash = liveSlots(state).find((slot) => slot.id !== ignoreId && slotKind(slot) === 'test' && slotsOverlap(slot, candidate));
   if (clash) {
     const error = clientError(409, `That time overlaps ${clash.assigneeName || clash.assigneeEmail || 'another slot'} `
       + `(${clash.start} – ${clash.end}). The GPU serves one person at a time.`);
@@ -416,11 +428,14 @@ export function findSlot(state, id) {
   return state.slots.find((slot) => slot.id === id && slot.status !== 'cancelled') || null;
 }
 
-export function addSlot(state, { id, start, end, assigneeEmail = '', assigneeName = '', actor, now }) {
+export function addSlot(state, { id, kind = 'test', start, end, assigneeEmail = '', assigneeName = '', actor, now }) {
+  const slotType = kind === 'recording' ? 'recording' : 'test';
   const times = validateTimes(start, end, now);
-  assertNoClash(state, times);
+  if (slotType === 'test' && !normalizeEmail(assigneeEmail)) throw clientError(400, 'Choose who this test slot is for');
+  assertNoClash(state, times, '', slotType);
   const slot = {
     id,
+    kind: slotType,
     ...times,
     status: 'draft',
     assigneeEmail: normalizeEmail(assigneeEmail),
@@ -430,6 +445,7 @@ export function addSlot(state, { id, start, end, assigneeEmail = '', assigneeNam
     // What the assignee was last told (person + time), so Publish emails only real changes.
     notified: null,
     preloadedAt: null,
+    reminderSentAt: null,
   };
   state.slots.push(slot);
   return slot;
@@ -439,12 +455,16 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName },
   const slot = findSlot(state, id);
   if (!slot) throw clientError(404, 'Slot not found');
   const times = validateTimes(start ?? slot.start, end ?? slot.end, now);
-  assertNoClash(state, times, id);
+  if (slotKind(slot) === 'test' && assigneeEmail !== undefined && !normalizeEmail(assigneeEmail)) {
+    throw clientError(400, 'A test slot needs a person');
+  }
+  assertNoClash(state, times, id, slotKind(slot));
   Object.assign(slot, times, {
     ...(assigneeEmail !== undefined ? { assigneeEmail: normalizeEmail(assigneeEmail) } : {}),
     ...(assigneeName !== undefined ? { assigneeName: cleanText(assigneeName, 80) } : {}),
     updatedAt: iso(now),
     preloadedAt: null,
+    reminderSentAt: null,
   });
   // An edited published slot goes back to draft until it is published again,
   // so lecturers never see a half-edited schedule.
@@ -472,28 +492,27 @@ export function publishSlots(state, now) {
     const before = slot.notified;
     const after = slot.assigneeEmail ? { assigneeEmail: slot.assigneeEmail, start: slot.start, end: slot.end } : null;
     const samePerson = before && after && sameNtuPerson(before.assigneeEmail, after.assigneeEmail);
+    const recording = slotKind(slot) === 'recording';
     if (before && !samePerson) {
-      toNotify.push({ kind: 'slotCancelled', email: before.assigneeEmail, slot: { ...slot, ...before } });
+      toNotify.push({ kind: recording ? 'recordingCancelled' : 'slotCancelled', email: before.assigneeEmail, slot: { ...slot, ...before } });
     }
     if (after && (!samePerson || before.start !== after.start || before.end !== after.end)) {
-      toNotify.push({ kind: 'slotBooked', email: after.assigneeEmail, slot: { ...slot }, moved: Boolean(samePerson) });
+      toNotify.push({ kind: recording ? 'recordingBooked' : 'slotBooked', email: after.assigneeEmail, slot: { ...slot }, moved: Boolean(samePerson) });
     }
     slot.notified = after;
   }
   return toNotify;
 }
 
-/** A lecturer picks an open published slot (one upcoming slot each). */
+/** A lecturer picks an open published recording session (one upcoming each). */
 export function claimSlot(state, id, { email, name = '', now }) {
   const slot = findSlot(state, id);
-  if (!slot || slot.status !== 'published') throw clientError(404, 'That slot is not available');
-  if (slot.assigneeEmail) throw clientError(409, 'Someone has just taken that slot — pick another');
-  if (ms(slot.end) <= now) throw clientError(409, 'That slot has already ended');
-  if (!state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && !['uploading', 'cancelled'].includes(job.status))) {
-    throw clientError(409, 'Submit your recordings first, then pick a time');
-  }
-  const mine = liveSlots(state).find((item) => sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
-  if (mine) throw clientError(409, 'You already have an upcoming slot. Release it first to pick another.');
+  if (!slot || slot.status !== 'published' || slotKind(slot) !== 'recording') throw clientError(404, 'That session is not available');
+  if (slot.assigneeEmail) throw clientError(409, 'Someone has just taken that session — pick another');
+  if (ms(slot.end) <= now) throw clientError(409, 'That session has already ended');
+  if (!cleanText(name, 80)) throw clientError(400, 'Enter your name');
+  const mine = liveSlots(state).find((item) => slotKind(item) === 'recording' && sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
+  if (mine) throw clientError(409, 'You already have an upcoming recording session. Release it first to pick another.');
   slot.assigneeEmail = normalizeEmail(email);
   slot.assigneeName = cleanText(name, 80);
   slot.claimedAt = iso(now);
@@ -503,7 +522,7 @@ export function claimSlot(state, id, { email, name = '', now }) {
 
 export function releaseSlot(state, id, { email, now }) {
   const slot = findSlot(state, id);
-  if (!slot || !sameNtuPerson(slot.assigneeEmail, email)) throw clientError(404, 'That is not your slot');
+  if (!slot || slotKind(slot) !== 'recording' || !sameNtuPerson(slot.assigneeEmail, email)) throw clientError(404, 'That is not your session');
   if (ms(slot.start) <= now) throw clientError(409, 'Your slot has already started');
   slot.assigneeEmail = '';
   slot.assigneeName = '';
@@ -516,10 +535,45 @@ export function currentSlot(state, now) {
   return activeSlotAt(state.slots, now);
 }
 
-export function upcomingSlotFor(state, email, now) {
+export function upcomingSlotFor(state, email, now, kind = 'test') {
   return liveSlots(state)
-    .filter((slot) => slot.status === 'published' && sameNtuPerson(slot.assigneeEmail, email) && ms(slot.end) > now)
+    .filter((slot) => slotKind(slot) === kind && slot.status === 'published' && sameNtuPerson(slot.assigneeEmail, email) && ms(slot.end) > now)
     .sort((a, b) => ms(a.start) - ms(b.start))[0] || null;
+}
+
+// After a recording session ends, uploads that were started in it may still finish.
+export const RECORDING_GRACE_MINUTES = 120;
+
+/**
+ * Whether this person may record/upload right now: only during their own
+ * published recording session (super users always may). Returns their next
+ * session either way so the page can say when it unlocks.
+ */
+export function recordingAccess(state, { email, now, superuser }) {
+  const mine = liveSlots(state)
+    .filter((slot) => slotKind(slot) === 'recording' && slot.status === 'published' && sameNtuPerson(slot.assigneeEmail, email))
+    .sort((a, b) => ms(a.start) - ms(b.start));
+  const active = mine.find((slot) => ms(slot.start) <= now && now < ms(slot.end)) || null;
+  const next = mine.find((slot) => ms(slot.end) > now) || null;
+  if (superuser) return { allowed: true, reason: 'superuser', slot: active || next };
+  if (active) return { allowed: true, reason: 'in-session', slot: active };
+  return { allowed: false, reason: next ? 'too-early' : 'no-session', slot: next };
+}
+
+/** Uploads to a set created in a session may finish shortly after it. */
+export function uploadWindowOpen(state, job, { now, superuser }) {
+  if (superuser) return true;
+  const slot = state.slots.find((item) => item.id === job.recordingSlotId);
+  if (!slot) return false;
+  return now < ms(slot.end) + RECORDING_GRACE_MINUTES * MINUTE;
+}
+
+/** Test slots inside the warm-up window whose "starts soon" email has not gone out. */
+export function slotsToRemind(state, now) {
+  return state.slots.filter((slot) => slotHoldsGpu(slot)
+    && !slot.reminderSentAt
+    && ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now
+    && now < ms(slot.start));
 }
 
 function approvedVoicesOf(state, email) {
@@ -544,7 +598,7 @@ export function voiceAccess(state, { email, voiceName, now, superuser }) {
     return { allowed: true, reason: 'superuser', slot: null };
   }
   if (!ownApproved) return { allowed: false, reason: 'not-approved' };
-  const slot = upcomingSlotFor(state, email, now);
+  const slot = upcomingSlotFor(state, email, now, 'test');
   if (!slot) return { allowed: false, reason: 'no-slot' };
   return { allowed: false, reason: 'too-early', slot };
 }
@@ -582,10 +636,10 @@ export function gpuDemand(state, now) {
   return soon ? 'slot' : '';
 }
 
-/** What a lecturer sees in the slot table: published upcoming slots. */
+/** What a lecturer sees in the session table: published upcoming recording sessions. */
 export function publicSlots(state, email, now) {
   return liveSlots(state)
-    .filter((slot) => slot.status === 'published' && ms(slot.end) > now)
+    .filter((slot) => slotKind(slot) === 'recording' && slot.status === 'published' && ms(slot.end) > now)
     .sort((a, b) => ms(a.start) - ms(b.start))
     .map((slot) => ({
       id: slot.id,

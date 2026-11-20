@@ -86,11 +86,13 @@ test('slots cannot overlap, drafts included; edits and publish email only real c
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   const s1 = wf.addSlot(state, { id: 's1', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', actor: 'su', now: T0 });
-  assert.throws(() => wf.addSlot(state, { id: 's2', start: at(90), end: at(150), now: T0 }), (e) => e.code === 'SLOT_CLASH');
-  wf.addSlot(state, { id: 's2', start: at(120), end: at(180), now: T0 });
+  // Recording sessions may overlap test slots and each other: they do not use the GPU.
+  wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), now: T0 });
+  assert.throws(() => wf.addSlot(state, { id: 's2', start: at(90), end: at(150), assigneeEmail: 'b@ntu.edu.sg', now: T0 }), (e) => e.code === 'SLOT_CLASH');
+  wf.addSlot(state, { id: 's2', start: at(120), end: at(180), assigneeEmail: 'c@ntu.edu.sg', now: T0 });
   assert.equal(s1.status, 'draft');
   let sent = wf.publishSlots(state, T0);
-  assert.deepEqual(sent.map((n) => [n.kind, n.email]), [['slotBooked', 'a@ntu.edu.sg']]);
+  assert.deepEqual(sent.map((n) => [n.kind, n.email]), [['slotBooked', 'a@ntu.edu.sg'], ['slotBooked', 'c@ntu.edu.sg']]);
   // Re-publishing with no change emails nobody.
   wf.editSlot(state, 's1', {}, T0);
   assert.equal(s1.status, 'draft', 'an edited slot goes back to draft');
@@ -106,17 +108,20 @@ test('slots cannot overlap, drafts included; edits and publish email only real c
   assert.equal(wf.removeSlot(state, 's1').notify.assigneeEmail, 'b@ntu.edu.sg');
 });
 
-test('lecturers pick open published slots, one upcoming each', () => {
+test('lecturers pick open published recording sessions, one upcoming each', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   job(state, 'a1', 'a@ntu.edu.sg', 0);
-  wf.addSlot(state, { id: 'open1', start: at(60), end: at(120), now: T0 });
-  wf.addSlot(state, { id: 'open2', start: at(120), end: at(180), now: T0 });
+  wf.addSlot(state, { id: 'open1', kind: 'recording', start: at(60), end: at(120), now: T0 });
+  wf.addSlot(state, { id: 'open2', kind: 'recording', start: at(120), end: at(180), now: T0 });
   assert.throws(() => wf.claimSlot(state, 'open1', { email: 'a@ntu.edu.sg', now: T0 }), /not available/u, 'drafts cannot be picked');
   wf.publishSlots(state, T0);
-  assert.throws(() => wf.claimSlot(state, 'open1', { email: 'nobody@ntu.edu.sg', now: T0 }), /Submit your recordings/u);
+  assert.throws(() => wf.claimSlot(state, 'open1', { email: 'a@ntu.edu.sg', now: T0 }), /name/u);
   wf.claimSlot(state, 'open1', { email: 'a@ntu.edu.sg', name: 'A', now: T0 });
-  assert.throws(() => wf.claimSlot(state, 'open2', { email: 'a@ntu.edu.sg', now: T0 }), /already have/u);
+  assert.throws(() => wf.claimSlot(state, 'open2', { email: 'a@ntu.edu.sg', name: 'A', now: T0 }), /already have/u);
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).reason, 'too-early');
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).allowed, true);
+  assert.equal(wf.recordingAccess(state, { email: 'b@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'no-session');
   const table = wf.publicSlots(state, 'A@staff.main.ntu.edu.sg', T0);
   assert.deepEqual(table.map((row) => [row.id, row.mine, row.open]), [['open1', true, false], ['open2', false, true]]);
   wf.releaseSlot(state, 'open1', { email: 'a@ntu.edu.sg', now: T0 });
