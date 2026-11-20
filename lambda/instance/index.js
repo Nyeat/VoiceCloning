@@ -641,16 +641,16 @@ export const handler = async (event) => {
       return ok({ ...result.body, inferenceFleet: await syncInferenceFleet(result.body.state) });
     }
 
+    if (method === 'POST' && routePath.endsWith('/instance/activity')) {
+      return ok(await recordPageActivity());
+    }
+
     if ((method === 'POST' || method === 'GET') && routePath.endsWith('/instance/idle-check')) {
       const result = await stopInstanceIfIdle();
       // The coordinator's per-GPU scale-in otherwise runs only after a request,
       // so a fleet nobody is using would never shrink (the legacy no-traffic
       // alarm that covered that case is disabled). Best effort; no-op without
       // a coordinator.
-    if (method === 'POST' && routePath.endsWith('/instance/activity')) {
-      return ok(await recordPageActivity());
-    }
-
       let removedInferenceWorker = null;
       try {
         removedInferenceWorker = (await invokeCoordinator({ action: 'sweep' }))?.removed ?? null;

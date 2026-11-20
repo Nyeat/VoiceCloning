@@ -564,6 +564,8 @@ export function createHandler({
         // Opening a lecture prepares its voice. Warming/pending short-circuits
         // and the preflight reassignment grace keep polling lectures from
         // thrashing or purchasing duplicate GPUs.
+        // `prewarm`: the training site guessing the person's next voice. Same
+        // preparation, but it does not count as using the voice (see coordinator).
         return ok(await prepareModelCapacity(resolvedBody, {
           allowScale: true,
           source: body.source === 'prewarm' ? 'prewarm' : 'lecture-preflight',
@@ -580,8 +582,6 @@ export function createHandler({
         }
 
         const currentTime = now();
-        // `prewarm`: the training site guessing the person's next voice. Same
-        // preparation, but it does not count as using the voice (see coordinator).
         let record;
         try {
           record = createVoiceProfileRecord(body, currentTime);

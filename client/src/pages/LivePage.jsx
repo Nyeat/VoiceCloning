@@ -369,12 +369,12 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
   // voice is not yet on a GPU. Like the lecture site, the chat stays locked
   // (mic and typing) until the voice can actually speak.
   const [voiceCapacityBlocked, setVoiceCapacityBlocked] = useState(false);
-  const ensuredVoiceRef = useRef('');
-  // Which assistant this panel is editing. Each category is stored separately,
   // From the background load check: false = this voice is on no GPU right now
   // (switched away or removed while the page sat open); null = unknown/fine.
   const [voiceResident, setVoiceResident] = useState(null);
   const loadSelectedModelRef = useRef(null);
+  const ensuredVoiceRef = useRef('');
+  // Which assistant this panel is editing. Each category is stored separately,
   // so switching here swaps the whole panel — instructions, documents and the
   // browser-local draft of both.
   const [chatbotCategory, setChatbotCategory] = useState(DEFAULT_CHATBOT_CATEGORY);
@@ -1494,9 +1494,9 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     };
   }
 
+  loadSelectedModelRef.current = () => loadSelectedModel();
   async function loadSelectedModel(attempt = 0, requestVersion = null) {
     if (requestVersion == null) preparingPollCountRef.current = 0;
-  loadSelectedModelRef.current = () => loadSelectedModel();
     // Rank #1 is the source of truth for references. Never race model warming
     // against the config request, because that can fall back to stale profile refs.
     if (
@@ -1552,9 +1552,9 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
         return;
       }
       preparingPollCountRef.current = 0;
+      setVoiceResident(null);
       const coordinatorState = String(coordinatorCapacity?.state || '').toUpperCase();
       if (coordinatorCapacity?.simulated || ['SIMULATED', 'ON_DEMAND'].includes(coordinatorState)) {
-      setVoiceResident(null);
         setGpuNotice({
           tone: 'info',
           title: coordinatorCapacity?.simulated ? 'Dev capacity simulation' : 'Voice loads on demand',
@@ -4212,10 +4212,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
   }, [selectedVoiceProfileId, usingStandardVoice, voiceCapacityBlocked]);
 
-  // A message (not a voice selection) can find its GPU gone and start a new
-  // one, mid-conversation, when the selection poll has already stopped. Ask
   useEffect(() => { setVoiceResident(null); }, [selectedVoiceProfileId]);
 
+  // A message (not a voice selection) can find its GPU gone and start a new
+  // one, mid-conversation, when the selection poll has already stopped. Ask
   // the coordinator straight away so the same popup (real start time) and
   // chat lock appear as for a selection; a successful reply clears it.
   const capacityWaitSeenRef = useRef(false);
@@ -5646,8 +5646,6 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
               onRetry={() => setMyVoicesReloadToken((token) => token + 1)}
             />
           )}
-          {voiceTestNotice ? (
-            <p role="status" className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
           {selectedProfile && !usingStandardVoice ? (
             // Which voice the GPU actually holds for this page right now.
             <p role="status" className="flex items-center gap-2 border-t border-slate-200 px-4 py-2 text-xs text-slate-600">
@@ -5670,6 +5668,8 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
               </span>
             </p>
           ) : null}
+          {voiceTestNotice ? (
+            <p role="status" className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
               {voiceTestNotice}
             </p>
           ) : null}
