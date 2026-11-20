@@ -20,6 +20,8 @@ import { createS3StateStore, updateState } from './store.js';
 import { createMailer, templates } from './mailer.js';
 import { validatePronunciation, voiceDictionaryKey } from './pronunciation.js';
 
+// Voice Studio accepts any Microsoft account, so outside addresses get x- voice names.
+const STUDIO_IDENTITY = Object.freeze({ allowExternal: true });
 const AUDIO_EXTS = new Set(['.wav', '.mp3', '.ogg', '.flac', '.m4a']);
 const MAX_FILES = 100;
 const TICK_INTERVAL_MS = 45_000;
@@ -267,7 +269,7 @@ function respondError(error, event) {
   return err(500, error?.message || 'Voice Studio error', event);
 }
 
-export function createHandler({ service = createStudioService(), authGuard = createLiveAuthGuard() } = {}) {
+export function createHandler({ service = createStudioService(), authGuard = createLiveAuthGuard({ forceStudio: true }) } = {}) {
   const { store, env, clock, newId } = service;
 
   async function identify(event) {
@@ -276,9 +278,9 @@ export function createHandler({ service = createStudioService(), authGuard = cre
     try {
       identity = await authGuard.authorize(event);
     } catch {
-      throw wf.clientError(401, 'Sign in with your NTU account');
+      throw wf.clientError(401, 'Please sign in with your Microsoft account');
     }
-    if (identity?.synthetic || !identity?.email) throw wf.clientError(403, 'A signed-in NTU account is required');
+    if (identity?.synthetic || !identity?.email) throw wf.clientError(403, 'A signed-in account is required');
     return { email: String(identity.email).trim().toLowerCase() };
   }
 
@@ -402,7 +404,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       }
 
       if (route === 'POST submissions') {
-        const identity = describeVoiceIdentity(email);
+        const identity = describeVoiceIdentity(email, STUDIO_IDENTITY);
         if (!identity.valid) throw wf.clientError(400, identity.error);
         if (body.consent?.accepted !== true || !String(body.consent?.version || '').trim()) {
           throw wf.clientError(400, 'Please read and accept the consent form first');
@@ -413,7 +415,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           if (!access.allowed) throw wf.clientError(403, 'Recording opens during your booked recording session');
           const open = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && ['uploading', 'queued'].includes(job.status));
           if (open.length >= 5) throw wf.clientError(429, 'You already have 5 recording sets waiting. Please wait for them to train.');
-          const expName = nextVoiceName(email, await service.takenVoiceNames(state));
+          const expName = nextVoiceName(email, await service.takenVoiceNames(state), STUDIO_IDENTITY);
           if (!expName) throw wf.clientError(409, 'You have too many voices; ask a super user to remove one');
           const job = wf.createJob(state, { id: newId(), ownerEmail: email, ownerName: body.name, expName, label: body.label, consent: body.consent, now });
           job.recordingSlotId = access.slot?.id || '';
@@ -576,7 +578,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           await updateState(store, async (state) => {
             const job = wf.findJob(state, parts[2]);
             if (!job) throw wf.clientError(404, 'Job not found');
-            const nextExpName = decision === 'reject' ? nextVoiceName(job.ownerEmail, await service.takenVoiceNames(state)) : '';
+            const nextExpName = decision === 'reject' ? nextVoiceName(job.ownerEmail, await service.takenVoiceNames(state), STUDIO_IDENTITY) : '';
             wf.reviewJob(job, {
               decision, reasons: body.reasons, notes: body.notes, overrides: body.overrides || {}, reviewer: email, nextExpName, now,
             });
@@ -636,7 +638,7 @@ export function createHandler({ service = createStudioService(), authGuard = cre
           await updateState(store, async (state) => {
             const job = wf.findJob(state, parts[2]);
             if (!job) throw wf.clientError(404, 'Job not found');
-            wf.requeueFailedJob(job, { nextExpName: nextVoiceName(job.ownerEmail, await service.takenVoiceNames(state)), now });
+            wf.requeueFailedJob(job, { nextExpName: nextVoiceName(job.ownerEmail, await service.takenVoiceNames(state), STUDIO_IDENTITY), now });
             return null;
           });
           await maybeTick();
@@ -728,5 +730,14 @@ export async function studioVoiceScope(email, { store = sharedService().store, e
   const superuser = wf.isSuperuser(state, email, env);
   const names = wf.visibleVoices(state, { email, superuser })
     .filter((voiceName) => wf.voiceAccess(state, { email, voiceName, now, superuser }).allowed);
-  return { superuser, voiceNames: [...new Set(names)] };
+  // Who each studio voice really belongs to, so a profile created while a super
+  // user reviews it is still recorded under the lecturer.
+  const owners = {};
+  for (const job of state.jobs) {
+    for (const name of [job.expName, job.approvedExpName, ...job.attempts.map((attempt) => attempt.expName)]) {
+      if (name) owners[name] = job.ownerEmail;
+    }
+  }
+  const voiceNames = [...new Set(names)];
+  return { superuser, voiceNames, owners: Object.fromEntries(voiceNames.map((name) => [name, owners[name] || ''])) };
 }

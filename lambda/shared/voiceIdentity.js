@@ -56,6 +56,21 @@ function splitEmail(email) {
   return { localPart: normalized.slice(0, at), domain: normalized.slice(at + 1) };
 }
 
+// FNV-1a, 24 bits as 6 hex chars: deterministic in every runtime (browser,
+// Lambda, worker) without crypto. A naming disambiguator, not a secret.
+function shortHash(value) {
+  let hash = 0x811c9dc5;
+  for (const char of String(value)) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return (hash & 0xffffff).toString(16).padStart(6, '0');
+}
+
+function externalVoiceName(email, localPart) {
+  return `x-${localPart.slice(0, 24).replace(/-+$/u, '')}-${shortHash(email.replace(/\+[^@]*@/u, '@'))}`;
+}
+
 export function isNtuEmail(email) {
   const parts = splitEmail(email);
   return Boolean(parts && NTU_DOMAIN_RE.test(parts.domain));
@@ -85,7 +100,8 @@ export function buildVoiceProfileId(voiceName) {
 
 // Returns the base identity plus the reason it is unusable, so callers can show
 // one message instead of re-deriving the rule.
-export function describeVoiceIdentity(email) {
+// `allowExternal`: Voice Studio only. The training site stays NTU-only.
+export function describeVoiceIdentity(email, { allowExternal = false } = {}) {
   const normalizedEmail = normalizeEmail(email);
   const invalid = (error) => ({
     valid: false, error, email: normalizedEmail, baseVoiceName: '', voiceProfileId: '',
@@ -97,7 +113,7 @@ export function describeVoiceIdentity(email) {
   if (!EMAIL_SHAPE_RE.test(normalizedEmail)) {
     return invalid('Enter a valid email address.');
   }
-  if (!isNtuEmail(normalizedEmail)) {
+  if (!allowExternal && !isNtuEmail(normalizedEmail)) {
     return invalid('Use your NTU email address (an @ntu.edu.sg address).');
   }
 
@@ -106,7 +122,13 @@ export function describeVoiceIdentity(email) {
     return invalid('This email address cannot be used to name a voice.');
   }
 
-  const baseVoiceName = LEGACY_VOICE_OWNERS.get(localPart) || localPart;
+  // NTU addresses keep their plain names (one person, two NTU domains, one
+  // name). Any other address — Voice Studio accepts any Microsoft account —
+  // gets an "x-" name with a short hash of the full address, so jane@gmail.com
+  // and jane@yahoo.com can never share (or overwrite) a voice.
+  const baseVoiceName = isNtuEmail(normalizedEmail)
+    ? (LEGACY_VOICE_OWNERS.get(localPart) || localPart)
+    : externalVoiceName(normalizedEmail, localPart);
   if (baseVoiceName.length > MAX_VOICE_NAME_LENGTH) {
     return invalid(`This email address is too long to name a voice (max ${MAX_VOICE_NAME_LENGTH} characters).`);
   }
@@ -123,10 +145,10 @@ export function describeVoiceIdentity(email) {
 // True when `voiceName` is one of the voices `email` can own — the base name or
 // a numbered copy of it. Authorises a run without enumerating what already
 // exists, which is the separate question nextVoiceName answers.
-export function ownsVoiceName(email, voiceName) {
+export function ownsVoiceName(email, voiceName, options = {}) {
   const candidate = String(voiceName || '').trim();
   if (!candidate) return false;
-  const { baseVoiceName } = describeVoiceIdentity(email);
+  const { baseVoiceName } = describeVoiceIdentity(email, options);
   if (!baseVoiceName) return false;
   if (candidate === baseVoiceName) return true;
 
@@ -141,8 +163,8 @@ export function ownsVoiceName(email, voiceName) {
 // The next voice this lecturer would create: the base name while it is free,
 // then the lowest free number. Training never replaces a voice, so the caller
 // must pass every name already in use.
-export function nextVoiceName(email, takenNames = []) {
-  const { baseVoiceName } = describeVoiceIdentity(email);
+export function nextVoiceName(email, takenNames = [], options = {}) {
+  const { baseVoiceName } = describeVoiceIdentity(email, options);
   if (!baseVoiceName) return '';
 
   const taken = new Set(

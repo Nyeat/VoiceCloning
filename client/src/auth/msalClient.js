@@ -138,7 +138,9 @@ export function getAccountPolicyError(account) {
     return "Guest Microsoft accounts are not allowed for this app.";
   }
 
-  if (account.tenantId === CONSUMER_TENANT_ID) {
+  // Voice Studio (VITE_ALLOW_PERSONAL_ACCOUNTS=true) is open to personal
+  // Microsoft accounts, including ones created from a Gmail address.
+  if (account.tenantId === CONSUMER_TENANT_ID && import.meta.env.VITE_ALLOW_PERSONAL_ACCOUNTS !== "true") {
     return "Personal Microsoft accounts are not allowed for this app.";
   }
 

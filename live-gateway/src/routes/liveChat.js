@@ -6,6 +6,9 @@ import {
   ENTRA_AUDIENCE,
   ENTRA_TENANT_ID,
   FACULTY_ENTRA_ALLOWED_EMAIL_DOMAINS,
+  STUDIO_ALLOWED_EMAIL_DOMAINS,
+  STUDIO_HOME_DOMAINS,
+  STUDIO_SITE_ORIGINS,
   LECTURER_TABLE_NAME,
   LIVE_AUTH_ENABLED,
   LIVE_AUTH_LOADTEST_SECRET,
@@ -70,6 +73,26 @@ export function buildConfiguredAuthenticator() {
     }),
     loadTestSecret: LIVE_AUTH_LOADTEST_SECRET,
   });
+}
+
+/** Any-Microsoft-account authenticator for the Voice Studio site; null when not configured. */
+export function buildConfiguredStudioAuthenticator() {
+  if (!LIVE_AUTH_ENABLED || STUDIO_SITE_ORIGINS.length === 0 || !ENTRA_TENANT_ID || !ENTRA_AUDIENCE) return null;
+  return createLiveChatAuthenticator({
+    verifier: createEntraVerifier({
+      tenantId: ENTRA_TENANT_ID,
+      audience: ENTRA_AUDIENCE,
+      allowedEmailDomains: STUDIO_ALLOWED_EMAIL_DOMAINS,
+      multiTenant: true,
+      homeDomains: STUDIO_HOME_DOMAINS,
+    }),
+    loadTestSecret: '',
+  });
+}
+
+export function isStudioOrigin(origin, origins = STUDIO_SITE_ORIGINS) {
+  const value = String(origin || '').trim().replace(/\/+$/u, '');
+  return Boolean(value) && origins.includes(value);
 }
 
 export function buildConfiguredTranscriptStore(tableName = TRANSCRIPT_TABLE_NAME) {
@@ -280,6 +303,8 @@ export function applyLiveChatInitToBridge(bridge, init) {
 export function attachLiveChatSocket(server, options = {}) {
   const {
     authenticator = buildConfiguredAuthenticator(),
+    studioAuthenticator = buildConfiguredStudioAuthenticator(),
+    studioOrigin = isStudioOrigin,
     transcriptStore = buildConfiguredTranscriptStore(),
     transcriptStoreForRequest = null,
     identityPolicy = enforceConfiguredIdentityPolicy,
@@ -425,8 +450,13 @@ export function attachLiveChatSocket(server, options = {}) {
       authInFlight = true;
       let identity;
       try {
-        identity = await authenticator.authenticate(parseAuthFrame(data));
-        identity = identityPolicy(identity, req);
+        // Voice Studio pages accept any Microsoft account; the faculty rule is not applied there.
+        if (studioAuthenticator && studioOrigin(req.headers?.origin || '')) {
+          identity = await studioAuthenticator.authenticate(parseAuthFrame(data));
+        } else {
+          identity = await authenticator.authenticate(parseAuthFrame(data));
+          identity = identityPolicy(identity, req);
+        }
       } catch (error) {
         authInFlight = false;
         failAuth(error);

@@ -308,3 +308,63 @@ test('the verifier refuses to start without a tenant or audience', () => {
   assert.throws(() => createEntraVerifier({ audience: AUDIENCE }), /tenantId/);
   assert.throws(() => createEntraVerifier({ tenantId: TENANT_ID }), /audience/);
 });
+
+// ── Voice Studio: any Microsoft account (multiTenant) ──
+const CONSUMER_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
+
+function makeStudioVerifier() {
+  const fetched = [];
+  const verifier = createEntraVerifier({
+    tenantId: TENANT_ID,
+    audience: AUDIENCE,
+    allowedEmailDomains: [],
+    multiTenant: true,
+    homeDomains: ['ntu.edu.sg'],
+    fetchImpl: async (url) => {
+      fetched.push(url);
+      return { ok: true, json: async () => ({ keys: [PRIMARY.jwk] }) };
+    },
+    now: () => NOW_MS,
+  });
+  return { verifier, fetched };
+}
+
+function consumerClaims(overrides = {}) {
+  return validClaims({
+    iss: `https://login.microsoftonline.com/${CONSUMER_TENANT}/v2.0`,
+    tid: CONSUMER_TENANT,
+    preferred_username: 'jane.doe@gmail.com',
+    ...overrides,
+  });
+}
+
+test('studio verifier accepts a personal Microsoft account (e.g. a Gmail sign-in) using the common keys', async () => {
+  const { verifier, fetched } = makeStudioVerifier();
+  const identity = await verifier.verify(signToken(consumerClaims()));
+  assert.equal(identity.email, 'jane.doe@gmail.com');
+  assert.equal(identity.tenantId, CONSUMER_TENANT);
+  assert.match(fetched[0], /\/common\/discovery\/v2\.0\/keys$/u);
+});
+
+test('studio verifier still accepts NTU tenant accounts', async () => {
+  const { verifier } = makeStudioVerifier();
+  const identity = await verifier.verify(signToken(validClaims()));
+  assert.equal(identity.email, 'cs-nathanael.ng@assoc.main.ntu.edu.sg');
+});
+
+test('studio verifier refuses an NTU address asserted by any other directory', async () => {
+  const { verifier } = makeStudioVerifier();
+  await assertRejects(verifier, signToken(consumerClaims({ preferred_username: 'lkc-digitallearning@ntu.edu.sg' })), 'bad_tenant');
+  await assertRejects(verifier, signToken(consumerClaims({ preferred_username: 'x@staff.main.ntu.edu.sg' })), 'bad_tenant');
+});
+
+test('studio verifier requires the issuer to match the token tenant and the audience to match', async () => {
+  const { verifier } = makeStudioVerifier();
+  await assertRejects(verifier, signToken(consumerClaims({ iss: ISSUER })), 'bad_issuer');
+  await assertRejects(verifier, signToken(consumerClaims({ aud: 'api://someone-else' })), 'bad_audience');
+});
+
+test('single-tenant verifier still rejects personal accounts', async () => {
+  const { verifier } = makeVerifier();
+  await assertRejects(verifier, signToken(consumerClaims()), 'bad_issuer');
+});

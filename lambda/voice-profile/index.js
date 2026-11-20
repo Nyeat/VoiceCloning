@@ -462,8 +462,19 @@ export function createHandler({
         if (!voiceName || !isSafePathSegment(voiceName)) {
           return err(400, 'voiceName must be a safe path segment', event);
         }
-        // A lecturer may only ever create a record for a voice they own.
-        if (!ownsVoiceName(identity?.email, voiceName)) {
+        // A lecturer may only ever create a record for a voice they own. Voice
+        // Studio callers (any Microsoft account) may instead set up a voice the
+        // studio currently lets them use; the record keeps the real owner.
+        let studioOwner = '';
+        if (identity?.studio) {
+          try {
+            const scope = await studioScope(identity.email);
+            if (scope.voiceNames.includes(voiceName)) studioOwner = scope.owners?.[voiceName] || normalizeEmail(identity.email);
+          } catch {
+            studioOwner = '';
+          }
+        }
+        if (!studioOwner && !ownsVoiceName(identity?.email, voiceName)) {
           return err(403, `${normalizeEmail(identity?.email)} does not own a voice called ${voiceName}`, event);
         }
 
@@ -481,7 +492,7 @@ export function createHandler({
         const draft = {
           voiceProfileId,
           displayName: voiceName,
-          ownerEmail: normalizeEmail(identity?.email),
+          ownerEmail: normalizeEmail(studioOwner || identity?.email),
           gptKey: models.gptKey,
           sovitsKey: models.sovitsKey,
           prompt_lang: 'en',

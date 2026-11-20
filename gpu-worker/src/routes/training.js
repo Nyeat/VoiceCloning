@@ -62,13 +62,16 @@ router.post('/train', (req, res) => {
   // The worker is reachable without going through the Lambda router, so the
   // ownership rule is re-checked here: the run may only be named after the
   // voice the supplied NTU email owns.
-  const identity = describeVoiceIdentity(email);
+  // Voice Studio runs (headless) may belong to any Microsoft account; the
+  // training site's own runs stay NTU-only.
+  const identityOptions = { allowExternal: config.headless === true };
+  const identity = describeVoiceIdentity(email, identityOptions);
   if (!identity.valid) {
     return res.status(400).json({ error: identity.error });
   }
   // A lecturer owns several voices, so the check is "is this one of yours",
   // not "is this your one voice".
-  if (!ownsVoiceName(identity.email, expName)) {
+  if (!ownsVoiceName(identity.email, expName, identityOptions)) {
     return res.status(403).json({
       error: `${identity.email} does not own a voice called ${expName}`,
     });
@@ -92,7 +95,7 @@ router.post('/train', (req, res) => {
   // A retrain is a new voice name trained from the first attempt's recordings.
   // The source must be the same lecturer's, checked the same way as expName.
   const sourceExpName = String(config.sourceExpName || '').trim() || expName;
-  if (sourceExpName !== expName && !ownsVoiceName(identity.email, sourceExpName)) {
+  if (sourceExpName !== expName && !ownsVoiceName(identity.email, sourceExpName, identityOptions)) {
     return res.status(403).json({
       error: `${identity.email} does not own recordings called ${sourceExpName}`,
     });

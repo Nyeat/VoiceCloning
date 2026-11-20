@@ -80,6 +80,14 @@ export const FACULTY_ENTRA_ALLOWED_EMAIL_DOMAINS = (
   .split(',')
   .map((domain) => domain.trim())
   .filter(Boolean);
+
+// Voice Studio: chats opened from these page origins accept any Microsoft
+// account (work, school or personal). Addresses in STUDIO_HOME_DOMAINS are
+// still accepted only from the home tenant. Every other origin is unchanged.
+const splitList = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+export const STUDIO_SITE_ORIGINS = splitList(process.env.STUDIO_SITE_ORIGINS).map((origin) => origin.replace(/\/+$/u, ''));
+export const STUDIO_ALLOWED_EMAIL_DOMAINS = splitList(process.env.STUDIO_ALLOWED_EMAIL_DOMAINS);
+export const STUDIO_HOME_DOMAINS = splitList(process.env.STUDIO_HOME_DOMAINS || 'ntu.edu.sg');
 // Separate credential for the load tests, which have no interactive sign-in.
 // Empty disables the bypass; it is never implied by LIVE_AUTH_ENABLED.
 export const LIVE_AUTH_LOADTEST_SECRET = process.env.LIVE_AUTH_LOADTEST_SECRET || '';

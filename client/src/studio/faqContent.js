@@ -22,7 +22,7 @@ export const CONSENT_SECTIONS = [
     title: 'What we collect',
     points: [
       'The audio you record or upload, and the voice model trained from it.',
-      'Your NTU account email and display name, so the voice is linked to you and only you can test it.',
+      'Your sign-in email and display name, so the voice is linked to you and only you can test it.',
       'Your consent record (this form\'s version and when you accepted it), your feedback, and basic usage logs needed to run the service.',
     ],
   },
@@ -79,7 +79,8 @@ export const FAQ = [
     group: 'About Voice Studio',
     items: [
       ['What is Voice Studio?', 'An LKCMedicine service that turns about 30 minutes of your recorded speech into a private synthetic copy of your voice, which can then narrate teaching materials or answer students in LKCMedicine teaching tools.'],
-      ['Who can use it?', 'LKCMedicine (NTU) faculty and teaching staff, signing in with their NTU staff or associate Microsoft account.'],
+      ['Who can use it?', 'Anyone taking part in LKCMedicine teaching. Sign in with any Microsoft account: your NTU or other work/school account, or a personal Microsoft account (Outlook, Hotmail).'],
+      ['I only have Gmail. Can I sign in?', 'Yes. On the Microsoft sign-in page choose "Create one" and enter your Gmail address. Microsoft emails you a code and your Gmail becomes a Microsoft sign-in. You only do this once.'],
       ['Do I have to take part?', 'No. It is entirely voluntary, and you can withdraw at any time.'],
     ],
   },

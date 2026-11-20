@@ -90,7 +90,10 @@ export function SignInScreen({ product, headline, lines, accent = 'from-[#0f1b3d
         <div className="mx-auto w-full max-w-sm">
           <Brand product={product} />
           <h2 className="mt-10 text-2xl font-semibold tracking-tight text-slate-900">Sign in</h2>
-          <p className="mt-2 text-sm text-slate-600">Use your NTU staff or associate Microsoft account.</p>
+          <p className="mt-2 text-sm text-slate-600">Use any Microsoft account — your NTU or other work/school account, or a personal one (Outlook, Hotmail).</p>
+          <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+            Only have Gmail? On the Microsoft page choose <b>Create one</b> and enter your Gmail address — Microsoft emails you a code, and that Gmail becomes your sign-in. It takes about a minute, once.
+          </p>
           <button
             type="button"
             onClick={signIn}

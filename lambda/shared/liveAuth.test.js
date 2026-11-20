@@ -153,3 +153,25 @@ test('isAuthExemptOrigin only exempts the listed open kiosk origin', () => {
   // Unset env keeps the previous behaviour exactly.
   assert.equal(isAuthExemptOrigin(withOrigin('https://d3k2rz0hqm8nxi.cloudfront.net'), {}), false);
 });
+
+test('Voice Studio origins use the any-account verifier and skip the faculty rule', async () => {
+  const { createLiveAuthGuard: create } = await import('./liveAuth.js');
+  const env = {
+    LIVE_AUTH_ENABLED: 'true', ENTRA_TENANT_ID: 't', ENTRA_AUDIENCE: 'a',
+    FACULTY_ENTRA_ALLOWED_EMAIL_DOMAINS: 'staff.main.ntu.edu.sg',
+    STUDIO_SITE_ORIGINS: 'https://studio.example',
+  };
+  const guard = create({
+    env,
+    verifier: { verify: async () => ({ oid: 'n', email: 'ntu@staff.main.ntu.edu.sg' }) },
+    studioVerifier: { verify: async () => ({ oid: 'g', email: 'jane@gmail.com' }) },
+  });
+  const event = (origin) => ({ headers: { origin, authorization: 'Bearer x', 'x-vcs-site': 'faculty' } });
+  const studio = await guard.authorize(event('https://studio.example'));
+  assert.equal(studio.email, 'jane@gmail.com');
+  assert.equal(studio.studio, true);
+  const other = await guard.authorize(event('https://faculty.example'));
+  assert.equal(other.email, 'ntu@staff.main.ntu.edu.sg');
+  const forced = create({ env, forceStudio: true, verifier: { verify: async () => ({}) }, studioVerifier: { verify: async () => ({ oid: 'g', email: 'jane@gmail.com' }) } });
+  assert.equal((await forced.authorize(event(''))).email, 'jane@gmail.com');
+});

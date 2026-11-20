@@ -8,6 +8,7 @@
 import { createEntraVerifier, TokenError } from './entraToken.js';
 
 let cached = null;
+let cachedStudio = null;
 
 function readEnv(env) {
   return {
@@ -23,7 +24,30 @@ function readEnv(env) {
       .split(',')
       .map((domain) => domain.trim().toLowerCase())
       .filter(Boolean),
+    // Voice Studio is open to any Microsoft account (incl. personal accounts,
+    // which can be made from a Gmail address). Empty = any domain.
+    studioDomains: (env.STUDIO_ALLOWED_EMAIL_DOMAINS || '')
+      .split(',')
+      .map((domain) => domain.trim())
+      .filter(Boolean),
+    studioHomeDomains: (env.STUDIO_HOME_DOMAINS || 'ntu.edu.sg')
+      .split(',')
+      .map((domain) => domain.trim())
+      .filter(Boolean),
   };
+}
+
+/** Requests from the Voice Studio site (STUDIO_SITE_ORIGINS, by browser Origin). */
+export function isStudioRequest(event, env = process.env) {
+  const allowed = (env.STUDIO_SITE_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/u, ''))
+    .filter(Boolean);
+  if (allowed.length === 0) return false;
+  const headers = event?.headers || {};
+  const key = Object.keys(headers).find((name) => name.toLowerCase() === 'origin');
+  const origin = key ? String(headers[key] || '').trim().replace(/\/+$/u, '') : '';
+  return Boolean(origin) && allowed.includes(origin);
 }
 
 /**
@@ -81,7 +105,7 @@ export function enforceFacultyIdentity(identity, event, allowedDomains) {
  * The verifier is module-scoped on purpose: Lambda reuses a warm container, so the
  * JWKS cache survives between invocations instead of refetching on every request.
  */
-export function createLiveAuthGuard({ env = process.env, verifier = null } = {}) {
+export function createLiveAuthGuard({ env = process.env, verifier = null, studioVerifier = null, forceStudio = false } = {}) {
   const config = readEnv(env);
   if (!config.enabled) return null;
 
@@ -107,6 +131,19 @@ export function createLiveAuthGuard({ env = process.env, verifier = null } = {})
     });
   }
   const activeVerifier = verifier || cached;
+  function studio() {
+    if (studioVerifier) return studioVerifier;
+    if (!cachedStudio) {
+      cachedStudio = createEntraVerifier({
+        tenantId: config.tenantId,
+        audience: config.audience,
+        allowedEmailDomains: config.studioDomains,
+        multiTenant: true,
+        homeDomains: config.studioHomeDomains,
+      });
+    }
+    return cachedStudio;
+  }
 
   return {
     /**
@@ -123,6 +160,10 @@ export function createLiveAuthGuard({ env = process.env, verifier = null } = {})
         return { oid: 'LOADTEST#lambda', email: '', synthetic: true };
       }
 
+      // Voice Studio: any Microsoft account; the faculty-only rule does not apply.
+      if (forceStudio || isStudioRequest(event, env)) {
+        return { ...await studio().verify(token), synthetic: false, studio: true };
+      }
       const identity = { ...await activeVerifier.verify(token), synthetic: false };
       return enforceFacultyIdentity(identity, event, config.facultyDomains);
     },
@@ -132,4 +173,5 @@ export function createLiveAuthGuard({ env = process.env, verifier = null } = {})
 /** Test seam: drops the warm-container verifier cache. */
 export function resetLiveAuthCache() {
   cached = null;
+  cachedStudio = null;
 }

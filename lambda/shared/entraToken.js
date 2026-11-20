@@ -50,6 +50,12 @@ function normalizeDomain(domain) {
  * @param {string} options.tenantId       Entra tenant (directory) ID.
  * @param {string} options.audience       Expected `aud`: the API's app ID URI.
  * @param {string[]} options.allowedEmailDomains  Empty array allows any domain.
+ * @param {boolean} [options.multiTenant] Accept any Microsoft account — work or
+ *   school accounts of any directory and personal accounts — for the public Voice
+ *   Studio site. The home-tenant rule below keeps it from being a way around NTU
+ *   sign-in: an address in a home domain is accepted only from `tenantId`.
+ * @param {string[]} [options.homeDomains] Domains (and their subdomains) that
+ *   only the home tenant may assert, e.g. ['ntu.edu.sg'].
  * @param {typeof fetch} [options.fetchImpl]
  * @param {() => number} [options.now]    Epoch milliseconds; injectable for tests.
  */
@@ -57,6 +63,8 @@ export function createEntraVerifier({
   tenantId,
   audience,
   allowedEmailDomains = [],
+  multiTenant = false,
+  homeDomains = [],
   fetchImpl = fetch,
   now = () => Date.now(),
 }) {
@@ -64,7 +72,11 @@ export function createEntraVerifier({
   if (!audience) throw new Error('createEntraVerifier requires audience.');
 
   const issuer = `https://login.microsoftonline.com/${tenantId}/v2.0`;
-  const jwksUri = `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`;
+  // The common key set signs tokens of every directory and of personal accounts.
+  const jwksUri = multiTenant
+    ? 'https://login.microsoftonline.com/common/discovery/v2.0/keys'
+    : `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`;
+  const protectedDomains = homeDomains.map(normalizeDomain).filter(Boolean);
   const domains = allowedEmailDomains.map(normalizeDomain).filter(Boolean);
 
   let keysByKid = new Map();
@@ -163,7 +175,9 @@ export function createEntraVerifier({
     const payload = decodeSegment(payloadSegment);
     const nowSeconds = Math.floor(now() / 1000);
 
-    if (payload.iss !== issuer) {
+    const tokenTenant = typeof payload.tid === 'string' ? payload.tid : '';
+    const expectedIssuer = multiTenant ? `https://login.microsoftonline.com/${tokenTenant}/v2.0` : issuer;
+    if (!tokenTenant || payload.iss !== expectedIssuer) {
       throw new TokenError('bad_issuer', 'Token issuer is not the expected tenant.');
     }
     const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
@@ -171,7 +185,7 @@ export function createEntraVerifier({
       // Without this, any token signed by Entra for any application would pass.
       throw new TokenError('bad_audience', 'Token was not issued for this API.');
     }
-    if (payload.tid !== tenantId) {
+    if (!multiTenant && payload.tid !== tenantId) {
       throw new TokenError('bad_tenant', 'Token is from a different directory.');
     }
     if (typeof payload.exp !== 'number' || payload.exp + CLOCK_SKEW_SECONDS < nowSeconds) {
@@ -181,7 +195,7 @@ export function createEntraVerifier({
       throw new TokenError('not_yet_valid', 'Token is not valid yet.');
     }
 
-    const oid = typeof payload.oid === 'string' ? payload.oid : '';
+    const oid = typeof payload.oid === 'string' ? payload.oid : (multiTenant && typeof payload.sub === 'string' ? payload.sub : '');
     if (!oid) {
       // oid is the stable per-user key. Falling back to email would fork a
       // user's history the first time their name changes.
@@ -194,6 +208,12 @@ export function createEntraVerifier({
     }
     if (domains.length > 0 && !domains.some((domain) => email.endsWith(`@${domain}`))) {
       throw new TokenError('domain_not_allowed', 'Account domain is not allowed.');
+    }
+    const emailDomain = email.slice(email.lastIndexOf('@') + 1);
+    if (multiTenant && tokenTenant !== tenantId
+      && protectedDomains.some((domain) => emailDomain === domain || emailDomain.endsWith(`.${domain}`))) {
+      // Another directory (or a personal account) claiming an NTU address.
+      throw new TokenError('bad_tenant', 'This address must sign in through its own organisation.');
     }
 
     return {
