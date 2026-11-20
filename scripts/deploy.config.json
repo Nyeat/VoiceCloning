@@ -43,21 +43,27 @@
       "live-fast": "E3DE2SRSU9JAEG",
       "chatbot": "E3MLIO4CZFOPEO",
       "chatbot-text": "E38A3666CJ7FVJ",
-      "mc": "E2F49Q71ZUM0G0"
+      "mc": "E2F49Q71ZUM0G0",
+      "record": "E2SZH5GZ2Z11VK",
+      "studio": "E1UWWZZTDPPHC5"
     },
     "publicUrls": {
       "training": "https://d1qh0ebsvevhy3.cloudfront.net",
       "live-fast": "https://dfzrfr93t2ruf.cloudfront.net",
       "chatbot": "https://d25sg72wp8oj5g.cloudfront.net",
       "chatbot-text": "https://d3k2rz0hqm8nxi.cloudfront.net",
-      "mc": "https://d32nzk2gacfhag.cloudfront.net"
+      "mc": "https://d32nzk2gacfhag.cloudfront.net",
+      "record": "https://d23jqgg46rozb7.cloudfront.net",
+      "studio": "https://d271zk8d8curic.cloudfront.net"
     },
     "clientTargets": {
       "training": "s3://interns2026-small-projects-bucket-shared/echolect-staging/dist-training",
       "live-fast": "s3://interns2026-small-projects-bucket-shared/echolect-staging/dist-live-fast",
       "chatbot": "s3://interns2026-small-projects-bucket-shared/echolect-staging/dist-gi",
       "chatbot-text": "s3://interns2026-small-projects-bucket-shared/echolect-staging/dist-chatbot-text",
-      "mc": "s3://interns2026-small-projects-bucket-shared/echolect-staging/dist-mc"
+      "mc": "s3://interns2026-small-projects-bucket-shared/echolect-staging/dist-mc",
+      "record": "s3://interns2026-small-projects-bucket-shared/echolect-staging/dist-record",
+      "studio": "s3://interns2026-small-projects-bucket-shared/echolect-staging/dist-studio"
     }
   },
   "dev": {
@@ -85,17 +91,23 @@
     "distributions": {
       "training": "E2KTGN0G56FW71",
       "live-fast": "E36CNBL620DMGM",
-      "chatbot": "EYZ4NLNGITY7T"
+      "chatbot": "EYZ4NLNGITY7T",
+      "record": "E371DG977TJEF9",
+      "studio": "EZO2THHGR1BD8"
     },
     "publicUrls": {
       "training": "https://d3dghqhnk7aoku.cloudfront.net",
       "live-fast": "https://doovx82fh9tfs.cloudfront.net",
-      "chatbot": "https://d2o0cbe2zunqkr.cloudfront.net"
+      "chatbot": "https://d2o0cbe2zunqkr.cloudfront.net",
+      "record": "https://d2frajvvqbg86o.cloudfront.net",
+      "studio": "https://d1zffrwq7b2rri.cloudfront.net"
     },
     "clientTargets": {
       "training": "s3://interns2026-small-projects-bucket-shared/echolect/dist-training",
       "live-fast": "s3://interns2026-small-projects-bucket-shared/echolect/dist-live-fast",
-      "chatbot": "s3://interns2026-small-projects-bucket-shared/echolect/dist-gi"
+      "chatbot": "s3://interns2026-small-projects-bucket-shared/echolect/dist-gi",
+      "record": "s3://interns2026-small-projects-bucket-shared/echolect/dist-record",
+      "studio": "s3://interns2026-small-projects-bucket-shared/echolect/dist-studio"
     }
   }
 }

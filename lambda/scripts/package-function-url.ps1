@@ -33,6 +33,7 @@ try {
     'models',
     'pronunciation-dictionary',
     'shared',
+    'studio',
     'training',
     'training-library',
     'training-audio',

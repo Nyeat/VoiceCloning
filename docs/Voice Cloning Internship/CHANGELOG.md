@@ -2474,3 +2474,21 @@
   live-tested.
 - Live MC: on-demand like lectures (same capacity preflight) but its voice is hard-coded deanvoice-v1
   (McSessionPage.jsx:13), not a published voice; owner decided 2026-11-20 to keep it on Dean's voice.
+
+## 2026-11-20 — Voice Studio: recording portal + review/testing studio (25c1673, deployed 12:01-12:09 SGT)
+
+- New `lambda/studio/` (/api/studio/*): fair training queue on the training GPU (a lecturer's sets back to back),
+  headless worker runs, ETA from recent runs, receipt email with ETA, super-user review (approve / reject with
+  reasons -> changed retrain recipe on a new voice version / ask for new recordings), clash-free GPU test slots
+  (GPU started 15 min before), per-voice pronunciation (`pronunciation-dictionary/voices/<voice>.json`), lecturer
+  feedback, super-user management (STUDIO_SUPERUSERS locked: lkc-digitallearning@ntu.edu.sg). State: one S3 JSON
+  `studio/state.json` with ETag conditional writes. Idle-check ticks the queue and keeps the GPU on for queue/slots.
+- Clients `record` + `studio` (client/src/studio/): 28-min mood-cued script, browser WAV recording, uploads,
+  versioned consent + Q&A + public /faq; super-user console vs lecturer slot page (chat or read-text-aloud).
+  Workers: gpu-worker headless/sourceExpName/notifyOwner; inference worker per-voice sounds-like + ARPAbet.
+- CloudFront: dev record E371DG977TJEF9 d2frajvvqbg86o, studio EZO2THHGR1BD8 d1zffrwq7b2rri; staging record
+  E2SZH5GZ2Z11VK d23jqgg46rozb7, studio E1UWWZZTDPPHC5 d271zk8d8curic. Bucket policy Sid AllowVoiceStudioCloudFront;
+  Lambda URL permissions cf-url-/cf-invoke-<id>. FAQ handout docs/voice-studio-faq.html.
+- Tests: lambda 408/408, client 556/556, inference worker 273/273, training worker 27/27. Smoke: /faq 200 on all four,
+  /api/studio/me 401 unsigned. NOT done: GPU workers not updated (headless queue runs fail until they are),
+  Entra redirect URIs for the 4 domains (admin), SMTP still unset (emails recorded as skipped), no signed-in browser test.
