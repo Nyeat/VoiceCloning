@@ -2505,3 +2505,17 @@
   restored, target healthy) -> AMI ami-0130f727166b5e0d8 -> LT v43 default (rollback v42 ami-0acc935a0205d142c).
 - Tests: lambda 409/409 (studio 15), client 556/556. Smoke: /faq 200 and /api/studio/me 401 on all four sites.
   NOT done: v43 not canaried on a fresh boot; no signed-in test (Entra redirect URIs pending); SMTP unset.
+
+## 2026-11-20 (late) — Voice Studio merged into one site; recording sessions vs GPU test slots (3113f1d, deployed ~16:00-16:20 SGT)
+
+- One site: studio d271zk8d8curic (staging) / d1zffrwq7b2rri (dev); old record URLs forward (path kept); /faq public.
+- Recording sessions (kind 'recording', in person, no GPU, may overlap): super users publish open sessions; lecturer
+  signs in, enters name, picks one; recorder unlocks only in their session (+2 h upload grace); super users always
+  (nav "Record a voice"). Test slots (kind 'test'): super user allocates to a person after QC, no overlaps,
+  publish emails; GPU warm + voice preload + "starts soon" email 15 min before; super-user testing locked meanwhile.
+- Sign-in admits exact @ntu.edu.sg (lkc-digitallearning) on Lambda ENTRA/FACULTY domains, gateway env and studio
+  client; students still excluded (giPublicAccess.test.js updated). STUDIO_SUPERUSERS += cs-tengyuliu@assoc.main.
+- Deployed: both Lambdas (+coordinators; coordinator zip upload needed a retry — network drop), 4 clients, workers +
+  gateway env on dev GPU and staging fixed GPU (both started for this; they idle-stop). No inference-worker change, so
+  no new AMI (v43 stays). Tests: lambda 409/409, client 556/556, gateway 185/185. Smoke: /faq 200, /api/studio 401,
+  old record URLs serve the forwarder. Not done: signed-in end-to-end run; SMTP unset (emails recorded as skipped).
