@@ -1,7 +1,7 @@
 # Active TODO
 
-- [ ] Voice Studio (2026-11-21, 2d37a57): run deploy-worker dev+staging next time the GPUs are up (gateway needs
-  STUDIO_SESSION_PUBLIC_KEY for password-account chat). Browser-check the calendars, continuous recorder on a real
+- [ ] Voice Studio (2026-11-21, d1b5ff9, all deployed): switch training + studio email to the official lkcmedicine
+  mailbox when its credentials exist (now a personal Gmail). Browser-check the calendars, continuous recorder on a real
   mic (30 min take), and fixtures (@voice-studio.test, password with the owner) on https://d271zk8d8curic.cloudfront.net.
 - [ ] Voice Studio (2026-11-20): Entra redirect URIs done (verified 15:xx SGT). Next: signed-in end-to-end run on
   https://d271zk8d8curic.cloudfront.net (publish recording session -> pick -> record in session -> queue -> review ->

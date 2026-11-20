@@ -2553,3 +2553,6 @@
   stopped) — password accounts cannot use "Chat with your voice" until deploy-worker runs; read-aloud works.
 - Tests: lambda 419, gateway 191, client 560; staging API smoke of all 7 fixture flows (login, me, one-booking
   refusal, change). Not browser-tested (Chrome extension not connected); recorder not tried on a real mic.
+- Later 11-21: deploy-worker dev + staging (d1b5ff9; gateway has STUDIO_SESSION_PUBLIC_KEY, all healthy). Studio email ON:
+  both Lambdas got the training worker's EMAIL_USER/PASS/FROM + EMAIL_HOST=smtp.gmail.com:587 (sender is a personal
+  Gmail, same as training). Not test-sent; check the job "Emails" panel on the first real event.

@@ -17,7 +17,7 @@ Last updated: 2026-11-20
   queue codes reach the browser; waits/popups/voice survive reload; training prewarm. 056dd32 deployed. 11-20: ASG GPUs + LT default v42 on c4d928a (v41 rollback); admin cleanup in TODO.
 - 11-20 (64d34f7, deployed all): first-GPU hold, one GPU per account (training site), honest/live GPU status, keep-alive, naming.
 - 11-20 Voice Studio LIVE (10cd835, dev+staging, one site): sessions->queue->QC->test slots; any MS account; no E2E/SMTP yet.
-- 11-21 Voice Studio 2d37a57 (Lambdas+clients): calendars, email sign-in, fixtures; gateway NOT deployed (GPUs off).
+- 11-21 Voice Studio 2d37a57 (Lambdas+clients): calendars, email sign-in, fixtures, gateway; email = training Gmail.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
