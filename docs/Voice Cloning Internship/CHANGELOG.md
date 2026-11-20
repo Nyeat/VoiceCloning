@@ -2462,3 +2462,12 @@
 - Tests (clean tree): coordinator 81/81, lambda 392/392, client 554/554. Not live-tested: hold, owner switch, keep-alive timing.
   Not tested live (not deployed): hold, prewarm switch, keep-alive, naming. Needs main Lambda (dev+staging),
   staging coordinator and all clients deployed from one commit.
+
+## 2026-11-20 — admin TTS site: one GPU, switch on selection (60f8bf1, NOT deployed)
+
+- Owner rules confirmed: lectures (GI) prepare the lecture's published voice and autoscale on demand (unchanged);
+  admin TTS site (TTS_SITE_ORIGINS = staging live-fast dfzrfr93t2ruf) switches an idle GPU on selection with no
+  10 min protection, adds a GPU only when none exists, else waits (`single-gpu-await-idle`). Main Lambda
+  `ttsSiteOption` -> coordinator `singleGpu`. Generate requests keep the ordinary synthesis rules.
+- Tests: coordinator 82/82, lambda 394/394 (clean tree). Deploy blocked: pasted AWS session expired. Needs
+  deploy-lambda dev + staging (main Lambda + coordinator, env adds TTS_SITE_ORIGINS); no client change.
