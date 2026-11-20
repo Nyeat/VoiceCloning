@@ -311,3 +311,18 @@ These live in runtime configuration and will not appear in any branch diff:
   protects it), and their next reply waits for a switch or a new GPU. Origin is client-supplied, so a script can
   claim the TTS/training behaviour. Revisit (separate pools per site or a minimum resident lecture GPU via
   residency locks) if lecture users see unexpected waits.
+
+## 2026-11-20 — Voice Studio: lecturer onboarding as a separate workflow (owner decisions)
+
+- One site (studio CloudFront per env; old record URLs forward). Two slot kinds: in-person recording sessions
+  (published, lecturer picks one; recorder unlocks only then) and GPU test slots (super user allocates after QC; one
+  person, no overlap; GPU warm + voice preload + reminder 15 min before; super-user testing locked during it).
+- Training queue is server-side and fair (a person's sets back to back), headless on the training GPU; QC by super
+  users; reject retrains a NEW voice version with a reason-driven recipe (max 3 attempts unless forced).
+- State = one S3 JSON (`studio/state.json`) with ETag conditional writes, not DynamoDB: low volume, atomic clash
+  checks. Advanced by the scheduled idle-check and by page requests.
+- Access: Voice Studio accepts ANY Microsoft account (personal incl. Gmail-made) via a multi-tenant verifier keyed on
+  page Origin; NTU addresses only from NTU's tenant. Other sites stay NTU-only. Super users only via
+  STUDIO_SUPERUSERS (lkc-digitallearning@ntu.edu.sg, cs-tengyu.liu@assoc.main.ntu.edu.sg) plus in-app additions.
+- Pronunciation is per voice: sounds-like respellings per request; ARPAbet joins the hot dictionary when the voice is
+  applied (engine reload). Email via SMTP from the Lambda, pending an NTU IT mailbox; every event is also in-app.

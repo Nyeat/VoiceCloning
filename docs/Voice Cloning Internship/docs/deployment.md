@@ -700,3 +700,15 @@ from last message/close), inference (dev: fixed GPU via `/fixed-inference/activi
 `GPU_IDLE_INFERENCE_PROBE=optional` — counted when it answers, ignored when the ASG is at 0). A failed required
 probe means "do not stop". Worker+gateway deployed to both 2026-11-16; staging idle-check verified reading
 training + gateway (`idle-threshold-not-met`), dev Lambda has `GPU_GATEWAY_ACTIVITY_URL` too.
+
+## Voice Studio (2026-11-20)
+
+- Build modes `studio` (the site) and `record` (now only forwards to the studio, path kept); `scripts/deploy-client.ps1
+  -Mode studio|record`. Distributions/URLs in `scripts/deploy.config.json` (`studio`, `record`). Entra SPA redirect
+  URIs for all four are registered. Bucket policy Sid `AllowVoiceStudioCloudFront`; Lambda URL permissions
+  `cf-url-<id>` / `cf-invoke-<id>`.
+- Lambda env (in `.env.deployment*`): STUDIO_SUPERUSERS, STUDIO_PUBLIC_URL/RECORD_URL, STUDIO_SITE_ORIGINS,
+  STUDIO_ALLOWED_EMAIL_DOMAINS (empty = any), STUDIO_HOME_DOMAINS, TTS_SITE_ORIGINS (+ studio origin), EMAIL_* (unset).
+  Gateway gets STUDIO_* via `deploy-worker.ps1` (synced keys). `package-function-url.ps1` must include `studio/`.
+- Workers need 25c1673+ (headless runs, per-voice pronunciation); staging ASG image LT v43 has it. Coordinator zip
+  uploads to Seoul occasionally drop: rerun with `--cli-read-timeout 300`.

@@ -201,6 +201,16 @@ Notes:
 - `DELETE /api/supervisor/users/:oid/lessons/:slug/concepts/:conceptId` — reset evidence.
 - All `/api/supervisor/*` routes require the configured Entra app role or OID allowlist.
 
+### Voice Studio (`/api/studio/*`, Lambda `studio/`)
+
+Signed-in (any Microsoft account on the studio site). Lecturer routes: `GET me` (jobs + ETA, recording sessions,
+recording access, test slot), `POST submissions` (needs consent + an open recording session),
+`POST submissions/:id/presign|submit|cancel|feedback`, `POST slots/:id/claim|release` (recording sessions),
+`GET voices/:voice/access`, `GET|POST|DELETE voices/:voice/pronunciations`, `POST voices/:voice/pronunciations/apply`.
+Super users (`admin/...`): `GET overview`, `POST tick`, `POST jobs/:id/review|retry|cancel|request-recordings`,
+`POST slots` (kind recording|test), `PUT|DELETE slots/:id`, `POST slots/publish`, `POST|PUT|DELETE superusers[/:email]`.
+`/voice-profile/mine?scope=studio` lists the voices the caller may use right now.
+
 ## Streaming / Socket Paths
 
 - Training SSE: `/train/progress/:sessionId`
