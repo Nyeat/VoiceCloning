@@ -302,7 +302,7 @@ These live in runtime configuration and will not appear in any branch diff:
 ## 2026-11-20 — Per-site GPU rules on one shared GPU pool (owner decision; RISK)
 
 - Rules: lectures/faculty follow the published voice and autoscale on demand; training site = one GPU per
-  signed-in account (its own GPU switches as soon as nothing runs on it, else the pick waits; never a 2nd GPU — 11-21); admin TTS site = switch an idle GPU on selection
+  signed-in account (its own GPU switches as soon as nothing runs on it, else the pick waits; never a 2nd GPU; another account never waits for or takes a GPU started for someone else inside 10 min — 11-21); admin TTS site = switch an idle GPU on selection
   with no 10 min wait, add only when no GPU exists; Live MC = on demand, fixed Dean voice. While the first GPU is
   starting nothing adds another; a warmed-up, never-used GPU is idle at once.
 - RISK: every site shares ONE coordinator, ONE ASG (max 3) and the same worker addresses; the per-site flags come

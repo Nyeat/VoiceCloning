@@ -2567,3 +2567,9 @@
   saved name (e.g. "francisco") instead of cs-…_7. Name save/list backend unchanged (already worked).
 - Tests: coordinator 82/82, lambda 419/419, client 560/560, client build OK. Not deployed (AWS session token
   expired); not live-tested.
+- Live cause (staging logs 22:49-23:48 SGT): Train-page prewarm booted _6 (OWNER row recorded); picking _7 at 23:14
+  scaled 1->2 because _6 had spoken <60 s earlier. Fixed by 74722fd.
+- 8630235 (NOT deployed): training site, other accounts. A GPU starting for another account no longer holds you
+  (holdForFirstGpu skips when only foreign-owned boots are live) — you get your own GPU; another account's GPU is
+  not "idle at once" after warm-up (foreignOwnedWorkerIds: 10 min rule from registration). Tests: coordinator 83,
+  lambda 420. Hold change has no unit test (index.js).
