@@ -34,7 +34,7 @@ test('router resolves voice profile activation and active-summary routes', () =>
     {
       name: 'VoiceProfileFunction',
       methods: ['GET', 'POST'],
-      pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u,
+      pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|label|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u,
       modulePath: './voice-profile/index.js',
       lambdaPath: '/api/voice-profile/activate',
     },
@@ -45,7 +45,7 @@ test('router resolves voice profile activation and active-summary routes', () =>
     {
       name: 'VoiceProfileFunction',
       methods: ['GET', 'POST'],
-      pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u,
+      pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|label|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u,
       modulePath: './voice-profile/index.js',
       lambdaPath: '/api/voice-profile/active',
     },
@@ -56,7 +56,7 @@ test('router resolves voice profile activation and active-summary routes', () =>
     {
       name: 'VoiceProfileFunction',
       methods: ['GET', 'POST'],
-      pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u,
+      pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|label|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u,
       modulePath: './voice-profile/index.js',
       lambdaPath: '/api/voice-profile/internal/michael-tan-v1',
     },
@@ -201,4 +201,9 @@ test('router resolves the ensure-profile route', () => {
   const route = findRoute('POST', '/api/voice-profile/ensure');
   assert.equal(route?.modulePath, './voice-profile/index.js');
   assert.equal(route?.lambdaPath, '/api/voice-profile/ensure');
+});
+
+test('router reaches voice naming and GPU page activity (2026-11-20: naming 404d)', () => {
+  assert.equal(findRoute('POST', '/api/voice-profile/label')?.name, 'VoiceProfileFunction');
+  assert.equal(findRoute('POST', '/api/instance/activity')?.name, 'InstanceFunction');
 });

@@ -371,6 +371,10 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
   const [voiceCapacityBlocked, setVoiceCapacityBlocked] = useState(false);
   const ensuredVoiceRef = useRef('');
   // Which assistant this panel is editing. Each category is stored separately,
+  // From the background load check: false = this voice is on no GPU right now
+  // (switched away or removed while the page sat open); null = unknown/fine.
+  const [voiceResident, setVoiceResident] = useState(null);
+  const loadSelectedModelRef = useRef(null);
   // so switching here swaps the whole panel — instructions, documents and the
   // browser-local draft of both.
   const [chatbotCategory, setChatbotCategory] = useState(DEFAULT_CHATBOT_CATEGORY);
@@ -1492,6 +1496,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
 
   async function loadSelectedModel(attempt = 0, requestVersion = null) {
     if (requestVersion == null) preparingPollCountRef.current = 0;
+  loadSelectedModelRef.current = () => loadSelectedModel();
     // Rank #1 is the source of truth for references. Never race model warming
     // against the config request, because that can fall back to stale profile refs.
     if (
@@ -1549,6 +1554,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
       preparingPollCountRef.current = 0;
       const coordinatorState = String(coordinatorCapacity?.state || '').toUpperCase();
       if (coordinatorCapacity?.simulated || ['SIMULATED', 'ON_DEMAND'].includes(coordinatorState)) {
+      setVoiceResident(null);
         setGpuNotice({
           tone: 'info',
           title: coordinatorCapacity?.simulated ? 'Dev capacity simulation' : 'Voice loads on demand',
@@ -4180,7 +4186,18 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
       try {
         const res = await peekVoiceCapacity(selectedVoiceProfileId);
         if (cancelled) return;
-        const next = normalizeVoiceCapacity(res?.data || {});
+        const data = res?.data || {};
+        if (data.resident === false && (data.pendingBoot || data.reassigning)) {
+          // The voice left its GPU and is being brought back (a switch or a new
+          // GPU started in the background): run the normal preparation so the
+          // page shows that wait, its real start time and the chat lock.
+          setVoiceResident(false);
+          loadSelectedModelRef.current?.();
+          if (!cancelled) schedule(20_000);
+          return;
+        }
+        setVoiceResident(data.resident === false ? false : null);
+        const next = normalizeVoiceCapacity(data);
         if (/^BUSY_/u.test(next.state)) {
           setGpuNotice((current) => (current?.wait ? current : {
             tone: 'info', title: 'Voice is heavily loaded', message: voiceCapacityNotice(next),
@@ -4197,6 +4214,8 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
 
   // A message (not a voice selection) can find its GPU gone and start a new
   // one, mid-conversation, when the selection poll has already stopped. Ask
+  useEffect(() => { setVoiceResident(null); }, [selectedVoiceProfileId]);
+
   // the coordinator straight away so the same popup (real start time) and
   // chat lock appear as for a selection; a successful reply clears it.
   const capacityWaitSeenRef = useRef(false);
@@ -5629,6 +5648,28 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
           )}
           {voiceTestNotice ? (
             <p role="status" className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+          {selectedProfile && !usingStandardVoice ? (
+            // Which voice the GPU actually holds for this page right now.
+            <p role="status" className="flex items-center gap-2 border-t border-slate-200 px-4 py-2 text-xs text-slate-600">
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'size-2 shrink-0 rounded-full',
+                  !isReady || voiceTestBlocked
+                    ? 'animate-pulse bg-amber-400'
+                    : voiceResident === false ? 'bg-slate-300' : 'bg-emerald-500',
+                )}
+              />
+              <span className="truncate">
+                {!isReady || voiceTestBlocked
+                  ? 'Loading on the GPU: '
+                  : voiceResident === false
+                    ? 'Not on a GPU now (loads when you talk): '
+                    : 'Loaded on the GPU: '}
+                <span className="font-medium text-slate-800">{myVoices.find((voice) => voice.displayName === selectedProfile.displayName)?.label || selectedProfile.displayName}</span>
+              </span>
+            </p>
+          ) : null}
               {voiceTestNotice}
             </p>
           ) : null}

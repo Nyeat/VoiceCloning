@@ -25,7 +25,9 @@ import {
   chooseScaleInCandidate,
   scaleInCandidates,
   chooseSynthesisAdmission,
+  firstGpuHold,
   preflightScaleBlocked,
+  reassignCandidates,
   matchingFreeSlots,
   peekVoiceLoad,
 } from './decision.js';
@@ -460,6 +462,24 @@ function liveReassignment(item, now = Date.now()) {
     && now - Number(item.requestedAt || 0) < pendingTtlMs;
 }
 
+// Instances the group is launching that are not running GPUs yet.
+function launchingInstanceCount(group) {
+  return (group?.Instances || []).filter((item) => /^Pending/u.test(String(item.LifecycleState || ''))).length;
+}
+
+function holdForFirstGpu(items, workers, group, now) {
+  if (routingOnly()) return null;
+  return firstGpuHold({
+    workers,
+    coordinationItems: items.filter((item) => itemInScope(item)),
+    launchingInstances: launchingInstanceCount(group),
+    now,
+    pendingTtlMs,
+  });
+}
+
+export const FIRST_GPU_WAIT_MESSAGE = 'A GPU is already starting. This voice loads on it as soon as it is up; no extra GPU is added while it starts.';
+
 // Workers already committed to a live reassignment for some other model. They
 // still probe as idle READY until the switch actually begins, so without this
 // they look like spare capacity to every concurrent selection.
@@ -470,8 +490,39 @@ function promisedWorkerIds(items, now = Date.now()) {
     .filter(Boolean);
 }
 
+// Which signed-in account loaded which GPU (training site, one person one GPU).
+// `ownerKey` is an opaque hash of the account id from the main Lambda.
+async function recordGpuOwner(instanceId, ownerKey, modelKey, now = Date.now()) {
+  if (!instanceId || !ownerKey || !modelKey) return;
+  await document.send(new PutCommand({
+    TableName: tableName,
+    Item: {
+      entity: 'OWNER',
+      id: coordinationKey('OWNER', instanceId),
+      coordinatorScope,
+      instanceId,
+      ownerKey,
+      modelKey,
+      at: now,
+      expiresAt: Math.floor((now + 86_400_000) / 1_000),
+    },
+  })).catch((error) => console.error('[model-coordinator][owner]', error?.message || error));
+}
+
+// GPUs this account loaded that still hold the voice it loaded on them.
+function ownedWorkerIds(items, workers, ownerKey) {
+  if (!ownerKey) return [];
+  const owners = new Map(items
+    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey === ownerKey)
+    .map((item) => [item.instanceId, item.modelKey]));
+  return workers
+    .filter((worker) => owners.has(worker.instanceId) && owners.get(worker.instanceId) === worker.modelKey)
+    .map((worker) => worker.instanceId);
+}
+
 async function scheduleReassignment(worker, modelKey, synthesisBody, now = Date.now(), {
   requiredIdleMs = reassignIdleMs,
+  ownerKey = '',
 } = {}) {
   const id = coordinationKey('REASSIGN', modelKey);
   const existing = await document.send(new GetCommand({ TableName: tableName, Key: { id } }));
@@ -487,6 +538,7 @@ async function scheduleReassignment(worker, modelKey, synthesisBody, now = Date.
     synthesisBody,
     requestedAt: now,
     requiredIdleMs,
+    ...(ownerKey ? { ownerKey } : {}),
     expiresAt: Math.floor((now + pendingTtlMs) / 1_000),
   };
   try {
@@ -524,21 +576,39 @@ async function runReassignment(id, now = Date.now()) {
     const existing = await scanState();
     const refreshed = await refreshFleet(existing, now);
     const workers = lockedFleet(existing, refreshed.workers, now);
-    const action = chooseCapacityAction({
+    const capacityInput = {
       workers,
       requestedModelKey: pending.modelKey,
       lastDemandByModel: demandMap(existing),
       now,
       reassignIdleMs: Math.max(0, Number(pending.requiredIdleMs) || 0),
-    });
+      ownedWorkerIds: ownedWorkerIds(existing, workers, clean(pending.ownerKey)),
+    };
     // Re-evaluate immediately before the destructive model switch. New work or
-    // renewed demand for the resident voice invalidates the old decision.
-    if (action.type !== 'reassign' || action.worker.instanceId !== pending.workerId) {
+    // renewed demand for the resident voice invalidates the old decision. The
+    // chosen GPU only has to still be switchable: requiring it to still rank
+    // first silently dropped switches whenever a fresh probe reordered two idle
+    // GPUs, and the page then waited on a switch that never ran.
+    if (chooseCapacityAction(capacityInput).type === 'route') {
+      return { statusCode: 200, assigned: false, reason: 'already-resident' };
+    }
+    const target = reassignCandidates(capacityInput)
+      .find((candidate) => candidate.instanceId === pending.workerId);
+    if (!target) {
+      console.log('[model-coordinator][decision]', JSON.stringify({
+        request: 'reassign', decision: 'reassign-dropped', reason: 'no-longer-idle',
+        modelKey: String(pending.modelKey || '').slice(0, 12), workerId: pending.workerId,
+      }));
       return { statusCode: 200, assigned: false, reason: 'no-longer-idle' };
     }
-    const worker = await assignWorker(action.worker, pending.synthesisBody, {
-      requiredIdleMs: Math.max(0, Number(pending.requiredIdleMs) || 0),
+    const worker = await assignWorker(target, pending.synthesisBody, {
+      // The idle rules were just checked against a fresh probe above
+      // (reassignCandidates: owner's own GPU, a GPU only warmed up by its boot).
+      // The worker's own clock counts warm-up sentences as activity, so it
+      // would refuse those; it still refuses if anything is running.
+      ignoreIdle: true,
     });
+    await recordGpuOwner(worker.instanceId, clean(pending.ownerKey), pending.modelKey);
     return { statusCode: 200, assigned: true, workerId: worker.instanceId };
   } finally {
     await document.send(new DeleteCommand({ TableName: tableName, Key: { id } })).catch(() => {});
@@ -616,7 +686,7 @@ export async function requestScale(
   modelKey,
   synthesisBody,
   now = Date.now(),
-  { documentClient = document, autoscalingClient = autoscaling } = {},
+  { documentClient = document, autoscalingClient = autoscaling, ownerKey = '' } = {},
 ) {
   if (routingOnly()) {
     return {
@@ -642,6 +712,7 @@ export async function requestScale(
     synthesisBody,
     requestedAt: now,
     targetDesired: desired + 1,
+    ...(ownerKey ? { ownerKey } : {}),
     expiresAt: Math.floor((now + pendingTtlMs) / 1_000),
   };
   try {
@@ -861,6 +932,7 @@ async function claimBootAssignment(instanceId, now = Date.now()) {
         },
         ReturnValues: 'ALL_NEW',
       }));
+      await recordGpuOwner(instanceId, clean(claimed.Attributes?.ownerKey), claimed.Attributes?.modelKey, now);
       return { statusCode: 200, assignment: claimed.Attributes };
     } catch (error) {
       if (error.name !== 'ConditionalCheckFailedException') throw error;
@@ -895,6 +967,7 @@ function capacityResponse({
   simulated = false,
   message = '',
   startedAt = 0,
+  sharedBoot = false,
 } = {}) {
   const waiting = ['STARTING', 'WARMING'].includes(state);
   return {
@@ -915,6 +988,9 @@ function capacityResponse({
     // When this boot/switch really began, so a page reload keeps the true
     // elapsed time instead of restarting the wait timer at zero.
     ...(waiting && Number(startedAt) > 0 ? { waitStartedAt: Number(startedAt) } : {}),
+    // This voice waits on a GPU that was already starting (not one started for
+    // it), so the page can say "already starting" rather than "starting".
+    ...(sharedBoot ? { sharedBoot: true } : {}),
     voiceProfileId: clean(model?.voiceProfileId),
   };
 }
@@ -964,8 +1040,12 @@ async function prepareCapacity(event) {
   const model = body.voice_model || {};
   const allowScale = event.allowScale === true;
   const source = clean(event.source) || 'preflight';
+  // Training site only: one person, one GPU across their own voices.
+  const ownerKey = clean(event.ownerKey);
   const existing = await scanState();
-  await recordDemand(modelKey, model.voiceProfileId, now);
+  // A prewarm is a guess (the person's latest voice), not someone using it, so
+  // it must not protect the GPU it lands on from switching to a real selection.
+  if (source !== 'prewarm') await recordDemand(modelKey, model.voiceProfileId, now);
   const selectionDwellMs = await recordSelection(modelKey, existing, now);
   const refreshed = await refreshFleet(existing, now);
   const { group } = refreshed;
@@ -1052,6 +1132,26 @@ async function prepareCapacity(event) {
     });
   }
 
+  // The first GPU is still starting: every voice waits for it (it switches to
+  // this voice once up) instead of buying a second one.
+  const firstGpu = holdForFirstGpu(existing, workers, group, now);
+  if (firstGpu) {
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'prepare', source, decision: 'await-first-gpu', allowScale,
+      voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
+      desiredCapacity: group.DesiredCapacity,
+    }));
+    return capacityResponse({
+      state: 'STARTING',
+      canStartConversation: false,
+      model,
+      capacityAction: 'scale',
+      startedAt: firstGpu.startedAt || now - selectionDwellMs,
+      sharedBoot: true,
+      message: FIRST_GPU_WAIT_MESSAGE,
+    });
+  }
+
   // The reassign/boot short-circuits above are keyed to the REQUESTED model, so
   // they cannot see a transition running for a different one. That gap is what
   // produced the 1->2->3->4 incident: one person clicking through three voices,
@@ -1066,12 +1166,39 @@ async function prepareCapacity(event) {
     pendingTtlMs,
     cooldownMs: 0,
   });
+  // One person, one GPU: a GPU already starting for another of this person's
+  // voices switches to this one once it is up, instead of a second GPU.
+  const ownBoot = ownerKey && existing.find((item) => (
+    item.entity === 'PENDING' && itemInScope(item)
+    && now - Number(item.requestedAt || 0) < pendingTtlMs
+    && item.modelKey !== modelKey
+    && item.ownerKey === ownerKey
+    // Already up: then the ordinary own-GPU switch below applies.
+    && !workers.some((worker) => pendingWorkerMatchesBoot(item, worker, item.modelKey))
+  ));
+  if (ownBoot) {
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'prepare', source, decision: 'await-own-gpu', allowScale,
+      voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
+      desiredCapacity: group.DesiredCapacity,
+    }));
+    return capacityResponse({
+      state: 'STARTING',
+      canStartConversation: false,
+      model,
+      capacityAction: 'scale',
+      startedAt: Number(ownBoot.requestedAt) || now,
+      sharedBoot: true,
+      message: 'The GPU starting for your other voice switches to this one as soon as it is up; one GPU per person.',
+    });
+  }
   const capacityInput = {
     workers,
     requestedModelKey: modelKey,
     lastDemandByModel: demandMap(existing),
     now,
     reassigningWorkerIds: promisedWorkerIds(existing, now),
+    ownedWorkerIds: ownedWorkerIds(existing, workers, ownerKey),
   };
   // A GPU used within the grace belongs to whoever used it: autoscaled staging
   // adds a GPU (2026-11-19 feedback: switching a voice someone just used is
@@ -1108,15 +1235,21 @@ async function prepareCapacity(event) {
       voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
       desiredCapacity: group.DesiredCapacity,
     }));
+    // What it waits for is a GPU that is still booting (preflightScaleBlocked),
+    // not a switch: say so, with that boot's real start, instead of "Switching".
+    const bootStarts = workers
+      .filter((worker) => worker.reachable !== false && worker.state !== 'READY')
+      .map((worker) => Number(worker.firstSeenAt) || 0)
+      .filter((value) => value > 0);
     return capacityResponse({
-      state: readyMatching.length > 0 ? 'BUSY_WARMING' : 'WARMING',
+      state: readyMatching.length > 0 ? 'BUSY_STARTING' : 'STARTING',
       canStartConversation: readyMatching.length > 0,
       model,
       matchingWorkers: readyMatching.length,
-      capacityAction: 'reassign',
-      // Shared per voice, so every user waiting on it sees the same timer.
-      startedAt: now - selectionDwellMs,
-      message: 'GPU capacity is already being prepared. This voice will be ready shortly without starting another GPU.',
+      capacityAction: 'scale',
+      startedAt: bootStarts.length ? Math.min(...bootStarts) : now - selectionDwellMs,
+      sharedBoot: true,
+      message: 'Another GPU is already starting. This voice loads on it as soon as it is up; no extra GPU is added while it starts.',
     });
   }
   if ((action.type === 'reassign' || action.type === 'scale') && selectionDwellMs < preflightDwellMs) {
@@ -1139,6 +1272,7 @@ async function prepareCapacity(event) {
     }));
     const scheduled = await scheduleReassignment(action.worker, modelKey, body, now, {
       requiredIdleMs: preflightReassignIdleMs,
+      ownerKey,
     });
     return capacityResponse({
       state: readyMatching.length > 0 ? 'BUSY_WARMING' : 'WARMING',
@@ -1174,7 +1308,7 @@ async function prepareCapacity(event) {
     voiceProfileId: clean(model.voiceProfileId), modelKey: modelKey.slice(0, 12),
     desiredCapacity: group.DesiredCapacity,
   }));
-  const scale = await requestScale(group, modelKey, body, now);
+  const scale = await requestScale(group, modelKey, body, now, { ownerKey });
   return capacityResponse({
     state: scale.simulated
       ? 'SIMULATED'
@@ -1199,24 +1333,42 @@ async function peekCapacity(event) {
   const modelKey = modelResidencyKey(body);
   if (!modelKey) return { statusCode: 400, error: 'The request has no immutable GPT/SoVITS model pair.' };
   const now = Date.now();
-  const items = (await scanState()).filter((item) => itemInScope(item));
-  const workers = applyAdmissionReservations(
-    items.filter((item) => item.entity === 'WORKER' && item.coordinatorScope === coordinatorScope),
-    items,
-    now,
-  );
-  const pendingBoot = items.some((item) => (
+  const allItems = await scanState();
+  const items = allItems.filter((item) => itemInScope(item));
+  let rows = items.filter((item) => item.entity === 'WORKER' && item.coordinatorScope === coordinatorScope);
+  // Saved rows are refreshed by every coordinator request; on a quiet fleet
+  // they go stale, and a page would keep saying "loaded" after its GPU was
+  // switched or removed. Re-probe (no demand, no switching) when they are old.
+  let fleetKnown = rows.some((row) => now - Number(row.updatedAt || 0) <= PEEK_REFRESH_MS);
+  if (!fleetKnown) {
+    try {
+      rows = (await refreshFleet(allItems, now)).workers;
+      fleetKnown = true;
+    } catch (error) {
+      console.error('[model-coordinator][peek-refresh]', error?.message || error);
+    }
+  }
+  const workers = applyAdmissionReservations(rows, items, now);
+  const pending = items.find((item) => (
     item.id === coordinationKey('PENDING', modelKey) && now - Number(item.requestedAt || 0) < pendingTtlMs
   ));
-  const reassigning = items.some((item) => (
+  const reassign = items.find((item) => (
     item.id === coordinationKey('REASSIGN', modelKey) && liveReassignment(item, now)
   ));
+  const load = peekVoiceLoad({ workers, modelKey, pendingBoot: Boolean(pending), reassigning: Boolean(reassign), now });
   return {
     statusCode: 200,
-    ...peekVoiceLoad({ workers, modelKey, pendingBoot, reassigning, now }),
+    ...load,
+    // An empty or fresh fleet without this voice: it is on no GPU right now.
+    ...(fleetKnown && load.matchingWorkers === 0 ? { resident: false } : {}),
+    // Background work for this voice, so a page can show its real wait.
+    ...(pending ? { pendingBoot: true, waitStartedAt: Number(pending.requestedAt) || 0 } : {}),
+    ...(!pending && reassign ? { reassigning: true, waitStartedAt: Number(reassign.requestedAt) || 0 } : {}),
     voiceProfileId: clean(body.voice_model?.voiceProfileId),
   };
 }
+
+const PEEK_REFRESH_MS = 45_000;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1432,6 +1584,22 @@ async function synthesize(event) {
     };
   }
 
+  const firstGpu = !pending && holdForFirstGpu(existing, refreshed.workers, group, now);
+  if (firstGpu) {
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'synthesize', decision: 'await-first-gpu', voiceProfileId: clean(model.voiceProfileId),
+      modelKey: modelKey.slice(0, 12), desiredCapacity: group.DesiredCapacity,
+    }));
+    return {
+      statusCode: 503,
+      code: 'MODEL_CAPACITY_STARTING',
+      error: FIRST_GPU_WAIT_MESSAGE,
+      retryAfterSeconds: bootEstimateSeconds,
+      scaleStarted: false,
+      voiceProfileId: clean(model.voiceProfileId),
+      modelKey,
+    };
+  }
   console.log('[model-coordinator][decision]', JSON.stringify({
     request: 'synthesize', decision: 'scale', voiceProfileId: clean(model.voiceProfileId),
     modelKey: modelKey.slice(0, 12), desiredCapacity: group.DesiredCapacity,

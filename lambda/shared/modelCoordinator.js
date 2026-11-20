@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { inferencePost, inferencePostBinary, workerDeadlineMs } from './gpuWorker.js';
 
@@ -172,7 +173,46 @@ export async function peekCoordinatedModel(body = {}) {
   return result;
 }
 
-export async function prepareCoordinatedModel(body = {}, { allowScale = false, source = 'preflight' } = {}) {
+// The voice-cloning (training) site, where each person tests only their own
+// voices: TRAINING_SITE_ORIGINS, else the origin of TRAINING_PUBLIC_URL. Lecture
+// and other sites share voices across many users and never match.
+export function isTrainingSiteRequest(event, env = process.env) {
+  const configured = String(env.TRAINING_SITE_ORIGINS || '').split(',');
+  try {
+    if (env.TRAINING_PUBLIC_URL) configured.push(new URL(env.TRAINING_PUBLIC_URL).origin);
+  } catch { /* ignore a malformed URL */ }
+  const allowed = configured.map((origin) => origin.trim().replace(/\/+$/u, '')).filter(Boolean);
+  const headers = event?.headers || {};
+  const key = Object.keys(headers).find((name) => name.toLowerCase() === 'origin');
+  const origin = key ? String(headers[key] || '').trim().replace(/\/+$/u, '') : '';
+  return Boolean(origin) && allowed.includes(origin);
+}
+
+// One person, one GPU on the training site: an opaque key for the signed-in
+// account (hash of its Entra object id; no email or name reaches the
+// coordinator). '' anywhere else, or when the caller is not signed in.
+export async function trainingOwnerKey(event, authGuard, env = process.env) {
+  if (!authGuard || !isTrainingSiteRequest(event, env)) return '';
+  try {
+    const identity = await authGuard.authorize(event);
+    if (!identity?.oid || identity.synthetic) return '';
+    return crypto.createHash('sha256').update(`vcs-owner:${identity.oid}`).digest('hex').slice(0, 24);
+  } catch {
+    return '';
+  }
+}
+
+// `{ ownerKey }` for the prepare options, or {} (keeps other callers unchanged).
+export async function trainingOwnerOption(event, authGuard, env = process.env) {
+  const ownerKey = await trainingOwnerKey(event, authGuard, env);
+  return ownerKey ? { ownerKey } : {};
+}
+
+export async function prepareCoordinatedModel(body = {}, {
+  allowScale = false,
+  source = 'preflight',
+  ownerKey = '',
+} = {}) {
   const pausedMessage = gpuPausedMessage();
   if (pausedMessage) {
     return {
@@ -193,7 +233,9 @@ export async function prepareCoordinatedModel(body = {}, { allowScale = false, s
       coordinatorConfigured: false,
     };
   }
-  const result = await invokeCoordinator({ action: 'prepare', body, allowScale, source });
+  const result = await invokeCoordinator({
+    action: 'prepare', body, allowScale, source, ...(ownerKey ? { ownerKey } : {}),
+  });
   if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
   return { ...result, coordinatorConfigured: true };
 }

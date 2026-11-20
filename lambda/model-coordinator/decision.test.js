@@ -8,6 +8,8 @@ import {
   chooseQueuedMatchingWorker,
   chooseSynthesisAdmission,
   fleetIsInMotion,
+  firstGpuHold,
+  reassignCandidates,
   matchingFreeSlots,
   peekVoiceLoad,
 } from './decision.js';
@@ -585,4 +587,76 @@ test('scale-in candidates cover the whole fleet only when every GPU is idle', ()
   const some = scaleInCandidates({ workers: [idle('a', 50), idle('b', 5)], now, idleMs: 40 * 60_000, desired: 2 });
   assert.deepEqual(some.map((w) => w.instanceId), ['a']);
   assert.deepEqual(scaleInCandidates({ workers: [idle('a', 50)], now, idleMs: 40 * 60_000, desired: 1, minSize: 1 }), []);
+});
+
+test('while the first GPU is still starting, nothing else is bought', () => {
+  const now = 1_000_000;
+  const pending = { entity: 'PENDING', requestedAt: now - 60_000 };
+  assert.deepEqual(firstGpuHold({ coordinationItems: [pending], now }), { startedAt: now - 60_000 });
+  const booting = { instanceId: 'i-a', reachable: true, state: 'STARTING', firstSeenAt: now - 90_000 };
+  assert.deepEqual(firstGpuHold({ workers: [booting], now }), { startedAt: now - 90_000 });
+  assert.deepEqual(firstGpuHold({ launchingInstances: 1, now }), { startedAt: 0 });
+  // Nothing on its way: a first GPU may be started.
+  assert.equal(firstGpuHold({ now }), null);
+  // One GPU already on: ordinary switch/add rules apply.
+  const ready = { instanceId: 'i-b', reachable: true, state: 'READY' };
+  assert.equal(firstGpuHold({ workers: [ready, booting], coordinationItems: [pending], now }), null);
+});
+
+test('a GPU only warmed up by its boot switches to a waiting voice at once', () => {
+  const now = 10_000_000;
+  const fresh = {
+    instanceId: 'i-a', reachable: true, state: 'READY', modelKey: 'prewarm', active: 0, queued: 0,
+    lastActivityAt: now - 30_000, residencyUpdatedAt: now - 20_000,
+  };
+  const input = { workers: [fresh], requestedModelKey: 'wanted', now, reassignIdleMs: 600_000 };
+  assert.equal(chooseCapacityAction(input).type, 'reassign');
+  // Someone selected the prewarmed voice recently: it stays theirs.
+  assert.equal(chooseCapacityAction({ ...input, lastDemandByModel: { prewarm: now - 5_000 } }).type, 'scale');
+  // Someone spoke through it after it registered: real use protects it.
+  const used = { ...fresh, lastActivityAt: now - 10_000 };
+  assert.equal(chooseCapacityAction({ ...input, workers: [used] }).type, 'scale');
+  assert.deepEqual(reassignCandidates(input).map((worker) => worker.instanceId), ['i-a']);
+});
+
+test('a GPU that has finished warming up and is unused is switchable at once', () => {
+  const now = 50_000_000;
+  const booted = {
+    instanceId: 'i-a', reachable: true, state: 'READY', modelKey: 'voice-a', active: 0, queued: 0,
+    firstSeenAt: now - 15 * 60_000, lastActivityAt: now - 40_000, residencyUpdatedAt: now - 30_000,
+  };
+  const input = { workers: [booted], requestedModelKey: 'voice-b', now, reassignIdleMs: 600_000 };
+  // Whoever started it selected voice A 12 min ago and left: switch it.
+  assert.equal(chooseCapacityAction({ ...input, lastDemandByModel: { 'voice-a': now - 12 * 60_000 } }).type, 'reassign');
+  // Still waiting for voice A when it came up (polled 40 s before it registered): keep it.
+  assert.equal(chooseCapacityAction({ ...input, lastDemandByModel: { 'voice-a': now - 70_000 } }).type, 'scale');
+  // Up after only 5 min: warmed up and unused, so already switchable.
+  assert.equal(chooseCapacityAction({ ...input, workers: [{ ...booted, firstSeenAt: now - 5 * 60_000 }] }).type, 'reassign');
+  // Once switched (a switch marks activity), the 10 min rule applies again.
+  const switched = { ...booted, lastActivityAt: now - 60_000, residencyUpdatedAt: now - 70_000 };
+  assert.equal(chooseCapacityAction({ ...input, workers: [switched] }).type, 'scale');
+});
+
+test('training site: one person, one GPU — the GPU your account loaded', () => {
+  const now = 90_000_000;
+  const own = {
+    instanceId: 'i-own', reachable: true, state: 'READY', modelKey: 'voice-5', voiceProfileId: 'cs-tengyu-liu_5-v1',
+    active: 0, queued: 0, firstSeenAt: now - 60 * 60_000, lastActivityAt: now - 90_000, residencyUpdatedAt: now - 30 * 60_000,
+  };
+  const other = { ...own, instanceId: 'i-other', modelKey: 'dean', voiceProfileId: 'deanvoice-v1' };
+  const input = {
+    workers: [other, own], requestedModelKey: 'voice-6', now, reassignIdleMs: 600_000,
+    lastDemandByModel: { 'voice-5': now - 60_000, dean: now - 60_000 },
+  };
+  // Not loaded by this account (or not on the training site): the 10 min rule holds.
+  assert.equal(chooseCapacityAction(input).type, 'scale');
+  const mine = chooseCapacityAction({ ...input, ownedWorkerIds: ['i-own'] });
+  assert.equal(mine.type, 'reassign');
+  assert.equal(mine.worker.instanceId, 'i-own');
+  // Busy or just spoke: heavy use still adds a GPU.
+  for (const busy of [{ active: 1 }, { queued: 1 }, { lastActivityAt: now - 10_000 }]) {
+    assert.equal(chooseCapacityAction({
+      ...input, ownedWorkerIds: ['i-own'], workers: [other, { ...own, ...busy }],
+    }).type, 'scale');
+  }
 });

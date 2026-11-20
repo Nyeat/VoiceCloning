@@ -395,8 +395,10 @@ export function getPinnedVoiceProfile(voiceProfileId) {
   return api.get(`/voice-profile/pinned/${encodeURIComponent(voiceProfileId)}`);
 }
 
-export function prepareVoiceCapacity(voiceProfileId) {
-  return api.post('/voice-profile/capacity', { voiceProfileId });
+// `source: 'prewarm'` marks a guess (training site entry) that must not count
+// as someone using the voice.
+export function prepareVoiceCapacity(voiceProfileId, { source = '' } = {}) {
+  return api.post('/voice-profile/capacity', source ? { voiceProfileId, source } : { voiceProfileId });
 }
 
 // Read-only: is this voice heavily loaded right now? Never prepares it, so
@@ -686,6 +688,11 @@ export function getInstanceStatus(target = '') {
 
 export function startInstance() {
   return api.post('/instance/start');
+}
+
+// Someone is actively using a page on the shared GPU: keeps it from idle-stopping.
+export function reportGpuPageActivity() {
+  return api.post('/instance/activity');
 }
 
 // Training audio browser

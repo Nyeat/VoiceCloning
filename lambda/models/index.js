@@ -3,7 +3,8 @@ import { listObjects } from '../shared/s3.js';
 import { inferencePost, inferenceGet } from '../shared/gpuWorker.js';
 import { loadModelPair, useGpuWorkerModels } from '../shared/modelSelection.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
-import { prepareCoordinatedModel } from '../shared/modelCoordinator.js';
+import { prepareCoordinatedModel, trainingOwnerOption } from '../shared/modelCoordinator.js';
+import { createLiveAuthGuard } from '../shared/liveAuth.js';
 import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 
 function isWorkerUnavailableError(error) {
@@ -34,6 +35,7 @@ export function createHandler({
   loadPair = loadModelPair,
   resolveSynthesisBody = createVoiceProfileResolver(),
   prepareModel = prepareCoordinatedModel,
+  authGuard = createLiveAuthGuard(),
 } = {}) {
   return async function handler(event) {
     if (event.requestContext?.http?.method === 'OPTIONS') {
@@ -116,9 +118,11 @@ export function createHandler({
           // on a live reassignment or pending boot for this model, so scaling
           // happens only when no matching slot, no warming GPU and no idle GPU
           // can serve the selection.
+          // Training site: one person, one GPU (their other voice's GPU switches).
           const coordinatorCapacity = await prepareModel(synthesisBody, {
             allowScale: true,
             source: 'models-select',
+            ...await trainingOwnerOption(event, authGuard),
           });
           return ok({
             message: coordinatorCapacity.canStartConversation

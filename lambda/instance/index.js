@@ -12,6 +12,34 @@ import {
 import { ok, err, preflight } from '../shared/cors.js';
 import { originVerifyHeaders } from '../shared/gpuWorker.js';
 import { invokeCoordinator } from '../shared/modelCoordinator.js';
+import { getObject, uploadBuffer } from '../shared/s3.js';
+
+// Someone actively using a page that runs on this GPU (clicks, typing,
+// scrolling; sent by the page at most every couple of minutes). Testing a voice
+// runs its speech on the separate inference GPUs, so without this the training
+// GPU saw no work and stopped under a person still using the site
+// (2026-11-20). It stops only after GPU_IDLE_STOP_MINUTES of true inactivity.
+export const PAGE_ACTIVITY_KEY = 'gpu-activity/page-activity.json';
+
+async function recordPageActivity(now = Date.now()) {
+  await uploadBuffer(
+    PAGE_ACTIVITY_KEY,
+    Buffer.from(JSON.stringify({ lastActivityAt: now })),
+    'application/json',
+  );
+  return { recorded: true, lastActivityAt: now };
+}
+
+async function readPageActivity(now = Date.now()) {
+  try {
+    const value = JSON.parse((await getObject(PAGE_ACTIVITY_KEY)).toString('utf-8'));
+    const lastActivityAt = Number(value?.lastActivityAt);
+    if (!Number.isFinite(lastActivityAt) || lastActivityAt <= 0) return null;
+    return { busy: false, lastActivityAt, idleMs: Math.max(0, now - lastActivityAt) };
+  } catch {
+    return null; // never recorded (or unreadable): only the workers decide
+  }
+}
 
 function instanceId() {
   return (process.env.GPU_INSTANCE_ID || '').trim();
@@ -362,9 +390,12 @@ async function getWorkerActivityStatus() {
     );
   }
 
-  return mergeActivityStatuses(results
+  const samples = results
     .filter((result) => result.status === 'fulfilled')
-    .map((result) => result.value));
+    .map((result) => result.value);
+  const page = await readPageActivity();
+  if (page) samples.push({ name: 'page', activity: page });
+  return mergeActivityStatuses(samples);
 }
 
 async function getStatus(target = '') {
@@ -616,6 +647,10 @@ export const handler = async (event) => {
       // so a fleet nobody is using would never shrink (the legacy no-traffic
       // alarm that covered that case is disabled). Best effort; no-op without
       // a coordinator.
+    if (method === 'POST' && routePath.endsWith('/instance/activity')) {
+      return ok(await recordPageActivity());
+    }
+
       let removedInferenceWorker = null;
       try {
         removedInferenceWorker = (await invokeCoordinator({ action: 'sweep' }))?.removed ?? null;

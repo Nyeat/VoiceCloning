@@ -14,10 +14,10 @@ export const ROUTES = [
   { name: 'TranscribeFunction', methods: ['POST'], pattern: /^\/api\/transcribe\/?$/u, modulePath: './transcribe/index.js' },
   { name: 'TrainingAudioFunction', methods: ['GET'], pattern: /^\/api\/(?:training-audio(?:\/file\/[^/]+\/[^/]+|\/[^/]+)|ref-audio)\/?$/u, modulePath: './training-audio/index.js' },
   { name: 'LiveFunction', methods: ['POST'], pattern: /^\/api\/live\/(?:tts-sentence|cancel)\/?$/u, modulePath: './live/index.js' },
-  { name: 'VoiceProfileFunction', methods: ['GET', 'POST'], pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u, modulePath: './voice-profile/index.js' },
+  { name: 'VoiceProfileFunction', methods: ['GET', 'POST'], pattern: /^\/api\/voice-profile\/(?:activate|active|capacity|label|mine|ensure|(?:internal|pinned)\/[^/]+)\/?$/u, modulePath: './voice-profile/index.js' },
   { name: 'VoiceProfileConfigsFunction', methods: ['GET', 'POST', 'PUT', 'DELETE'], pattern: /^\/api\/voice-profile\/configs\/[^/]+(?:\/[^/]+)?\/?$/u, modulePath: './voice-profile-configs/index.js' },
   { name: 'PronunciationDictionaryFunction', methods: ['GET', 'POST'], pattern: /^\/api\/pronunciation-dictionary\/?$/u, modulePath: './pronunciation-dictionary/index.js' },
-  { name: 'InstanceFunction', methods: ['GET', 'POST'], pattern: /^\/api\/instance\/(?:status|start|idle-check)\/?$/u, modulePath: './instance/index.js' },
+  { name: 'InstanceFunction', methods: ['GET', 'POST'], pattern: /^\/api\/instance\/(?:status|start|activity|idle-check)\/?$/u, modulePath: './instance/index.js' },
 ];
 
 // Live TTS has the largest dependency tree and is latency-sensitive. Load it while

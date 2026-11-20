@@ -12,6 +12,7 @@ export function normalizeVoiceCapacity(value = {}) {
     simulated: value?.simulated === true,
     message: String(value?.message || '').trim(),
     waitStartedAt: Math.max(0, Number(value?.waitStartedAt) || 0),
+    sharedBoot: value?.sharedBoot === true,
   };
 }
 
@@ -34,6 +35,9 @@ export function voiceCapacityNotice(capacity = {}) {
     return value.message || 'The GPU has been turned off by an administrator, so voice features are unavailable for now.';
   }
   if (value.state === 'CHECKING') return 'Getting this voice ready…';
+  if (value.state === 'STARTING' && value.sharedBoot) {
+    return 'A GPU is already starting, and this voice loads on it as soon as it is up — no extra GPU is started for it. A GPU takes about 15 minutes to start (allow up to 20); the timer shows how long this one has been going. The chat unlocks automatically.';
+  }
   if (value.state === 'STARTING') {
     return 'Starting a GPU with this voice. This takes about 15 minutes (allow up to 20). Please wait — the chat unlocks automatically, or try another lecture or voice meanwhile.';
   }
@@ -72,7 +76,7 @@ export function voiceCapacityTitle(capacity = {}) {
   const value = normalizeVoiceCapacity(capacity);
   if (value.simulated) return 'Dev capacity simulation';
   if (value.state === 'PAUSED') return 'Voice features are off';
-  if (value.state === 'STARTING') return 'Starting a GPU with this voice';
+  if (value.state === 'STARTING') return value.sharedBoot ? 'Waiting for the GPU that is starting' : 'Starting a GPU with this voice';
   if (value.state === 'WARMING') return 'Switching a GPU to this voice';
   return 'Getting this voice ready';
 }

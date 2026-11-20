@@ -31,7 +31,7 @@ export function useInferencePrewarm(enabled) {
         if (cancelled) return;
         polls += 1;
         try {
-          const res = await prepareVoiceCapacity(voice.voiceProfileId);
+          const res = await prepareVoiceCapacity(voice.voiceProfileId, { source: 'prewarm' });
           if (String(res?.data?.state || '').toUpperCase() !== 'CHECKING') return;
         } catch { /* best effort; the Test tab prepares again on selection */ }
         if (!cancelled && polls < MAX_POLLS) timer = window.setTimeout(poll, POLL_MS);

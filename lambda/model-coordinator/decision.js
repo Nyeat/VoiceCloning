@@ -5,13 +5,8 @@ export function chooseCapacityAction({
   now = Date.now(),
   reassignIdleMs = 0,
   reassigningWorkerIds = [],
+  ownedWorkerIds = [],
 } = {}) {
-  // A worker already promised to another model is not spare capacity. Without
-  // this, three selections arriving before the first switch begins each see the
-  // same still-idle GPU and each schedule their own reassignment onto it, so it
-  // thrashes through three models and two of the three callers are told a GPU is
-  // warming for a voice it will never hold.
-  const promised = new Set(reassigningWorkerIds.filter(Boolean));
   const available = workers.filter((worker) => (
     ['READY', 'UNASSIGNED'].includes(worker.state) && worker.reachable !== false
   ));
@@ -33,34 +28,119 @@ export function chooseCapacityAction({
     ));
   if (matching.length > 0) return { type: 'route', worker: matching[0] };
 
-  // A GPU is in use when it spoke or switched recently (lastActivityAt), or when
-  // someone selected its voice recently (lastDemandByModel: every selection and
-  // message for the voice). Selection protects only the voice's LAST GPU:
-  // routing packs onto the oldest copy, so a spare copy idles by its own
-  // activity (2026-11-19 staging, same rule as scale-in).
+  const reassignable = reassignCandidates({
+    workers, requestedModelKey, lastDemandByModel, now, reassignIdleMs, reassigningWorkerIds, ownedWorkerIds,
+  });
+  if (reassignable.length > 0) return { type: 'reassign', worker: reassignable[0] };
+
+  return { type: 'scale' };
+}
+
+// Idle GPUs that may switch to `requestedModelKey`, best candidate first.
+// A GPU is in use when it spoke or switched recently (lastActivityAt), or when
+// someone selected its voice recently (lastDemandByModel: every selection and
+// message for the voice). Selection protects only the voice's LAST GPU:
+// routing packs onto the oldest copy, so a spare copy idles by its own
+// activity (2026-11-19 staging, same rule as scale-in).
+// Page polls run every 15 s while someone waits for a booting GPU.
+export const BOOT_WAITER_GRACE_MS = 60_000;
+
+// A freshly booted GPU's warm-up sentences run before it registers its voice,
+// so "registered after its last activity" means nobody has spoken through it
+// yet: that warm-up is not use, and its idle time runs from when it started.
+// Only someone still waiting for its voice protects it, so a GPU that came up
+// for a prewarm guess (or for someone who left) switches to the voice someone is
+// actually waiting for instead of a second GPU being bought (2026-11-20).
+// Training site, one person one GPU: a GPU the signed-in account itself loaded
+// (its boot or switch, still holding that voice) may switch to another voice
+// that account picks, even inside the 10 min window. Only while it is quiet
+// (nothing running or waiting, no speech for this long), so a busy voice still
+// gets an extra GPU. Ownership is the account, never the voice name: a GPU
+// someone else loaded with your published voice is not yours to switch.
+export const OWNER_SWITCH_QUIET_MS = 60_000;
+
+export function reassignCandidates({
+  workers = [],
+  requestedModelKey,
+  lastDemandByModel = {},
+  now = Date.now(),
+  reassignIdleMs = 0,
+  reassigningWorkerIds = [],
+  ownedWorkerIds = [],
+} = {}) {
+  // A worker already promised to another model is not spare capacity. Without
+  // this, three selections arriving before the first switch begins each see the
+  // same still-idle GPU and each schedule their own reassignment onto it, so it
+  // thrashes through three models.
+  const promised = new Set(reassigningWorkerIds.filter(Boolean));
+  const available = workers.filter((worker) => (
+    ['READY', 'UNASSIGNED'].includes(worker.state) && worker.reachable !== false
+  ));
+  const owned = new Set(ownedWorkerIds.filter(Boolean));
+  const ownSwitchable = (worker) => owned.has(worker.instanceId)
+    && Number(worker.active || 0) === 0
+    && Number(worker.queued || 0) === 0
+    && now - Number(worker.lastActivityAt || 0) >= OWNER_SWITCH_QUIET_MS;
   const holders = new Map();
-  for (const worker of ready) {
-    if (worker.modelKey) holders.set(worker.modelKey, (holders.get(worker.modelKey) || 0) + 1);
+  for (const worker of available) {
+    if (worker.state === 'READY' && worker.modelKey) {
+      holders.set(worker.modelKey, (holders.get(worker.modelKey) || 0) + 1);
+    }
   }
-  const reassignable = available
+  return available
     .filter((worker) => {
       if (worker.modelKey === requestedModelKey) return false;
       if (worker.residencyLocked === true) return false;
       if (promised.has(worker.instanceId)) return false;
       if (worker.active !== 0 || worker.queued !== 0) return false;
+      if (ownSwitchable(worker)) return true;
       const spareCopy = (holders.get(worker.modelKey) || 0) > 1;
       const selectedAt = spareCopy ? 0 : Number(lastDemandByModel[worker.modelKey] || 0);
-      const idleSince = Math.max(Number(worker.lastActivityAt || 0), selectedAt);
+      const warmUpOnly = !spareCopy && Boolean(worker.modelKey)
+        && Number(worker.residencyUpdatedAt || 0) > Number(worker.lastActivityAt || 0);
+      // A GPU that has finished warming up and that nobody has spoken through is
+      // idle at once (owner rule 2026-11-20), whatever its age. Only someone
+      // still waiting for its voice when it came up (a selection within a
+      // minute of registering, or later) keeps it. A switch marks activity, so
+      // after a switch the ordinary 10 min applies.
+      const stillWanted = selectedAt >= Number(worker.residencyUpdatedAt || 0) - BOOT_WAITER_GRACE_MS;
+      const idleSince = warmUpOnly
+        ? (stillWanted ? selectedAt : 0)
+        : Math.max(Number(worker.lastActivityAt || 0), selectedAt);
       return now - idleSince >= reassignIdleMs;
     })
     .sort((a, b) => {
+      // Your own GPU first: one person, one GPU.
+      const own = Number(ownSwitchable(b)) - Number(ownSwitchable(a));
+      if (own) return own;
       const aDemand = Number(lastDemandByModel[a.modelKey] || 0);
       const bDemand = Number(lastDemandByModel[b.modelKey] || 0);
       return aDemand - bDemand || a.lastActivityAt - b.lastActivityAt;
     });
-  if (reassignable.length > 0) return { type: 'reassign', worker: reassignable[0] };
+}
 
-  return { type: 'scale' };
+// No inference GPU is on yet, but one is already on its way (a boot request,
+// a GPU still booting, or an instance the group is launching). Until that first
+// GPU is up, every voice and all load wait for it instead of buying more; the
+// first GPU then switches to whoever is waiting. Once any GPU is READY the
+// ordinary switch/add rules apply (owner rule, 2026-11-20). Returns null when
+// there is nothing to wait for, else the earliest known start (0 = unknown).
+export function firstGpuHold({
+  workers = [],
+  coordinationItems = [],
+  launchingInstances = 0,
+  now = Date.now(),
+  pendingTtlMs = 600_000,
+} = {}) {
+  if (workers.some((worker) => worker.reachable !== false && worker.state === 'READY')) return null;
+  const booting = workers.filter((worker) => worker.state !== 'DRAINING');
+  const pendingStarts = coordinationItems
+    .filter((item) => item?.entity === 'PENDING' && now - Number(item.requestedAt || 0) < pendingTtlMs)
+    .map((item) => Number(item.requestedAt) || 0);
+  if (pendingStarts.length === 0 && booting.length === 0 && Number(launchingInstances) <= 0) return null;
+  const starts = [...pendingStarts, ...booting.map((worker) => Number(worker.firstSeenAt) || 0)]
+    .filter((value) => value > 0);
+  return { startedAt: starts.length ? Math.min(...starts) : 0 };
 }
 
 // Event capacity is a minimum resident pool, not a blanket fleet freeze. For
@@ -172,14 +252,20 @@ export function peekVoiceLoad({
     && worker.modelKey === modelKey
     && now - Number(worker.updatedAt || 0) <= freshMs
   ));
-  if (matching.length === 0) return { state: 'UNKNOWN', busy: false, matchingWorkers: 0 };
+  if (matching.length === 0) {
+    // `resident: false` only when the rows are fresh: the voice is on no GPU
+    // right now (switched away, scaled in, or never loaded). Stale rows say
+    // nothing either way.
+    const known = workers.some((worker) => now - Number(worker.updatedAt || 0) <= freshMs);
+    return { state: 'UNKNOWN', busy: false, matchingWorkers: 0, ...(known ? { resident: false } : {}) };
+  }
   const free = matchingFreeSlots(matching, modelKey);
   const queued = matching.reduce((total, worker) => total + Number(worker.queued || 0), 0);
   const busy = free === 0 || queued > 0 || pendingBoot || reassigning;
   const state = !busy
     ? 'READY'
     : pendingBoot ? 'BUSY_STARTING' : reassigning ? 'BUSY_WARMING' : 'BUSY_QUEUED';
-  return { state, busy, matchingWorkers: matching.length, availableSlots: free, queued };
+  return { state, busy, matchingWorkers: matching.length, availableSlots: free, queued, resident: true };
 }
 
 export function matchingFreeSlots(workers = [], requestedModelKey = '') {

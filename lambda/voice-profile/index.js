@@ -3,7 +3,7 @@ import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 import { isSafePathSegment } from '../shared/paths.js';
 import { inferencePost } from '../shared/gpuWorker.js';
 import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
-import { peekCoordinatedModel, prepareCoordinatedModel } from '../shared/modelCoordinator.js';
+import { peekCoordinatedModel, prepareCoordinatedModel, trainingOwnerOption } from '../shared/modelCoordinator.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import { buildVoiceProfileId, isNtuEmail, normalizeEmail, ownsVoiceName } from '../shared/voiceIdentity.js';
 import { bestModelsForVoice, listTrainedVoiceNames } from '../shared/trainedVoices.js';
@@ -566,7 +566,8 @@ export function createHandler({
         // thrashing or purchasing duplicate GPUs.
         return ok(await prepareModelCapacity(resolvedBody, {
           allowScale: true,
-          source: 'lecture-preflight',
+          source: body.source === 'prewarm' ? 'prewarm' : 'lecture-preflight',
+          ...await trainingOwnerOption(event, authGuard),
         }), {}, event);
       }
 
@@ -579,6 +580,8 @@ export function createHandler({
         }
 
         const currentTime = now();
+        // `prewarm`: the training site guessing the person's next voice. Same
+        // preparation, but it does not count as using the voice (see coordinator).
         let record;
         try {
           record = createVoiceProfileRecord(body, currentTime);

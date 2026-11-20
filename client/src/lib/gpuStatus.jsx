@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { getInstanceStatus, startInstance } from '../services/api.js';
+import { getInstanceStatus, reportGpuPageActivity, startInstance } from '../services/api.js';
 import { cacheGpuReadyStatus, readCachedGpuReadyStatus } from './gpuReadyCache.js';
 import { smoothGpuStatus } from './gpuStatusModel.js';
 
 const GpuStatusContext = createContext(null);
+export const PAGE_ACTIVITY_INTERVAL_MS = 2 * 60_000;
 
 // Only the fields the UI actually reacts to. Background polls that come back
 // identical must NOT replace state (which would re-render every consumer, incl.
@@ -119,6 +120,26 @@ export function GpuStatusProvider({ children, autoStart = false, target = '' }) 
       start();
     }
   }, [autoStart, status?.configured, status?.workerReady, status?.startable, status?.state, starting, start]);
+
+  // Pages that start the GPU also keep it on while someone is really using them
+  // (clicks, typing, scrolling, touch), at most one report per interval; it
+  // idle-stops only after true inactivity. A tab left open untouched does not
+  // count.
+  useEffect(() => {
+    if (!autoStart || !status?.configured) return undefined;
+    let lastSent = 0;
+    const report = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      if (now - lastSent < PAGE_ACTIVITY_INTERVAL_MS) return;
+      lastSent = now;
+      reportGpuPageActivity().catch(() => { lastSent = 0; });
+    };
+    const events = ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'];
+    events.forEach((name) => window.addEventListener(name, report, { passive: true, capture: true }));
+    report();
+    return () => events.forEach((name) => window.removeEventListener(name, report, { capture: true }));
+  }, [autoStart, status?.configured]);
 
   // Notify pages the moment the worker flips ready so they can (re)load models, and
   // re-arm auto-start so a subsequent idle stop is picked up.

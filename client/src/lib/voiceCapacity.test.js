@@ -97,3 +97,12 @@ test('a reloaded page keeps the real boot start time from the coordinator', asyn
   assert.equal(voiceCapacityWait({ state: 'STARTING', waitStartedAt: bootedAt }, wait, 'v', now + 5_000).key, wait.key);
   assert.equal(voiceCapacityWait({ state: 'STARTING', waitStartedAt: now + 60_000 }, null, 'v', now).startedAt, now);
 });
+
+test('a voice waiting on a GPU that was already starting says so, with its real start', async () => {
+  const { voiceCapacityTitle, voiceCapacityNotice, voiceCapacityWait } = await import('./voiceCapacity.js');
+  const capacity = { state: 'STARTING', sharedBoot: true, waitStartedAt: 1_000 };
+  assert.equal(voiceCapacityTitle(capacity), 'Waiting for the GPU that is starting');
+  assert.match(voiceCapacityNotice(capacity), /already starting/u);
+  assert.equal(voiceCapacityWait(capacity, null, 'v1', 600_000).startedAt, 1_000);
+  assert.equal(voiceCapacityTitle({ state: 'STARTING' }), 'Starting a GPU with this voice');
+});
