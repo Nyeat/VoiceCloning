@@ -18,7 +18,7 @@ Last updated: 2026-11-20
 - 11-20 (64d34f7, deployed all): first-GPU hold, one GPU per account (training site), honest/live GPU status, keep-alive, naming.
 - 11-20 Voice Studio LIVE (10cd835, dev+staging, one site): sessions->queue->QC->test slots; any MS account; no E2E/SMTP yet.
 - 11-21 Voice Studio 2d37a57 (Lambdas+clients): calendars, email sign-in, fixtures, gateway; email = training Gmail.
-- 11-21 74722fd+8630235 NOT DEPLOYED: training site = GPU belongs to the account that started it; own voices switch it (wait if busy), other accounts get their own GPU (no first-GPU hold, no taking a just-warmed GPU); load still scales. Test page shows saved names. Deploy staging coordinator + main Lambda + training client.
+- 11-21 7b8c964 DEPLOYED (dev+staging Lambdas, coordinators, training clients): training site = GPU belongs to the account that started it; own voices switch it (wait if busy), other accounts get their own GPU (no first-GPU hold, no taking a just-warmed GPU); load still scales. Test page shows saved names. Next: two-account live test.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).

@@ -2557,7 +2557,7 @@
   both Lambdas got the training worker's EMAIL_USER/PASS/FROM + EMAIL_HOST=smtp.gmail.com:587 (sender is a personal
   Gmail, same as training). Not test-sent; check the job "Emails" panel on the first real event.
 
-## 2026-11-21 — Own-GPU switch without waiting; saved voice names on Test your voice (74722fd, NOT deployed)
+## 2026-11-21 — Own-GPU switch without waiting; saved voice names on Test your voice (74722fd + 8630235, deployed 7b8c964)
 
 - Coordinator (training site, ownerKey): selecting a voice already on a GPU records that GPU as the account's
   (OWNER row), however it was loaded (message, first GPU, prewarm). The account's own GPU switches to its next pick
@@ -2573,3 +2573,7 @@
   (holdForFirstGpu skips when only foreign-owned boots are live) — you get your own GPU; another account's GPU is
   not "idle at once" after warm-up (foreignOwnedWorkerIds: 10 min rule from registration). Tests: coordinator 83,
   lambda 420. Hold change has no unit test (index.js).
+- Deployed 7b8c964 ~03:09 SGT 11-21: main Lambda + coordinator (dev + staging), training client (dev + staging).
+  Verified: staging coordinator package contains own-gpu-await-idle + foreignOwnedWorkerIds; training site 200.
+  Not live-tested with two accounts. Other clients (live-fast/chatbot/mc) not redeployed (label change only matters
+  on Test your voice).
