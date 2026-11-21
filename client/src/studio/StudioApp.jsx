@@ -25,7 +25,7 @@ import {
   dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
 } from './slotCalendar.js';
 import {
-  addSlot, addSuperuser, cancelJob, claimSlot, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
+  addSlot, addSuperuser, cancelJob, claimSlot, restoreJob, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
   googleSignIn, moveSlot, passwordSignIn, publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob,
   runTick, sendFeedback,
 } from './studioApi.js';
@@ -365,6 +365,7 @@ function SlotHint({ job, overview }) {
 function JobDetail({ overview, onAction }) {
   const { jobId } = useParams();
   const navigate = useNavigate();
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const job = overview.jobs.find((item) => item.id === jobId);
   if (!job) return <Notice tone="warn">That recording set was not found. <button type="button" className="underline" onClick={() => navigate('/')}>Back</button></Notice>;
   const voices = trainedVoices(job);
@@ -380,9 +381,25 @@ function JobDetail({ overview, onAction }) {
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={job.status} />
           {job.status === 'failed' && <Button variant="dark" size="sm" onClick={() => onAction(() => retryJob(job.id))}><RefreshCw size={13} /> Retry training</Button>}
-          {!['training', 'cancelled'].includes(job.status) && <Button variant="ghost" size="sm" onClick={() => onAction(() => cancelJob(job.id))}><X size={13} /> Cancel set</Button>}
+          {!['training', 'cancelled'].includes(job.status) && !confirmWithdraw && <Button variant="ghost" size="sm" onClick={() => setConfirmWithdraw(true)}><X size={13} /> Withdraw set</Button>}
+          {job.status === 'cancelled' && <Button variant="dark" size="sm" onClick={() => onAction(() => restoreJob(job.id))}><RefreshCw size={13} /> Restore set</Button>}
         </div>
       </div>
+
+      {confirmWithdraw && (
+        <Notice tone="warn" className="space-y-2">
+          <p className="font-semibold">Withdraw {who(job)}'s set "{job.label}"?</p>
+          <ul className="list-disc space-y-0.5 pl-5 text-sm">
+            <li>It leaves {job.status === 'queued' ? 'the training queue' : job.status === 'review' || job.status === 'failed' ? 'quality check' : 'its current stage'} and moves to "Withdrawn"; it will not train or be tested.</li>
+            <li>{who(job)} is not emailed, and may book a new recording session.</li>
+            <li>Nothing is deleted: the recordings and trained voices are kept, and "Restore set" puts it back where it was.</li>
+          </ul>
+          <div className="flex gap-2 pt-1">
+            <Button variant="danger" size="sm" onClick={() => { setConfirmWithdraw(false); onAction(() => cancelJob(job.id)); }}>Withdraw set</Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmWithdraw(false)}>Keep it</Button>
+          </div>
+        </Notice>
+      )}
 
       {job.estimate && ['queued', 'training'].includes(job.status) && (
         <Notice tone="info">Estimated finish {formatSgt(job.estimate.finishAt)} SGT ({relativeFromNow(job.estimate.finishAt)}).</Notice>

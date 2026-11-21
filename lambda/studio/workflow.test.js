@@ -282,3 +282,19 @@ test('jobs from fixture accounts are fixtures', () => {
   assert.equal(created.fixture, true);
   assert.equal(wf.createJob(state, { id: 'r', ownerEmail: 'a@ntu.edu.sg', expName: 'y', now: T0 }).fixture, undefined);
 });
+
+test('a withdrawn set can be restored to where it was; nothing is lost', () => {
+  const state = wf.emptyState();
+  const inReview = job(state, 'r', 'a@ntu.edu.sg', 0);
+  inReview.status = 'review';
+  inReview.attempts.push({ attempt: 1, expName: 'a', result: 'trained' });
+  wf.cancelJob(inReview);
+  assert.equal(inReview.status, 'cancelled');
+  wf.restoreJob(inReview, { now: T0 });
+  assert.equal(inReview.status, 'review');
+  const legacy = job(state, 'old', 'b@ntu.edu.sg', 0);
+  legacy.status = 'cancelled';
+  legacy.attempts.push({ attempt: 1, expName: 'b', result: 'trained' });
+  assert.equal(wf.restoreJob(legacy, { now: T0 }).status, 'review', 'withdrawn before this existed: a trained set returns to review');
+  assert.throws(() => wf.restoreJob(inReview, { now: T0 }), /Only a withdrawn set/u);
+});

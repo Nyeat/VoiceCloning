@@ -408,7 +408,22 @@ export function cancelJob(job) {
   if (['training', 'cancelled'].includes(job.status)) {
     throw clientError(409, job.status === 'training' ? 'Training is already running on the GPU' : 'Already cancelled');
   }
+  // Kept so a mistaken withdrawal can be undone (restoreJob). Nothing is deleted:
+  // the recordings and every trained voice stay where they are.
+  job.cancelledFrom = job.status;
   job.status = 'cancelled';
+  return job;
+}
+
+/** Undo a withdrawal: the set goes back to where it was. */
+export function restoreJob(job, { now } = {}) {
+  if (job.status !== 'cancelled') throw clientError(409, 'Only a withdrawn set can be restored');
+  const trained = job.attempts.some((attempt) => attempt.result === 'trained');
+  // Sets withdrawn before this was recorded: a trained one goes back to review.
+  const previous = job.cancelledFrom || (trained ? 'review' : job.files.length ? 'queued' : 'uploading');
+  job.status = previous === 'training' ? 'queued' : previous;
+  if (job.status === 'queued') job.queuedAt = iso(now ?? Date.now());
+  delete job.cancelledFrom;
   return job;
 }
 

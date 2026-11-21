@@ -814,6 +814,21 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
+        if (route === 'POST admin/jobs/:id/restore') {
+          await updateState(store, (state) => {
+            const job = wf.findJob(state, parts[2]);
+            if (!job) throw wf.clientError(404, 'Job not found');
+            // One set per person: not while they already have another one in.
+            if (state.jobs.some((other) => other.id !== job.id && wf.sameNtuPerson(other.ownerEmail, job.ownerEmail)
+              && !['uploading', 'cancelled'].includes(other.status))) {
+              throw wf.clientError(409, 'This lecturer already has another set in progress; withdraw that one first');
+            }
+            wf.restoreJob(job, { now });
+            return null;
+          });
+          return ok(await adminView((await store.read()).state, email), {}, event);
+        }
+
         if (route === 'POST admin/jobs/:id/request-recordings') {
           const { result } = await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);
