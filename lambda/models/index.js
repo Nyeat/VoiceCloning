@@ -3,7 +3,9 @@ import { listObjects } from '../shared/s3.js';
 import { inferencePost, inferenceGet } from '../shared/gpuWorker.js';
 import { loadModelPair, useGpuWorkerModels } from '../shared/modelSelection.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
-import { prepareCoordinatedModel, trainingOwnerOption, ttsSiteOption } from '../shared/modelCoordinator.js';
+import {
+  prepareCoordinatedModel, studioOwnerOption, trainingOwnerOption, ttsSiteOption,
+} from '../shared/modelCoordinator.js';
 import { studioRequestRefusal } from '../shared/studioGpuGuard.js';
 import { createLiveAuthGuard } from '../shared/liveAuth.js';
 import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
@@ -129,6 +131,7 @@ export function createHandler({
             source: 'models-select',
             ...await trainingOwnerOption(event, authGuard),
             ...ttsSiteOption(event),
+            ...studioOwnerOption(event),
           });
           return ok({
             message: coordinatorCapacity.canStartConversation

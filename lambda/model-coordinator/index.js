@@ -535,6 +535,26 @@ function foreignOwnedWorkerIds(items, workers, ownerKey) {
     .map((worker) => worker.instanceId);
 }
 
+// Hard reservations: an owner key starting "reserved:" (Voice Studio) keeps its
+// GPU from every other caller — other sites' selections and messages included —
+// while it holds the reserved voice and the owner used it within
+// RESERVED_OWNER_FRESH_MS (its keep-alive refreshes that). It still routes
+// anyone asking for the same voice, and scale-in still removes it once idle.
+const RESERVED_OWNER_PREFIX = 'reserved:';
+const RESERVED_OWNER_FRESH_MS = 35 * 60_000;
+function isReservedOwner(ownerKey) {
+  return String(ownerKey || '').startsWith(RESERVED_OWNER_PREFIX);
+}
+function reservedWorkerIds(items, workers, ownerKey = '', now = Date.now()) {
+  const reservations = new Map(items
+    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && isReservedOwner(item.ownerKey)
+      && item.ownerKey !== ownerKey && now - Number(item.at || 0) < RESERVED_OWNER_FRESH_MS)
+    .map((item) => [item.instanceId, item.modelKey]));
+  return workers
+    .filter((worker) => reservations.has(worker.instanceId) && reservations.get(worker.instanceId) === worker.modelKey)
+    .map((worker) => worker.instanceId);
+}
+
 // GPUs this account loaded that still hold the voice it loaded on them.
 function ownedWorkerIds(items, workers, ownerKey) {
   if (!ownerKey) return [];
@@ -610,6 +630,7 @@ async function runReassignment(id, now = Date.now()) {
       reassignIdleMs: Math.max(0, Number(pending.requiredIdleMs) || 0),
       ownedWorkerIds: ownedWorkerIds(existing, workers, clean(pending.ownerKey)),
       foreignOwnedWorkerIds: foreignOwnedWorkerIds(existing, workers, clean(pending.ownerKey)),
+      reservedWorkerIds: reservedWorkerIds(existing, workers, clean(pending.ownerKey)),
     };
     // Re-evaluate immediately before the destructive model switch. New work or
     // renewed demand for the resident voice invalidates the old decision. The
@@ -1108,6 +1129,7 @@ async function prepareCapacity(event) {
       .filter((worker) => !existing.some((item) => (
         item.entity === 'OWNER' && itemInScope(item) && item.instanceId === worker.instanceId
         && item.ownerKey === ownerKey && item.modelKey === modelKey
+        && (!isReservedOwner(ownerKey) || now - Number(item.at || 0) < 5 * 60_000)
       )))
       .map((worker) => recordGpuOwner(worker.instanceId, ownerKey, modelKey, now)));
   }
@@ -1242,6 +1264,7 @@ async function prepareCapacity(event) {
     reassigningWorkerIds: promisedWorkerIds(existing, now),
     ownedWorkerIds: ownedWorkerIds(existing, workers, ownerKey),
     foreignOwnedWorkerIds: foreignOwnedWorkerIds(existing, workers, ownerKey),
+    reservedWorkerIds: reservedWorkerIds(existing, workers, ownerKey, now),
   };
   // A GPU used within the grace belongs to whoever used it: autoscaled staging
   // adds a GPU (2026-11-19 feedback: switching a voice someone just used is
@@ -1542,6 +1565,7 @@ async function synthesize(event) {
         now: Date.now(),
         reassignIdleMs,
         reassigningWorkerIds: promisedWorkerIds(currentItems),
+        reservedWorkerIds: reservedWorkerIds(currentItems, workers),
         maxQueuedPerWorker,
       });
       if (action.type === 'direct') {

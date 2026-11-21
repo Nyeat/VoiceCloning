@@ -7,6 +7,7 @@ export function chooseCapacityAction({
   reassigningWorkerIds = [],
   ownedWorkerIds = [],
   foreignOwnedWorkerIds = [],
+  reservedWorkerIds = [],
 } = {}) {
   const available = workers.filter((worker) => (
     ['READY', 'UNASSIGNED'].includes(worker.state) && worker.reachable !== false
@@ -31,7 +32,7 @@ export function chooseCapacityAction({
 
   const reassignable = reassignCandidates({
     workers, requestedModelKey, lastDemandByModel, now, reassignIdleMs, reassigningWorkerIds, ownedWorkerIds,
-    foreignOwnedWorkerIds,
+    foreignOwnedWorkerIds, reservedWorkerIds,
   });
   if (reassignable.length > 0) return { type: 'reassign', worker: reassignable[0] };
 
@@ -70,7 +71,11 @@ export function reassignCandidates({
   reassigningWorkerIds = [],
   ownedWorkerIds = [],
   foreignOwnedWorkerIds = [],
+  // Hard reservations (e.g. Voice Studio's GPU): never switched by anyone else,
+  // however long idle, while the reservation is fresh.
+  reservedWorkerIds = [],
 } = {}) {
+  const reserved = new Set(reservedWorkerIds.filter(Boolean));
   // A worker already promised to another model is not spare capacity. Without
   // this, three selections arriving before the first switch begins each see the
   // same still-idle GPU and each schedule their own reassignment onto it, so it
@@ -98,6 +103,7 @@ export function reassignCandidates({
       if (worker.modelKey === requestedModelKey) return false;
       if (worker.residencyLocked === true) return false;
       if (promised.has(worker.instanceId)) return false;
+      if (reserved.has(worker.instanceId)) return false;
       if (worker.active !== 0 || worker.queued !== 0) return false;
       if (ownSwitchable(worker)) return true;
       const spareCopy = (holders.get(worker.modelKey) || 0) > 1;

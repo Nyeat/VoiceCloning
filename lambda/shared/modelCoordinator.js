@@ -189,7 +189,23 @@ export function ttsSiteOption(event, env = process.env) {
   const allowed = String(env.TTS_SITE_ORIGINS || '').split(',')
     .map((origin) => origin.trim().replace(/\/+$/u, '')).filter(Boolean);
   const origin = requestOrigin(event);
+  // Voice Studio has its own reserved GPU instead (studioOwnerOption).
+  if (isStudioOrigin(origin, env)) return {};
   return origin && allowed.includes(origin) ? { singleGpu: true } : {};
+}
+
+// Voice Studio owns its GPU outright: one owner for the whole site (super users'
+// testing and lecturers' test slots), so a slot warm-up switches the studio's
+// own GPU at once, and no other site ever switches it (a "reserved:" owner —
+// see the coordinator's reservedWorkerIds).
+export const STUDIO_GPU_OWNER = 'reserved:studio';
+function isStudioOrigin(origin, env = process.env) {
+  const studio = String(env.STUDIO_SITE_ORIGINS || '').split(',')
+    .map((value) => value.trim().replace(/\/+$/u, '')).filter(Boolean);
+  return Boolean(origin) && studio.includes(origin);
+}
+export function studioOwnerOption(event, env = process.env) {
+  return isStudioOrigin(requestOrigin(event), env) ? { ownerKey: STUDIO_GPU_OWNER } : {};
 }
 
 export function isTrainingSiteRequest(event, env = process.env) {

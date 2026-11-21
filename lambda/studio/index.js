@@ -49,17 +49,19 @@ async function defaultStartGpu() {
 
 // Gets a lecturer's voice ready for their test slot, and keeps asking for it
 // through the slot (each ask counts as use, so the GPU is never idled out under
-// them). The coordinator switches a GPU nobody used for 10 min (the super users
-// are locked out from the warm-up on) or adds one — never one that is being
-// removed. Returns the coordinator's answer (state, canStartConversation, …).
+// them). As Voice Studio's GPU owner: the studio's own GPU (the super users'
+// one; they are locked out from the warm-up on) switches at once — no idle
+// wait — and a GPU is added only when the studio has none usable (e.g. its GPU
+// is being removed). No other site can switch it meanwhile.
+// Returns the coordinator's answer (state, canStartConversation, …).
 async function defaultPreloadVoice(voiceName) {
-  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel }, { buildVoiceProfileId }] = await Promise.all([
+  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel, STUDIO_GPU_OWNER }, { buildVoiceProfileId }] = await Promise.all([
     import('../shared/voiceProfileRuntime.js'),
     import('../shared/modelCoordinator.js'),
     import('../shared/voiceIdentity.js'),
   ]);
   const body = await createVoiceProfileResolver()({ voiceProfileId: buildVoiceProfileId(voiceName), text: 'Voice Studio slot warm-up.' });
-  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select' });
+  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey: STUDIO_GPU_OWNER });
 }
 
 async function readJsonObject(key) {

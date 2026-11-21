@@ -699,3 +699,12 @@ test('training site: another account\'s freshly warmed GPU is theirs, not idle a
   // User 1 switching between their own voices still switches it.
   assert.equal(chooseCapacityAction({ ...input, ownedWorkerIds: ['i-u1'] }).type, 'reassign');
 });
+
+test('a reserved GPU (Voice Studio) is never switched by another caller, however long idle', () => {
+  const now = 10 * 3600_000;
+  const studioGpu = { instanceId: 'i-studio', state: 'READY', reachable: true, modelKey: 'studio-voice', active: 0, queued: 0, maxSlots: 2, lastActivityAt: now - 3 * 3600_000, firstSeenAt: 1 };
+  const base = { workers: [studioGpu], requestedModelKey: 'gi-bleeding', now, reassignIdleMs: 0 };
+  assert.equal(chooseCapacityAction(base).type, 'reassign', 'unreserved: an idle GPU switches');
+  assert.equal(chooseCapacityAction({ ...base, reservedWorkerIds: ['i-studio'] }).type, 'scale', 'reserved: another site gets its own GPU');
+  assert.equal(chooseCapacityAction({ ...base, requestedModelKey: 'studio-voice', reservedWorkerIds: ['i-studio'] }).type, 'route', 'its own voice still routes');
+});

@@ -4,7 +4,7 @@ import { isSafePathSegment } from '../shared/paths.js';
 import { inferencePost } from '../shared/gpuWorker.js';
 import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
 import {
-  peekCoordinatedModel, prepareCoordinatedModel, trainingOwnerOption, ttsSiteOption,
+  peekCoordinatedModel, prepareCoordinatedModel, studioOwnerOption, trainingOwnerOption, ttsSiteOption,
 } from '../shared/modelCoordinator.js';
 import { studioGpuRefusal } from '../shared/studioGpuGuard.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
@@ -624,6 +624,7 @@ export function createHandler({
           ...await trainingOwnerOption(event, authGuard),
           // Voice Studio / admin TTS: one GPU, switched to this voice at once.
           ...ttsSiteOption(event),
+          ...studioOwnerOption(event),
         }), {}, event);
       }
 
