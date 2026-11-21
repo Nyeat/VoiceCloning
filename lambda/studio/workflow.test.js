@@ -130,7 +130,7 @@ test('lecturers pick open published recording sessions, one upcoming each', () =
   assert.equal(wf.publicSlots(state, 'a@ntu.edu.sg', T0)[0].open, true);
 });
 
-test('in their slot a lecturer uses all their approved voices; super users are locked out', () => {
+test('in their slot a lecturer uses all their approved voices; super users keep their own GPU', () => {
   const state = wf.emptyState();
   const a = job(state, 'a1', 'a@ntu.edu.sg', 0);
   const a2 = job(state, 'a2', 'a@ntu.edu.sg', 1);
@@ -147,13 +147,39 @@ test('in their slot a lecturer uses all their approved voices; super users are l
   assert.equal(asA('a_2', T0 + 61 * MIN).allowed, true);
   assert.equal(asA('a', T0 + 121 * MIN).reason, 'no-slot');
   assert.equal(wf.voiceAccess(state, { email: 'b@ntu.edu.sg', voiceName: 'a', now: T0 + 61 * MIN, superuser: false }).allowed, false);
-  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 61 * MIN, superuser: true }).reason, 'slot-in-use');
+  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 61 * MIN, superuser: true }).allowed, true, 'super users test on their QC GPU during a slot');
   assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0, superuser: true }).allowed, true);
   assert.equal(wf.gpuDemand(state, T0 + 41 * MIN), 'slot', 'GPU is wanted 20 min early');
   assert.equal(wf.gpuDemand(state, T0 + 39 * MIN), '');
   assert.equal(wf.gpuHold(state, T0 + 41 * MIN).slot.id, 's1');
-  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 41 * MIN, superuser: true }).reason, 'slot-in-use', 'super users locked from the warm-up');
+  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 41 * MIN, superuser: true }).allowed, true, 'no lockout during the warm-up');
   assert.equal(wf.preloadVoiceFor(state, state.slots[0]), 'a_2', 'most recently approved voice is preloaded');
+});
+
+test('a lecturer can finish their test slot early; its GPU is then released', () => {
+  const state = wf.emptyState();
+  const a = job(state, 'a1', 'a@ntu.edu.sg', 0);
+  a.status = 'approved'; a.approvedExpName = 'a';
+  wf.addSlot(state, { id: 's1', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 120 * MIN).toISOString(), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.publishSlots(state, T0);
+  state.slots[0].warm = { state: 'READY' };
+  assert.throws(() => wf.completeSlot(state, { slotId: 's1', email: 'a@ntu.edu.sg', now: T0 + 50 * MIN }), /not started/u);
+  assert.throws(() => wf.completeSlot(state, { slotId: 's1', email: 'b@ntu.edu.sg', now: T0 + 70 * MIN }), /not found/u);
+  wf.completeSlot(state, { slotId: 's1', email: 'A@staff.main.ntu.edu.sg', now: T0 + 70 * MIN });
+  assert.equal(wf.gpuHold(state, T0 + 71 * MIN), null, 'no hold after finishing');
+  assert.equal(wf.voiceAccess(state, { email: 'a@ntu.edu.sg', voiceName: 'a', now: T0 + 71 * MIN, superuser: false }).allowed, false);
+  assert.deepEqual(wf.slotsToRelease(state, T0 + 71 * MIN).map((slot) => slot.id), ['s1']);
+  assert.throws(() => wf.completeSlot(state, { slotId: 's1', email: 'a@ntu.edu.sg', now: T0 + 72 * MIN }), /already ended/u);
+  // A slot starting within the hour after the early finish keeps the GPU on (bridge).
+  wf.addSlot(state, { id: 's2', start: new Date(T0 + 125 * MIN).toISOString(), end: new Date(T0 + 150 * MIN).toISOString(), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.publishSlots(state, T0);
+  assert.equal(wf.gpuHold(state, T0 + 75 * MIN)?.phase, 'bridge');
+});
+
+test('slot warm-up uses the coordinator wait start', () => {
+  const warm = wf.nextWarmState(null, { state: 'STARTING', waitStartedAt: T0 - 5 * MIN }, T0);
+  assert.equal(warm.startedAt, new Date(T0 - 5 * MIN).toISOString());
+  assert.equal(warm.estimatedReadyAt, new Date(T0 + 10 * MIN).toISOString());
 });
 
 test('super users: bootstrap list is locked, last one cannot be removed', () => {
@@ -268,7 +294,7 @@ test('GPU hold: 20 min warm-up, whole slot, bridged across a gap under an hour',
 
 test('slot warm-up state: estimate from the coordinator answer, READY once it speaks', () => {
   const t = T0;
-  const boot = wf.nextWarmState(null, { state: 'STARTING', canStartConversation: false, startedAt: t }, t + MIN);
+  const boot = wf.nextWarmState(null, { state: 'STARTING', canStartConversation: false, waitStartedAt: t }, t + MIN);
   assert.equal(boot.state, 'STARTING');
   assert.equal(boot.estimatedReadyAt, new Date(t + 15 * MIN).toISOString());
   const still = wf.nextWarmState(boot, { state: 'STARTING', canStartConversation: false }, t + 6 * MIN);

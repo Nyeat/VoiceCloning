@@ -566,10 +566,16 @@ function otherOwnersRecords(items, workers, ownerKey, test) {
     && (!ownerKey || ownerFamily(item.ownerKey) !== ownerFamily(ownerKey)));
   return records.filter((item) => workers.some((worker) => worker.instanceId === item.instanceId && worker.modelKey === item.modelKey));
 }
-function reservedWorkerIds(items, workers, ownerKey = '', now = Date.now()) {
-  return otherOwnersRecords(items, workers, ownerKey, isReservedOwner)
+export function reservedWorkerIds(items, workers, ownerKey = '', now = Date.now()) {
+  const reserved = otherOwnersRecords(items, workers, ownerKey, isReservedOwner)
     .filter((item) => now - Number(item.at || 0) < RESERVED_OWNER_FRESH_MS)
     .map((item) => item.instanceId);
+  // A reserved owner gets a GPU of its own: it never takes one another owner
+  // holds, however long unused (Voice Studio's slot GPU and the super users'
+  // QC GPU never switch each other).
+  if (!isReservedOwner(ownerKey)) return reserved;
+  const held = otherOwnersRecords(items, workers, ownerKey, isHeldOwner).map((item) => item.instanceId);
+  return [...new Set([...reserved, ...held])];
 }
 function heldSinceByWorker(items, workers, ownerKey = '') {
   return Object.fromEntries(otherOwnersRecords(items, workers, ownerKey, isHeldOwner)

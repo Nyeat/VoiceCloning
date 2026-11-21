@@ -16,7 +16,7 @@ import {
   ensureVoiceProfile, prepareVoiceCapacity, scanOovWords, startInstance, synthesizeSentence,
 } from '@/services/api';
 import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
-import { voiceCapacityNotice } from '@/lib/voiceCapacity';
+import { voiceCapacityWait } from '@/lib/voiceCapacity';
 import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
 import { buildVoiceProfileId } from '@/lib/voiceIdentity';
 import { recordTestActivity } from './studioApi.js';
@@ -92,26 +92,23 @@ function useVoiceReady(voiceName) {
 const BOOT_MINUTES = 15;
 const SWITCH_MINUTES = 2;
 
-// The same popup the training site shows while a GPU starts or switches.
-function waitFor(voiceName, gpu) {
-  const capacity = gpu.capacity;
-  if (gpu.status !== 'starting' || !capacity) return null;
-  const booting = capacity.state === 'STARTING';
-  return {
-    key: `studio-${voiceName}-${capacity.state}-${capacity.startedAt || ''}`,
-    title: booting ? 'Starting a GPU with this voice' : 'Switching the GPU to this voice',
-    message: voiceCapacityNotice(capacity) || capacity.message || 'Getting this voice ready…',
-    estimateSeconds: (booting ? BOOT_MINUTES : SWITCH_MINUTES) * 60,
-    maxSeconds: (booting ? 20 : 3) * 60,
-    startedAt: Number(capacity.startedAt) || Date.now(),
-  };
+// The same popup every other site shows while a GPU starts or switches. Its
+// clock is the coordinator's real start (waitStartedAt), kept across polls,
+// reopening and reloads, so it never restarts at 0s.
+function useVoiceWait(voiceName, gpu) {
+  const previous = useRef(null);
+  const wait = gpu.status === 'starting' && gpu.capacity
+    ? voiceCapacityWait(gpu.capacity, previous.current, voiceName)
+    : null;
+  useEffect(() => { previous.current = wait; });
+  return wait;
 }
 
 // Lecturer: no GPU detail, just when to come back.
 function readyEstimate(gpu, slotWarm) {
   const fromSlot = slotWarm?.estimatedReadyAt ? Date.parse(slotWarm.estimatedReadyAt) : 0;
   const capacity = gpu.capacity;
-  const started = Number(capacity?.startedAt) || 0;
+  const started = Number(capacity?.waitStartedAt) || 0;
   const fromCapacity = started ? started + (capacity?.state === 'STARTING' ? BOOT_MINUTES : SWITCH_MINUTES) * 60_000 : 0;
   return Math.max(fromSlot, fromCapacity) || 0;
 }
@@ -557,6 +554,7 @@ export default function VoiceTestBench({
   const [tab, setTab] = useState('chat');
   const [pick, setPick] = useState(null);
   const gpu = useVoiceReady(voice);
+  const wait = useVoiceWait(voice, gpu);
   const ready = gpu.status === 'ready';
   useEffect(() => {
     reportActivity = audience === 'superuser';
@@ -593,7 +591,7 @@ export default function VoiceTestBench({
           ))}
         </div>
       </Card>
-      {audience === 'superuser' && <GpuWaitDialog wait={waitFor(voice, gpu)} />}
+      {audience === 'superuser' && <GpuWaitDialog wait={wait} />}
       {gpu.status === 'error' && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{gpu.error}</p>}
       {gpu.status !== 'error' && gpu.error && audience === 'superuser' && <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">Still trying: {gpu.error}</p>}
       {audience === 'lecturer' && !ready ? <WarmingCard gpu={gpu} slotWarm={slotWarm} /> : (

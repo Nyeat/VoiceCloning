@@ -283,8 +283,29 @@ export function slotHoldsGpu(slot) {
   return real(slot) && slotKind(slot) === 'test' && slot.status === 'published' && Boolean(slot.assigneeEmail);
 }
 
+// When a test slot really ends: its booked end, or earlier if the lecturer
+// finished testing (completeSlot). The GPU hold and release follow this.
+export function slotEnd(slot) {
+  const end = ms(slot.end);
+  const done = slot.completedAt ? ms(slot.completedAt) : 0;
+  return done && done < end ? done : end;
+}
+
 function activeSlotAt(slots, time) {
-  return slots.find((slot) => slotHoldsGpu(slot) && ms(slot.start) <= time && time < ms(slot.end)) || null;
+  return slots.find((slot) => slotHoldsGpu(slot) && ms(slot.start) <= time && time < slotEnd(slot)) || null;
+}
+
+/**
+ * The lecturer ends their own test slot early ("I'm done"). The slot GPU is then
+ * released on the next tick unless another slot starts within the hour.
+ */
+export function completeSlot(state, { slotId, email, now }) {
+  const slot = state.slots.find((item) => item.id === slotId);
+  if (!slot || !slotHoldsGpu(slot) || !sameNtuPerson(slot.assigneeEmail, email)) throw clientError(404, 'Test slot not found');
+  if (now < ms(slot.start)) throw clientError(409, 'Your test slot has not started yet');
+  if (now >= slotEnd(slot)) throw clientError(409, 'Your test slot has already ended');
+  slot.completedAt = iso(now);
+  return slot;
 }
 
 /**
@@ -310,7 +331,7 @@ export function estimateQueue(state, { now, gpuRunning = true, env = process.env
     for (let guard = 0; guard < 50; guard += 1) {
       const slot = activeSlotAt(state.slots, start);
       if (!slot) break;
-      start = ms(slot.end);
+      start = slotEnd(slot);
     }
     const finish = start + perJob;
     estimates.push({ jobId: job.id, position: index + 1, startAt: iso(start), finishAt: iso(finish) });
@@ -664,8 +685,15 @@ export function currentSlot(state, now) {
 
 export function upcomingSlotFor(state, email, now, kind = 'test') {
   return liveSlots(state)
-    .filter((slot) => slotKind(slot) === kind && slot.status === 'published' && sameNtuPerson(slot.assigneeEmail, email) && ms(slot.end) > now)
+    .filter((slot) => slotKind(slot) === kind && slot.status === 'published' && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) > now)
     .sort((a, b) => ms(a.start) - ms(b.start))[0] || null;
+}
+
+/** This person's most recent test slot that is over (ended or finished early), or null. */
+export function lastTestedSlotFor(state, email, now) {
+  return liveSlots(state)
+    .filter((slot) => slotHoldsGpu(slot) && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) <= now)
+    .sort((a, b) => slotEnd(b) - slotEnd(a))[0] || null;
 }
 
 // After a recording session ends, uploads that were started in it may still finish.
@@ -763,8 +791,9 @@ function approvedVoicesOf(state, email) {
 
 /**
  * Whether this person may load and speak with this voice right now.
- * Super users review any voice, but never inside a lecturer's slot (the GPU is theirs).
- * A lecturer uses only their own approved voices, only inside their own slot.
+ * Super users review any voice at any time, on their own QC GPU; a lecturer's
+ * slot has a GPU of its own. A lecturer uses only their own approved voices,
+ * only inside their own slot.
  */
 export function voiceAccess(state, { email, voiceName, now, superuser }) {
   const active = activeSlotAt(state.slots, now);
@@ -772,13 +801,7 @@ export function voiceAccess(state, { email, voiceName, now, superuser }) {
   if (active && sameNtuPerson(active.assigneeEmail, email) && ownApproved) {
     return { allowed: true, reason: 'in-slot', slot: active };
   }
-  if (superuser) {
-    // Locked from the slot's warm-up to its end (and across a short gap to the
-    // next slot), so super users never take the GPU a lecturer is about to use.
-    const hold = gpuHold(state, now);
-    if (hold) return { allowed: false, reason: 'slot-in-use', slot: hold.slot };
-    return { allowed: true, reason: 'superuser', slot: null };
-  }
+  if (superuser) return { allowed: true, reason: 'superuser', slot: null };
   if (!ownApproved) return { allowed: false, reason: 'not-approved' };
   const slot = upcomingSlotFor(state, email, now, 'test');
   if (!slot) return { allowed: false, reason: 'no-slot' };
@@ -813,10 +836,11 @@ export function gpuHold(state, now) {
   for (let index = 0; index < slots.length; index += 1) {
     const slot = slots[index];
     const from = ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE;
-    if (from <= now && now < ms(slot.end)) return { slot, phase: now < ms(slot.start) ? 'warmup' : 'slot' };
+    const end = slotEnd(slot);
+    if (from <= now && now < end) return { slot, phase: now < ms(slot.start) ? 'warmup' : 'slot' };
     const next = slots[index + 1];
-    if (next && ms(slot.end) <= now && now < ms(next.start) - SLOT_WARMUP_MINUTES * MINUTE
-      && ms(next.start) - ms(slot.end) < SLOT_BRIDGE_MINUTES * MINUTE) {
+    if (next && end <= now && now < ms(next.start) - SLOT_WARMUP_MINUTES * MINUTE
+      && ms(next.start) - end < SLOT_BRIDGE_MINUTES * MINUTE) {
       return { slot: next, phase: 'bridge' };
     }
   }
@@ -836,7 +860,8 @@ export function nextWarmState(previous, capacity, now) {
   if (ready) return { state: 'READY', readyAt: previous?.readyAt || iso(now), startedAt: previous?.startedAt || iso(now), checkedAt: iso(now) };
   // A new phase (e.g. switching after a boot) restarts the clock it is measured by.
   const samePhase = previous && previous.state === state && previous.state !== 'READY';
-  const startedAt = samePhase ? previous.startedAt : iso(Number(capacity?.startedAt) || now);
+  // The coordinator reports when this boot/switch really began as waitStartedAt.
+  const startedAt = samePhase ? previous.startedAt : iso(Number(capacity?.waitStartedAt) || now);
   const minutes = state === 'STARTING' ? GPU_BOOT_ESTIMATE_MINUTES : GPU_SWITCH_ESTIMATE_MINUTES;
   return {
     state,
@@ -849,7 +874,7 @@ export function nextWarmState(previous, capacity, now) {
 
 /** Ended test slots whose GPU warm-up ran and has not been released yet. */
 export function slotsToRelease(state, now) {
-  return state.slots.filter((slot) => slotHoldsGpu(slot) && slot.warm && !slot.gpuReleasedAt && ms(slot.end) <= now);
+  return state.slots.filter((slot) => slotHoldsGpu(slot) && slot.warm && !slot.gpuReleasedAt && slotEnd(slot) <= now);
 }
 
 // Super users testing keeps the fixed GPU (the live chat service) on until this

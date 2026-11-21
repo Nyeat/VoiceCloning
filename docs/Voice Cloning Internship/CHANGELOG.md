@@ -2743,3 +2743,14 @@
 - DEPLOYED f95c8d6 (incl. 0ebdad4) 12:50 UTC: dev + staging main Lambdas (LastUpdateStatus Successful), studio + training
   clients both envs (live App chunks contain the new UI text). Training GPU worker NOT redeployed/baked: both clients and
   Studio now send skipDenoise explicitly, so the worker default is unused. Dev branch fast-forwarded to the same commit.
+
+## 2026-11-21 — Voice Studio: separate slot and QC GPUs, lecturer "I'm done", wait-timer fix (not deployed)
+- Owners `reserved:studio-slot` / `held:studio-qc` (lambda/shared/modelCoordinator.js); `studioGpuAccess` returns the
+  caller's owner (models + voice-profile pass it); coordinator `reservedWorkerIds`: a reserved owner never takes a
+  held GPU. Super-user lockout removed (workflow voiceAccess, studioVoiceScope, console UI).
+- `wf.slotEnd`/`completeSlot` + POST studio/slots/:id/complete: early finish ends the hold and releases the slot GPU
+  (bridge to a slot <1 h later still applies). Lecturer page: "I'm done testing" + "You have tested your voice".
+- Wait timer reset: coordinator sends `waitStartedAt`, Studio read nonexistent `startedAt` (Date.now each poll).
+  VoiceTestBench now uses shared `voiceCapacityWait`; slot warm-up `nextWarmState` reads waitStartedAt too.
+- Tests: lambda 442/442 (+ coordinator studioOwners, early-finish, warm start), client 561/561, studio build OK.
+  Not run live. Old OWNER rows (`held:studio`/`reserved:studio`) expire within 24 h.

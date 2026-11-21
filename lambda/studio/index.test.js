@@ -185,8 +185,8 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   assert.deepEqual(h.preloaded, [voice]);
   assert.ok(h.sent.some((m) => m.to.includes(alice) && /starts soon/u.test(m.subject)), 'reminder as the GPU warms');
   h.advance(11);
-  // Super user is locked out of testing while Alice's slot runs.
-  assert.equal((await h.call(boss, 'GET', `voices/${voice}/access`)).body.reason, 'slot-in-use');
+  // Super users keep testing on their own QC GPU while Alice's slot runs.
+  assert.equal((await h.call(boss, 'GET', `voices/${voice}/access`)).body.allowed, true);
   assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.allowed, true);
   assert.equal((await h.call(alice, 'POST', `voices/${voice}/pronunciations`, { word: 'cohesin', soundsLike: 'koh hee sin' })).status, 200);
   assert.equal((await h.call(alice, 'POST', `voices/${voice}/pronunciations/apply`, {})).status, 200);

@@ -347,3 +347,8 @@ These live in runtime configuration and will not appear in any branch diff:
 - 2026-11-21 Voice Studio GPU kinds: a lecturer's test-slot GPU is hard-reserved (never idles off or gets switched during
   the slot; released right after unless a slot follows within 1 h); the super users' GPU is soft-held (other sites may
   switch it after 10 min unused; 30 min idle scale-in).
+- 2026-11-21 (supersedes the two lines above) Voice Studio has TWO GPUs, two owners that never take or switch each other:
+  lecturer test slots `reserved:studio-slot` (warm 20 min before; hard-reserved; released at slot end OR when the
+  lecturer presses "I'm done", unless another slot starts within 1 h) and super users' QC GPU `held:studio-qc` (any
+  voice, any time, picks switch at once; other sites may take it after 10 min unused). No super-user lockout. A
+  reserved owner never takes another owner's held GPU. Owner follows the signed-in role (studioGpuAccess).

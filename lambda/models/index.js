@@ -6,7 +6,7 @@ import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import {
   prepareCoordinatedModel, studioOwnerOption, trainingOwnerOption, ttsSiteOption,
 } from '../shared/modelCoordinator.js';
-import { studioRequestRefusal } from '../shared/studioGpuGuard.js';
+import { studioRequestAccess } from '../shared/studioGpuGuard.js';
 import { createLiveAuthGuard } from '../shared/liveAuth.js';
 import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 
@@ -39,7 +39,7 @@ export function createHandler({
   resolveSynthesisBody = createVoiceProfileResolver(),
   prepareModel = prepareCoordinatedModel,
   authGuard = createLiveAuthGuard(),
-  studioRefusal = studioRequestRefusal,
+  studioAccess = studioRequestAccess,
 } = {}) {
   return async function handler(event) {
     if (event.requestContext?.http?.method === 'OPTIONS') {
@@ -86,8 +86,9 @@ export function createHandler({
           return err(400, 'Invalid JSON body');
         }
         const voiceProfileId = String(body.voiceProfileId || '').trim();
-        // Voice Studio: a lecturer's test slot holds the GPU; nobody else loads a voice then.
-        const refusal = await studioRefusal(event, { authGuard, voiceProfileId });
+        // Voice Studio: only voices this person may use now, on their own GPU
+        // (super users: the QC GPU; a lecturer in their slot: the slot GPU).
+        const { refusal, ownerKey: studioOwner } = await studioAccess(event, { authGuard, voiceProfileId });
         if (refusal) return err(refusal.status, refusal.message, event);
         if (voiceProfileId && String(process.env.MODEL_COORDINATOR_FUNCTION_NAME || '').trim()) {
           const synthesisBody = await resolveSynthesisBody({
@@ -131,7 +132,7 @@ export function createHandler({
             source: 'models-select',
             ...await trainingOwnerOption(event, authGuard),
             ...ttsSiteOption(event),
-            ...studioOwnerOption(event),
+            ...studioOwnerOption(studioOwner),
           });
           return ok({
             message: coordinatorCapacity.canStartConversation

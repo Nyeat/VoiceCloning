@@ -194,14 +194,18 @@ export function ttsSiteOption(event, env = process.env) {
   return origin && allowed.includes(origin) ? { singleGpu: true } : {};
 }
 
-// Voice Studio's GPU, one owner ("studio") in two kinds (see the coordinator):
-//  - super users testing: a soft hold — another site may switch it only after
-//    10 min unused; it scales in after the usual idle time;
-//  - a lecturer's test slot: a hard reservation — nobody else switches it, it
-//    never idles out during the slot, and the studio releases it after.
-// Same owner, so a slot warm-up takes the super users' GPU at once.
-export const STUDIO_GPU_OWNER = 'held:studio';
-export const STUDIO_SLOT_OWNER = 'reserved:studio';
+// Voice Studio has two GPUs with two different owners, so they never take or
+// switch each other (owner decision 2026-11-21):
+//  - super users' QC GPU: a soft hold — inside it every voice pick switches at
+//    once (their own GPU); another site may switch it only after 10 min
+//    unused; it scales in after the usual idle time;
+//  - lecturers' test-slot GPU: a hard reservation — nobody else switches it
+//    (and, being reserved, it never takes the QC GPU either); it never idles
+//    out during a slot, and the studio releases it after the slot ends or the
+//    lecturer finishes early, unless another slot starts within the hour.
+// Which one a request uses follows who is signed in (studioGpuGuard).
+export const STUDIO_GPU_OWNER = 'held:studio-qc';
+export const STUDIO_SLOT_OWNER = 'reserved:studio-slot';
 
 /** Gives an owner's GPUs back; each is removed as soon as nothing runs on it. */
 export async function releaseCoordinatedOwner(ownerKey) {
@@ -214,8 +218,9 @@ function isStudioOrigin(origin, env = process.env) {
     .map((value) => value.trim().replace(/\/+$/u, '')).filter(Boolean);
   return Boolean(origin) && studio.includes(origin);
 }
-export function studioOwnerOption(event, env = process.env) {
-  return isStudioOrigin(requestOrigin(event), env) ? { ownerKey: STUDIO_GPU_OWNER } : {};
+// The prepare option for a Voice Studio caller, from studioGpuAccess's answer.
+export function studioOwnerOption(ownerKey = '') {
+  return ownerKey ? { ownerKey } : {};
 }
 
 export function isTrainingSiteRequest(event, env = process.env) {

@@ -1,15 +1,15 @@
-// Voice Studio GPU lockout, in one place for every route that can load, switch
+// Voice Studio GPU access, in one place for every route that can load, switch
 // or speak a voice (capacity, model select, Live Fast, full inference).
 //
-// A lecturer's test slot holds the GPU from its warm-up to its end (and across
-// a short gap to the next slot). During that window only that lecturer's own
-// approved voices may be prepared or spoken; super users and everyone else are
-// refused. Outside it, super users may use any trained voice and lecturers none.
+// Two GPUs, two owners: super users test any trained voice on their QC GPU at
+// any time; a lecturer uses only their own approved voices, only during their
+// test slot, on the slot GPU. Neither ever takes the other's GPU.
 // Voice Studio decides (studioVoiceScope); this only applies its answer.
 import { isStudioRequest } from './liveAuth.js';
 import { buildVoiceProfileId } from './voiceIdentity.js';
+import { STUDIO_GPU_OWNER, STUDIO_SLOT_OWNER } from './modelCoordinator.js';
 
-export const STUDIO_GPU_RESERVED = "The GPU is reserved for a lecturer's test slot right now. Testing opens again after it.";
+export const STUDIO_GPU_RESERVED = 'This voice is not one Voice Studio can test.';
 export const STUDIO_VOICE_NOT_NOW = 'This voice can be tested only during your test slot.';
 
 async function defaultStudioScope(email, options) {
@@ -17,39 +17,51 @@ async function defaultStudioScope(email, options) {
 }
 
 /**
- * For an already signed-in caller. Returns null when allowed, else
- * { status, message }. Callers that are not Voice Studio sign-ins pass.
+ * For an already signed-in caller: { refusal, ownerKey }. refusal is null when
+ * allowed, else { status, message }; ownerKey is the Voice Studio GPU this
+ * caller uses (super users: QC GPU; lecturers: slot GPU), '' for other callers.
  * voiceProfileId '' (a raw model load) is allowed only when every voice is.
  */
-export async function studioGpuRefusal({ identity, voiceProfileId = '', studioScope = defaultStudioScope }) {
-  if (!identity?.studio) return null;
+export async function studioGpuAccess({ identity, voiceProfileId = '', studioScope = defaultStudioScope }) {
+  if (!identity?.studio) return { refusal: null, ownerKey: '' };
   let scope;
   try {
     scope = await studioScope(identity.email, { passwordAccount: identity.passwordAccount === true });
   } catch (error) {
-    return { status: 503, message: `Voice Studio is unavailable: ${error.message}` };
+    return { refusal: { status: 503, message: `Voice Studio is unavailable: ${error.message}` }, ownerKey: '' };
   }
+  const ownerKey = scope.superuser ? STUDIO_GPU_OWNER : STUDIO_SLOT_OWNER;
   const id = String(voiceProfileId || '').trim();
   // A named voice must be one Voice Studio lists for this person now (super users:
   // voices trained through Voice Studio only); a raw model load needs a free GPU.
-  if (id ? scope.voiceNames.some((name) => buildVoiceProfileId(name) === id) : scope.allVoices) return null;
-  return { status: 403, message: scope.superuser ? STUDIO_GPU_RESERVED : STUDIO_VOICE_NOT_NOW };
+  if (id ? scope.voiceNames.some((name) => buildVoiceProfileId(name) === id) : scope.allVoices) return { refusal: null, ownerKey };
+  return { refusal: { status: 403, message: scope.superuser ? STUDIO_GPU_RESERVED : STUDIO_VOICE_NOT_NOW }, ownerKey };
+}
+
+/** studioGpuAccess's refusal only (null when allowed). */
+export async function studioGpuRefusal(args) {
+  return (await studioGpuAccess(args)).refusal;
 }
 
 /**
  * For routes that do not sign every caller in: a request from the Voice Studio
  * site must sign in, then pass studioGpuRefusal. Other sites are untouched.
  */
-export async function studioRequestRefusal(event, {
+export async function studioRequestAccess(event, {
   authGuard, voiceProfileId = '', studioScope = defaultStudioScope, env = process.env,
 } = {}) {
-  if (!isStudioRequest(event, env)) return null;
-  if (!authGuard) return { status: 503, message: 'Voice Studio sign-in is not configured' };
+  if (!isStudioRequest(event, env)) return { refusal: null, ownerKey: '' };
+  if (!authGuard) return { refusal: { status: 503, message: 'Voice Studio sign-in is not configured' }, ownerKey: '' };
   let identity;
   try {
     identity = await authGuard.authorize(event);
   } catch {
-    return { status: 401, message: 'Sign in to use Voice Studio.' };
+    return { refusal: { status: 401, message: 'Sign in to use Voice Studio.' }, ownerKey: '' };
   }
-  return studioGpuRefusal({ identity, voiceProfileId, studioScope });
+  return studioGpuAccess({ identity, voiceProfileId, studioScope });
+}
+
+/** studioRequestAccess's refusal only (null when allowed). */
+export async function studioRequestRefusal(event, options = {}) {
+  return (await studioRequestAccess(event, options)).refusal;
 }

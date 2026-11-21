@@ -6,7 +6,7 @@ import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
 import {
   peekCoordinatedModel, prepareCoordinatedModel, studioOwnerOption, trainingOwnerOption, ttsSiteOption,
 } from '../shared/modelCoordinator.js';
-import { studioGpuRefusal } from '../shared/studioGpuGuard.js';
+import { studioGpuAccess } from '../shared/studioGpuGuard.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import { buildVoiceProfileId, isNtuEmail, normalizeEmail, ownsVoiceName } from '../shared/voiceIdentity.js';
 import { bestModelsForVoice, listTrainedVoiceNames } from '../shared/trainedVoices.js';
@@ -603,12 +603,13 @@ export function createHandler({
         if (!voiceProfileId || !isSafePathSegment(voiceProfileId)) {
           return err(400, 'voiceProfileId must be a safe path segment', event);
         }
-        // Voice Studio: only a voice this person may use right now. A lecturer's
-        // test slot holds the GPU from its warm-up to its end, so nobody else
-        // (super users included) starts or switches it then.
+        // Voice Studio: only a voice this person may use right now, on their
+        // own GPU (super users: the QC GPU; a lecturer in their slot: the slot GPU).
+        let studioOwner = '';
         if (capacityIdentity?.studio && body.peek !== true) {
-          const refusal = await studioGpuRefusal({ identity: capacityIdentity, voiceProfileId, studioScope });
-          if (refusal) return err(refusal.status, refusal.message, event);
+          const access = await studioGpuAccess({ identity: capacityIdentity, voiceProfileId, studioScope });
+          if (access.refusal) return err(access.refusal.status, access.refusal.message, event);
+          studioOwner = access.ownerKey;
         }
         const resolvedBody = await resolveCapacityBody({
           voiceProfileId,
@@ -630,7 +631,7 @@ export function createHandler({
           ...await trainingOwnerOption(event, authGuard),
           // Voice Studio / admin TTS: one GPU, switched to this voice at once.
           ...ttsSiteOption(event),
-          ...studioOwnerOption(event),
+          ...studioOwnerOption(studioOwner),
         }), {}, event);
       }
 

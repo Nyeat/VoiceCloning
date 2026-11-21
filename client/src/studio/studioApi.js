@@ -87,6 +87,8 @@ export const claimSlot = (id, name) => api.post(`/studio/slots/${enc(id)}/claim`
 export const releaseSlot = (id) => api.post(`/studio/slots/${enc(id)}/release`, {}).then((res) => res.data);
 // Change a booked recording session to another open one (atomic on the server).
 export const moveSlot = (id) => api.post(`/studio/slots/${enc(id)}/move`, {}).then((res) => res.data);
+/** The lecturer finished testing early: ends their test slot now (frees its GPU). */
+export const completeSlot = (id) => api.post(`/studio/slots/${enc(id)}/complete`, {}).then((res) => res.data);
 export const retryJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/retry`, {}).then((res) => res.data);
 export const cancelJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/cancel`, {}).then((res) => res.data);
 export const recordTestActivity = () => api.post('/studio/admin/test-activity', {}).then((res) => res.data);

@@ -456,6 +456,11 @@ export function createHandler({
       recording: wf.recordingAccess(state, { email, now, superuser }),
       // GPU test slot (allocated by a super user after QC).
       mySlot: wf.upcomingSlotFor(state, email, now, 'test'),
+      // Their last test slot that is over, so the page can say they have tested.
+      testedSlot: (() => {
+        const slot = wf.lastTestedSlotFor(state, email, now);
+        return slot ? { id: slot.id, start: slot.start, end: slot.end, completedAt: slot.completedAt || null } : null;
+      })(),
       activeSlot: (() => {
         const active = wf.currentSlot(state, now);
         return active && wf.sameNtuPerson(active.assigneeEmail, email) ? active : null;
@@ -714,6 +719,18 @@ export function createHandler({
         return ok(await lecturerView(state, email, passwordAccount), {}, event);
       }
 
+      // The lecturer finished testing early: the slot ends now, and its GPU is
+      // released straight away unless another slot starts within the hour.
+      if (route === 'POST slots/:id/complete') {
+        await updateState(store, (state) => {
+          wf.completeSlot(state, { slotId: parts[1], email, now });
+          return null;
+        });
+        await maybeTick();
+        const { state } = await store.read();
+        return ok(await lecturerView(state, email, passwordAccount), {}, event);
+      }
+
       // ── Super users ──
       if (parts[0] === 'admin') {
         const { state: snapshot } = await store.read();
@@ -941,8 +958,8 @@ export async function studioVoiceScope(email, {
   }
   const voiceNames = [...new Set(names)];
   // Super users may test any trained voice of any user (studio or training
-  // site), except while a lecturer's test slot holds the GPU.
-  const allVoices = superuser && !wf.gpuHold(state, now);
+  // site) at any time, on their own QC GPU (a slot has its own).
+  const allVoices = superuser;
   return {
     superuser, allVoices, voiceNames, labels, owners: Object.fromEntries(voiceNames.map((name) => [name, owners[name] || ''])), studioOwners: owners,
   };

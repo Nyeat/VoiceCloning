@@ -26,7 +26,7 @@ import {
   dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
 } from './slotCalendar.js';
 import {
-  addSlot, addSuperuser, cancelJob, claimSlot, restoreJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
+  addSlot, addSuperuser, cancelJob, claimSlot, completeSlot, restoreJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
   googleSignIn, moveSlot, passwordSignIn, publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob,
   runTick, sendFeedback,
 } from './studioApi.js';
@@ -150,7 +150,7 @@ function Overview({ overview, onAction }) {
                   </div>
                   <p className="text-sm text-slate-600">{job.label}{job.error ? ` — ${job.error}` : ''}</p>
                 </div>
-                {job.status === 'review' && <Button variant="outline" size="sm" disabled={Boolean(overview.currentSlot)} title={overview.currentSlot ? 'Locked while a lecturer is testing' : ''} onClick={() => navigate(`/test?voice=${encodeURIComponent(job.expName)}`)}><Mic2 size={13} /> Test</Button>}
+                {job.status === 'review' && <Button variant="outline" size="sm" onClick={() => navigate(`/test?voice=${encodeURIComponent(job.expName)}`)}><Mic2 size={13} /> Test</Button>}
                 <Button variant="dark" size="sm" onClick={() => navigate(`/review/${job.id}`)}>Open</Button>
               </li>
             ))}
@@ -438,7 +438,7 @@ function JobDetail({ overview, onAction }) {
               <h3 className="font-semibold text-slate-900">Trained versions</h3>
               <div className="mt-3 flex flex-wrap gap-2">
                 {voices.map((name) => (
-                  <Button key={name} variant={name === job.expName ? 'dark' : 'outline'} size="sm" disabled={Boolean(overview.currentSlot)} onClick={() => navigate(`/test?voice=${encodeURIComponent(name)}`)}>
+                  <Button key={name} variant={name === job.expName ? 'dark' : 'outline'} size="sm" onClick={() => navigate(`/test?voice=${encodeURIComponent(name)}`)}>
                     <Mic2 size={13} /> Test {name}
                   </Button>
                 ))}
@@ -768,15 +768,13 @@ function TestBench(props) {
   return <VoiceTestBench {...props} />;
 }
 
-// Super users test any trained voice of any user (the server lists them all
-// while no lecturer's slot holds the GPU).
-function SuperTest({ overview }) {
+// Super users test any trained voice of any user, any time, on their own QC
+// GPU (a lecturer's test slot has a separate GPU, so neither waits on the other).
+function SuperTest() {
   const [voices, setVoices] = useState(null);
   const [labels, setLabels] = useState({});
   const [error, setError] = useState('');
-  const locked = Boolean(overview.currentSlot);
   useEffect(() => {
-    if (locked) return;
     getMyVoiceProfiles('studio')
       .then(({ data }) => {
         const list = (data?.voices || []).map((voice) => voice.displayName).filter(Boolean);
@@ -784,10 +782,7 @@ function SuperTest({ overview }) {
         setLabels(Object.fromEntries((data?.voices || []).filter((voice) => voice.studioLabel || voice.label).map((voice) => [voice.displayName, voice.studioLabel || voice.label])));
       })
       .catch((err) => setError(errorText(err, 'Could not load the voices')));
-  }, [locked]);
-  if (locked) {
-    return <Notice tone="warn">Locked: the GPU is reserved for {overview.currentSlot.assigneeName || overview.currentSlot.assigneeEmail}'s test slot until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT (from 20 minutes before it starts). Testing opens again after that.</Notice>;
-  }
+  }, []);
   if (error) return <Notice tone="error">{error}</Notice>;
   if (!voices) return <div className="flex justify-center py-16"><Loader2 className="animate-spin text-slate-400" /></div>;
   if (voices.length === 0) return <Notice tone="info">No trained voices yet.</Notice>;
@@ -904,7 +899,7 @@ function SlotHoldBanner({ slot, now }) {
       <Notice tone="warn" className="flex items-center gap-2">
         <ShieldCheck size={16} className="shrink-0" />
         <span>
-          {line} Voice testing is locked for super users until {until} SGT; reviews, scheduling and admin still work.
+          {line} It runs on its own GPU; your voice testing uses a separate one, so nothing here is locked.
           {warm && !ready && !late && warm.estimatedReadyAt && <> Their voice should be ready at about {formatSgt(warm.estimatedReadyAt, { withDate: false })}.</>}
           {ready && <> Their voice is loaded.</>}
         </span>
@@ -991,7 +986,7 @@ function SuperuserConsole() {
               <Route path="/schedule" element={<Schedule overview={data} onAction={onAction} kind="test" />} />
               <Route path="/sessions" element={<Schedule key="recording" overview={data} onAction={onAction} kind="recording" />} />
               <Route path="/record" element={<RecordWorkspace embedded />} />
-              <Route path="/test" element={<SuperTest overview={data} />} />
+              <Route path="/test" element={<SuperTest />} />
               <Route path="/feedback" element={<FeedbackList overview={data} />} />
               <Route path="/superusers" element={<Superusers overview={data} onAction={onAction} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
@@ -1156,7 +1151,7 @@ function JourneySteps({ step, retrain = false }) {
   );
 }
 
-function VoiceJourney({ job, now, testSlot }) {
+function VoiceJourney({ job, now, testSlot, testedSlot = null }) {
   const step = journeyStep(job.status);
   const estimate = job.estimate;
   // A retrain after quality check goes round again: retraining → quality check → test.
@@ -1187,6 +1182,9 @@ function VoiceJourney({ job, now, testSlot }) {
   } else if (job.status === 'ready' && testSlot) {
     title = 'Your test time is booked';
     body = <p><b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}). We email you that morning; when it starts, this page opens your voice for you to test.</p>;
+  } else if (job.status === 'ready' && testedSlot) {
+    title = 'You have tested your voice — thank you';
+    body = <p>Your test on {formatSgt(testedSlot.completedAt || testedSlot.end)} SGT is finished. Our team reads your feedback and emails you about next steps.</p>;
   } else if (job.status === 'ready') {
     title = 'Passed quality control — awaiting your test slot';
     body = <p>Our team is choosing a time for you to test it. We email you the time, and it shows here too.</p>;
@@ -1331,6 +1329,20 @@ function LecturerHome({ me: initialMe, refresh }) {
   const voiceNames = ready.map((job) => job.voiceName).filter(Boolean);
   const [feedbackJob, setFeedbackJob] = useState('');
   const feedbackTarget = ready.find((job) => job.id === feedbackJob) || ready[0];
+  // "I'm done": ends the test slot now so its GPU shuts down instead of idling.
+  const [finishing, setFinishing] = useState('');
+  const [finishError, setFinishError] = useState('');
+  async function finishTesting() {
+    setFinishing('busy');
+    setFinishError('');
+    try {
+      setMe(await completeSlot(testing.id));
+      setFinishing('');
+    } catch (err) {
+      setFinishError(errorText(err, 'Could not end your test slot'));
+      setFinishing('confirm');
+    }
+  }
 
   // Re-read at session/slot boundaries so pages unlock and lock on time.
   useEffect(() => {
@@ -1355,7 +1367,24 @@ function LecturerHome({ me: initialMe, refresh }) {
             <p className="text-lg font-semibold">Your test time — until {formatSgt(testing.end, { withDate: false })} SGT</p>
             <p className="text-sm text-white/85">Paste some text to hear it read in your voice, or chat with it. Fix any word it says wrongly on the right.</p>
           </div>
+          {finishing === '' && (
+            <Button variant="outline" size="sm" className="border-white/60 bg-white/10 text-white hover:bg-white/20" onClick={() => setFinishing('confirm')}>
+              I'm done testing
+            </Button>
+          )}
         </div>
+        {finishing && (
+          <Notice tone="info" className="flex flex-wrap items-center justify-between gap-3">
+            <span>End your test slot now? Please leave feedback below first if you have not. Your voice cannot be tested again in this slot afterwards.</span>
+            <span className="flex gap-2">
+              <Button variant="ghost" size="sm" disabled={finishing === 'busy'} onClick={() => { setFinishing(''); setFinishError(''); }}>Keep testing</Button>
+              <Button variant="dark" size="sm" disabled={finishing === 'busy'} onClick={finishTesting}>
+                {finishing === 'busy' ? <Loader2 size={13} className="animate-spin" /> : null} End my test
+              </Button>
+            </span>
+          </Notice>
+        )}
+        {finishError && <Notice tone="error">{finishError}</Notice>}
         {voiceNames.length === 0
           ? <Notice tone="warn">None of your voices has passed the quality check yet, so there is nothing to test in this slot.</Notice>
           : <TestBench voiceNames={voiceNames} canApply audience="lecturer" slotWarm={testing.warm || null} />}
@@ -1373,7 +1402,7 @@ function LecturerHome({ me: initialMe, refresh }) {
     );
   } else if (submitted.length > 0) {
     // Submitted (even while their session is still open): only what comes next.
-    content = submitted.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />);
+    content = submitted.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} testedSlot={job.status === 'ready' && !testSlot ? me.testedSlot : null} />);
   } else if (recordingOpen) {
     content = <RecordWorkspace embedded sessionEnd={recording.slot?.end} onSubmitted={(view) => setMe(view)} />;
   } else {

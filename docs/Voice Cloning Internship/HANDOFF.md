@@ -18,7 +18,8 @@ Last updated: 2026-11-21
   bridge, released after; super-user lockout on all GPU routes (shared/studioGpuGuard); coordinator owners
   "reserved:studio" (hard) / "held:studio" (soft 10 min); fixed GPU demand for slots, training, 30 min after super-user
   testing. Fixed: /voice-profile/ensure never saved new profiles. Next: live slot warm-up -> release; chat/mic check.
-- 11-21 Denoise OFF by default (made clips+refs 16 kHz = echo); Studio super users set denoise/epochs; deployed dev+staging (f95c8d6). Next: retrain + A/B a voice.
+- 11-21 Denoise off + Studio training settings DEPLOYED (f95c8d6). Separate Studio slot/QC GPUs, lecturer "I'm done",
+  wait-timer fix: NOT deployed (see DECISIONS 11-21; super-user lockout below is gone once deployed).
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
@@ -60,7 +61,6 @@ depth 2). The burst above has not been re-run live on it.
 
 CONTRADICTION: the lecture badge showed `cs-nathanael-ng` while `client/env/staging/gi.env` pins
 `deanvoice-v1`. Settle which wins after a faculty publish.
-
 ## Deployment State
 
 - Deployed 2026-09-01: staging coordinator, Faculty and lecture bundles for truthful completed-boot,
