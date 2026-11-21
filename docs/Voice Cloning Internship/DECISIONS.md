@@ -336,3 +336,6 @@ These live in runtime configuration and will not appear in any branch diff:
 - Test fixtures are first-class (`fixture: true`, @voice-studio.test): shown in the UI, never touch the GPU or
   real lecturers, so the live staging state can hold them safely.
 - Guided reading is one continuous recording (pause allowed), uploaded as one file, not per-section fragments.
+
+- 2026-11-21 Voice Studio fixtures are visible only to fixture accounts and STUDIO_FIXTURE_VIEWERS testers; all other
+  super users see real work only, so the console reflects the real world.

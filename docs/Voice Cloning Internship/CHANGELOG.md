@@ -2616,3 +2616,12 @@
   fixture states render (new=booking, queued=journey "yours is next", qc, ready="awaiting test slot", testslot="test
   time booked", recording=recorder + consent), no page errors; sign-in campus photo + logo load.
 - Fixture recording sessions are visible only to @voice-studio.test accounts (publicSlots), by design.
+
+## 2026-11-21 — Voice Studio: fixture visibility + "Run by" (0ef8c18, NOT deployed — AWS creds expired)
+- Why the owner's Gmail could not see a published session: it was an edited FIXTURE session (edit keeps fixture:true;
+  fixtures were visible only to @voice-studio.test accounts).
+- STUDIO_FIXTURE_VIEWERS (lambda/.env.deployment.staging = owner's Gmail): sees and may book fixture sessions; every other
+  account, super users included, gets views with fixtures removed (workflow.viewFor in adminView; publicSlots/claim/move).
+- Recording sessions: hostName "Run by (staff name)" in the composer, remembered per browser (shared super user login),
+  shown on calendar blocks and the booked list.
+- Tests: studio + voice-profile 63 pass (new fixture-visibility test). Studio build OK. Not deployed.
