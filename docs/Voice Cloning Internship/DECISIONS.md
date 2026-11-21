@@ -342,3 +342,5 @@ These live in runtime configuration and will not appear in any branch diff:
 - 2026-11-21 Voice Studio GPU: a test slot holds the inference GPU from 20 min before to its end (bridged if the next
   slot starts < 1 h later); super users are locked out for that whole window (server-enforced); otherwise super-user
   testing is on-demand with the normal 30 min idle scale-in.
+- 2026-11-21 Voice Studio owns its inference GPU (coordinator owner "reserved:studio"): other sites never switch it while
+  in use (35 min); inside the studio one GPU serves super users and slots, a slot takes it over at once.
