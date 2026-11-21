@@ -462,3 +462,8 @@
 - 2026-06-26: Browser chunk playback could request `/inference/chunk/...` without the `/api` prefix and get `Cannot GET /inference/chunk/...`. Fixed `getInferenceChunk` to build an explicit API URL with `resolveApiPath`.
 - 2026-06-12: Live Fast `/api/voice-profile/activate` returned CloudFront 403 for full metadata payloads around 8 KB. Fixed by compacting activation reference metadata in `client/src/lib/voiceProfilePayload.js`; rich details remain in saved config records.
 - 2026-06-12: `/api/models/select` could auto-select and persist saved-profile references without creating `voice-profile-configs/<voiceProfileId>/default.json`, leaving Live Fast with no default saved config after model selection. Fixed in `lambda/shared/modelSelection.js`; targeted Lambda tests passed.
+
+- 2026-11-21 FIXED (bucket CORS applied 11-21): Voice Studio browser uploads failed ("check your connection") — S3 CORS lacks the studio origins
+  (preflight 403). Fix = bucket CORS AllowedOrigins (see TODO).
+- 2026-11-21 FIXED (e55bbc0): /voice-profile/ensure never wrote new profiles (persister "no change" check) — voices
+  without a saved profile could not get ready anywhere that relied on ensure.

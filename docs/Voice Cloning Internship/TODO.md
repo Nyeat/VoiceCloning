@@ -1,9 +1,25 @@
 # Active TODO
 
+- [ ] Email: owner creates a Gmail app password for liutengyufish@gmail.com and runs scripts/set-email-password.ps1 -Env staging (and dev); then "Send me a test email" on the Voice Studio overview. Later switch to the lkcmedicine mailbox.
+
+
+- [ ] After e55bbc0: reload Voice Studio /test as a super user -> profile x-ltyfishes-d450cb_3-v1 appears and the voice gets ready; then a real slot: warm-up takes the studio GPU, no idle-off during the slot, GPU removed right after (coordinator log "release").
+
+
+- [ ] Live-test 8277664 on staging: super user tests a voice WITH a profile (ASG 0->1, GPU popup); book a real test slot ~25 min ahead and watch warm-up (slot.warm, lecturer ETA card, console banner), keep-alive through the slot, release after; back-to-back < 1 h keeps the GPU.
+
+
+
+- [ ] Voice Studio (0ef8c18 live dev+staging): super-user read-aloud on a real voice; publish a real recording session (with Run by) and book it as a normal account.
+
+- [ ] Voice Studio Google sign-in (55a67fd deployed 2026-11-21, button hidden): create a Google OAuth web client (origin
+  https://d271zk8d8curic.cloudfront.net), set VITE_GOOGLE_CLIENT_ID (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID
+  (studio Lambda env), redeploy studio client. Then browser-check the new sign-in page.
+
 - [ ] Voice Studio (2026-11-21, d1b5ff9, all deployed): switch training + studio email to the lkcmedicine Office 365
   mailbox (admin reportedly enabled SMTP AUTH; see BUGS) — EMAIL_HOST=smtp.office365.com, then test-send to an
   @assoc.main address. Browser-check the calendars, continuous recorder on a real
-  mic (30 min take), and fixtures (@voice-studio.test, password with the owner) on https://d271zk8d8curic.cloudfront.net.
+  mic (30 min take), and fixtures (@voice-studio.test, reseeded 11-21, password with the owner) on https://d271zk8d8curic.cloudfront.net.
 - [ ] Voice Studio (2026-11-20): Entra redirect URIs done (verified 15:xx SGT). Next: signed-in end-to-end run on
   https://d271zk8d8curic.cloudfront.net (publish recording session -> pick -> record in session -> queue -> review ->
   allocate test slot -> preload/reminder -> test -> feedback). Canary LT v43 on a fresh boot. SMTP mailbox pending.

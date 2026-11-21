@@ -1,24 +1,23 @@
 # Voice Cloning Project Handoff
 
-Last updated: 2026-11-20
+Last updated: 2026-11-21
 
 ## Current State
 
-- 2026-11-17: deployed f84faa0 (both branches) to dev + staging: both Lambdas/coordinators, all clients. Training
-  login redesigned (LKCMedicine photo, privacy popup on arrival); "Training GPU" badge hidden on Test your voice;
-  dismissible GPU wait popup with estimates on every site. Coordinator: overflow = all slots taken -> switch/add while
-  queueing ("may be slower"); 8 s visible-tab dwell before any switch or boot (Dev too); boot done when READY with the
-  voice; lost boots retried; 30 min per-GPU scale-in (fixed GPU idle-off 40, since 11-19), spare copies by own activity, swept from idle-check too; legacy
-  `no-traffic-15m` alarm actions disabled. One reference selector (lambda/shared). All chatbots use Live MC Medium mic
-  preset. Profile/config saves strip presigned URLs (8 KB WAF). 11-17 later: 2 GB training uploads (s3Sync undeployed).
-- 2026-11-19 (7d22b21, all deployed dev + staging): scale-in IAM still MISSING (fallback: all-idle fleet shrinks);
-  new GPUs released at warm registration; same GPU popups/off screen on every site (GPU_PAUSED switch); idle-off 40
-  / scale-in 30 min; voice names. Late (289832d+127deed): switch only a GPU unused/unselected 10 min, else add;
-  queue codes reach the browser; waits/popups/voice survive reload; training prewarm. 056dd32 deployed. 11-20: ASG GPUs + LT default v42 on c4d928a (v41 rollback); admin cleanup in TODO.
+- 11-17..11-20 (details in CHANGELOG): training login redesign, GPU wait popups everywhere, coordinator overflow/8 s dwell/
+  boot-at-registration/lost-boot retry, per-GPU scale-in 30 min (fixed GPU idle-off 40; scale-in IAM still missing ->
+  all-idle fallback), 10 min switch protection, GPU_PAUSED switch, voice names, LT v42 default (v41 rollback).
 - 11-20 (64d34f7, deployed all): first-GPU hold, one GPU per account (training site), honest/live GPU status, keep-alive, naming.
-- 11-20 Voice Studio LIVE (10cd835, dev+staging, one site): sessions->queue->QC->test slots; any MS account; no E2E/SMTP yet.
-- 11-21 Voice Studio 2d37a57 (Lambdas+clients): calendars, email sign-in, fixtures, gateway; email = training Gmail.
+- 11-20/21 Voice Studio live (10cd835, 2d37a57): sessions->queue->QC->test slots, calendars, email sign-in, fixtures.
 - 11-21 7b8c964 DEPLOYED (dev+staging Lambdas, coordinators, training clients): training site = GPU belongs to the account that started it; own voices switch it (wait if busy), other accounts get their own GPU (no first-GPU hold, no taking a just-warmed GPU); load still scales. Test page shows saved names. Next: two-account live test.
+- 11-21 Voice Studio, ALL DEPLOYED dev+staging through 07b0494/4227e31 (see CHANGELOG 11-21): auto sign-up email login
+  (Google hidden until client ID); staged lecturer page (one booking/one submission); VoiceTestBench (own Chat + mic,
+  Read aloud progress/download, one dictionary); reminders + QC email; Gmail SMTP (needs app password:
+  scripts/set-email-password.ps1); console: stages, Run by, withdraw confirm + Restore; fixtures only for
+  STUDIO_FIXTURE_VIEWERS; owner Gmail super user (STUDIO_PASSWORD_SUPERUSERS). GPU: slot hold 20 min/whole slot/<1 h
+  bridge, released after; super-user lockout on all GPU routes (shared/studioGpuGuard); coordinator owners
+  "reserved:studio" (hard) / "held:studio" (soft 10 min); fixed GPU demand for slots, training, 30 min after super-user
+  testing. Fixed: /voice-profile/ensure never saved new profiles. Next: live slot warm-up -> release; chat/mic check.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
