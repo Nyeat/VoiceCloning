@@ -738,7 +738,7 @@ function SuperTest({ overview }) {
       .then(({ data }) => {
         const list = (data?.voices || []).map((voice) => voice.displayName).filter(Boolean);
         setVoices(list);
-        setLabels(Object.fromEntries((data?.voices || []).filter((voice) => voice.label).map((voice) => [voice.displayName, voice.label])));
+        setLabels(Object.fromEntries((data?.voices || []).filter((voice) => voice.studioLabel || voice.label).map((voice) => [voice.displayName, voice.studioLabel || voice.label])));
       })
       .catch((err) => setError(errorText(err, 'Could not load the voices')));
   }, [locked]);

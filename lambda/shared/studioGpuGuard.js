@@ -29,9 +29,10 @@ export async function studioGpuRefusal({ identity, voiceProfileId = '', studioSc
   } catch (error) {
     return { status: 503, message: `Voice Studio is unavailable: ${error.message}` };
   }
-  if (scope.allVoices) return null;
   const id = String(voiceProfileId || '').trim();
-  if (id && scope.voiceNames.some((name) => buildVoiceProfileId(name) === id)) return null;
+  // A named voice must be one Voice Studio lists for this person now (super users:
+  // voices trained through Voice Studio only); a raw model load needs a free GPU.
+  if (id ? scope.voiceNames.some((name) => buildVoiceProfileId(name) === id) : scope.allVoices) return null;
   return { status: 403, message: scope.superuser ? STUDIO_GPU_RESERVED : STUDIO_VOICE_NOT_NOW };
 }
 

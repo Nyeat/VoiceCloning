@@ -484,7 +484,7 @@ export function createHandler({
     const { state } = await store.read();
     const superuser = superuserOf(state, email, passwordAccount);
     const visible = wf.visibleVoices(state, { email, superuser });
-    if (!visible.includes(voiceName) && !(superuser && (await service.listVoices()).includes(voiceName))) {
+    if (!visible.includes(voiceName)) {
       throw wf.clientError(404, 'Voice not found');
     }
     return { state, superuser, access: wf.voiceAccess(state, { email, voiceName, now: clock(), superuser }) };
@@ -867,7 +867,10 @@ export async function studioVoiceScope(email, {
   // Who each studio voice really belongs to, so a profile created while a super
   // user reviews it is still recorded under the lecturer.
   const owners = {};
+  // Readable names: "<voice label> · <lecturer> (try n)".
+  const labels = {};
   for (const job of state.jobs) {
+    job.attempts.forEach((attempt) => { if (attempt.result === 'trained') labels[attempt.expName] = `${job.label} · ${job.ownerName || job.ownerEmail}${attempt.attempt > 1 ? ` (try ${attempt.attempt})` : ''}`; });
     for (const name of [job.expName, job.approvedExpName, ...job.attempts.map((attempt) => attempt.expName)]) {
       if (name) owners[name] = job.ownerEmail;
     }
@@ -877,6 +880,6 @@ export async function studioVoiceScope(email, {
   // site), except while a lecturer's test slot holds the GPU.
   const allVoices = superuser && !wf.gpuHold(state, now);
   return {
-    superuser, allVoices, voiceNames, owners: Object.fromEntries(voiceNames.map((name) => [name, owners[name] || ''])), studioOwners: owners,
+    superuser, allVoices, voiceNames, labels, owners: Object.fromEntries(voiceNames.map((name) => [name, owners[name] || ''])), studioOwners: owners,
   };
 }

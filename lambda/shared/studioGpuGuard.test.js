@@ -13,7 +13,7 @@ test('non-studio callers are never affected', async () => {
 
 test('super user: any voice when free, refused while a slot holds the GPU', async () => {
   const identity = { email: 'boss@ntu.edu.sg', studio: true };
-  assert.equal(await studioGpuRefusal({ identity, voiceProfileId: 'anyone-v1', studioScope: scopeOf({ superuser: true, allVoices: true, voiceNames: [] }) }), null);
+  assert.equal(await studioGpuRefusal({ identity, voiceProfileId: 'anyone-v1', studioScope: scopeOf({ superuser: true, allVoices: true, voiceNames: ['anyone'] }) }), null);
   const held = await studioGpuRefusal({ identity, voiceProfileId: 'anyone-v1', studioScope: scopeOf({ superuser: true, allVoices: false, voiceNames: [] }) });
   assert.deepEqual(held, { status: 403, message: STUDIO_GPU_RESERVED });
 });
@@ -33,7 +33,7 @@ test('studio-site requests must sign in first', async () => {
     env,
     authGuard: { authorize: async () => ({ email: 'boss@ntu.edu.sg', studio: true }) },
     voiceProfileId: 'x-v1',
-    studioScope: scopeOf({ superuser: true, allVoices: true, voiceNames: [] }),
+    studioScope: scopeOf({ superuser: true, allVoices: true, voiceNames: ['x'] }),
   });
   assert.equal(allowed, null);
 });

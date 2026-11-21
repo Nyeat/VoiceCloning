@@ -341,11 +341,13 @@ export function createHandler({
         // booked slot. Studio decides; this route only lists.
         let studioVoices = null;
         let studioAll = false;
+        let studioLabels = {};
         if (requestedScope === 'studio') {
           try {
             const studio = await studioScope(identity?.email, { passwordAccount: identity?.passwordAccount === true });
             studioVoices = new Set(studio.voiceNames);
             studioAll = studio.allVoices === true;
+            studioLabels = studio.labels || {};
           } catch (error) {
             return err(503, `Voice Studio is unavailable: ${error.message}`, event);
           }
@@ -383,8 +385,6 @@ export function createHandler({
         }
 
         const names = new Set([...trainedNames, ...profilesByName.keys()]);
-        // A super user on Voice Studio tests any trained voice of any user.
-        if (studioAll) for (const name of trainedNames) studioVoices.add(name);
         const voices = [];
         for (const voiceName of names) {
           const summary = buildOwnedVoiceSummary({
@@ -393,7 +393,7 @@ export function createHandler({
             email,
           });
           if (studioVoices) {
-            if (studioVoices.has(voiceName)) voices.push({ ...summary, isMine: true, ownedByCaller: summary.isMine });
+            if (studioVoices.has(voiceName)) voices.push({ ...summary, isMine: true, ownedByCaller: summary.isMine, ...(studioLabels[voiceName] ? { studioLabel: studioLabels[voiceName] } : {}) });
           } else if (scope === 'all' || summary.isMine) voices.push(summary);
         }
 
