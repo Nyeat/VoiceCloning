@@ -19,7 +19,7 @@ Last updated: 2026-11-21
   "reserved:studio" (hard) / "held:studio" (soft 10 min); fixed GPU demand for slots, training, 30 min after super-user
   testing. Fixed: /voice-profile/ensure never saved new profiles. Next: live slot warm-up -> release; chat/mic check.
 - 11-21 Denoise off + Studio training settings DEPLOYED (f95c8d6). Separate Studio slot/QC GPUs, lecturer "I'm done",
-  wait-timer fix: NOT deployed (see DECISIONS 11-21; super-user lockout below is gone once deployed).
+  wait-timer fix: DEPLOYED 7d1b06f (DECISIONS 11-21; super-user lockout below is gone). Next: live slot test.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).

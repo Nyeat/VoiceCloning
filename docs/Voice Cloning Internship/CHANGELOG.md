@@ -2754,3 +2754,6 @@
   VoiceTestBench now uses shared `voiceCapacityWait`; slot warm-up `nextWarmState` reads waitStartedAt too.
 - Tests: lambda 442/442 (+ coordinator studioOwners, early-finish, warm start), client 561/561, studio build OK.
   Not run live. Old OWNER rows (`held:studio`/`reserved:studio`) expire within 24 h.
+- DEPLOYED 7d1b06f (2026-11-21 16:13-16:24 UTC): dev + staging main Lambdas and coordinators (all Successful; staging
+  main code upload hit "Connection was closed" once and was redeployed), studio client dev + staging (live chunks
+  contain "I'm done testing"). Not yet exercised live (slot + super-user test at once, early finish).
