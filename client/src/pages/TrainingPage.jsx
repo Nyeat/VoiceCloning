@@ -137,7 +137,7 @@ export default function TrainingPage({ consent = null }) {
   const [sovitsSaveEvery, setSovitsSaveEvery] = useState(4);
   const [gptSaveEvery, setGptSaveEvery] = useState(5);
   const [asrLanguage, setAsrLanguage] = useState('en');
-  const [skipDenoise, setSkipDenoise] = useState(false);
+  const [skipDenoise, setSkipDenoise] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [sessionId, setSessionId] = useState(null);
@@ -536,7 +536,7 @@ export default function TrainingPage({ consent = null }) {
                     <label className="flex items-start justify-between gap-3 md:col-span-2">
                       <span>
                         <span className="text-xs font-medium text-slate-600">Skip noise removal</span>
-                        <span className="mt-1 block text-xs text-slate-500">For studio-clean recordings only; noise removal can add a slight rasp to clean audio.</span>
+                        <span className="mt-1 block text-xs text-slate-500">On by default. Noise removal downsamples to 16 kHz and adds a robotic rasp; untick only for genuinely noisy recordings.</span>
                       </span>
                       <Checkbox checked={skipDenoise} onCheckedChange={(v) => setSkipDenoise(v === true)} disabled={isRunning} />
                     </label>

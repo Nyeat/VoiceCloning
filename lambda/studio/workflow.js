@@ -43,7 +43,7 @@ const MINUTE = 60_000;
 export const BASE_TRAINING_CONFIG = Object.freeze({
   sovitsEpochs: 8,
   gptEpochs: 15,
-  skipDenoise: false,
+  skipDenoise: true,
   asrModel: 'large-v3',
 });
 
@@ -353,10 +353,11 @@ export function retrainConfig(previous, reasons = [], overrides = {}) {
   const has = (reason) => reasons.includes(reason);
   if (has('not-their-voice')) config.sovitsEpochs = Math.min(16, Math.ceil(config.sovitsEpochs * 1.5));
   if (has('mispronounces') || has('robotic')) config.gptEpochs = Math.min(30, Math.ceil(config.gptEpochs * 1.5));
-  if (has('noisy')) {
-    config.skipDenoise = false;
-    config.sovitsEpochs = Math.max(4, config.sovitsEpochs - 2);
-  }
+  // Denoising (16 kHz FRCRN) muffles clean audio and adds a robotic rasp, so a
+  // retrain only denoises when this review names noise — never by inheritance
+  // from an older attempt that ran under the former denoise-on default.
+  config.skipDenoise = !has('noisy');
+  if (has('noisy')) config.sovitsEpochs = Math.max(4, config.sovitsEpochs - 2);
   // Nothing specific was named: still move off the previous run.
   if (!reasons.some((reason) => reason !== 'other')) {
     config.sovitsEpochs = Math.min(16, config.sovitsEpochs + 2);
@@ -366,7 +367,6 @@ export function retrainConfig(previous, reasons = [], overrides = {}) {
   const gpt = Number(overrides.gptEpochs);
   if (Number.isInteger(sovits) && sovits >= 1 && sovits <= 30) config.sovitsEpochs = sovits;
   if (Number.isInteger(gpt) && gpt >= 1 && gpt <= 50) config.gptEpochs = gpt;
-  config.skipDenoise = config.skipDenoise === true;
   return config;
 }
 

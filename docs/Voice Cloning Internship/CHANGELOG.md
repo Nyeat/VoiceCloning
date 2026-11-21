@@ -2726,3 +2726,12 @@
   hold (20 min before, whole slot, <1 h bridge) and training already keep it on; idle-check honours any studio demand.
 - Slot warm-up on the super users' studio GPU switches it to the lecturer's voice (same owner family, at once).
 - Schedule timeline for today reaches 3 h past now (8 am-8 pm window hid tonight; at 8:15 pm nothing was clickable).
+
+## 2026-11-21 — Training denoise OFF by default (echo / robotic voice; not deployed)
+- Cause (measured): staging `x-ltyfishes-d450cb_3/denoised/*.wav` are 16 kHz with zero energy above 8 kHz. GPT-SoVITS
+  `cmd-denoise.py` (FRCRN 16k) muffled every training clip AND every reference/aux clip (refs come from `denoised/`).
+- `gpu-worker/src/services/pipeline.js` default `skipDenoise = true`; `client/src/pages/TrainingPage.jsx` box ticked by
+  default (copy updated); `lambda/studio/workflow.js` base config skips denoise, retrains denoise ONLY when the review
+  says "noisy" (no inheriting old `false`). With denoise off, `denoised/` holds the 32 kHz slices, so refs are fixed too.
+- Tests: lambda studio+training 49/49, gpu-worker 27/27, client 561/561. Not deployed; already-queued Studio jobs keep
+  their stored `skipDenoise:false`. Existing models must be RETRAINED to benefit (references included).

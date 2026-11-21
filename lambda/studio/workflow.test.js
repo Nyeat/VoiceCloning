@@ -69,6 +69,8 @@ test('retrain recipes differ by reason and honour overrides', () => {
   assert.equal(wf.retrainConfig({}, ['mispronounces']).gptEpochs, 23);
   assert.equal(wf.retrainConfig({}, ['noisy']).sovitsEpochs, 6);
   assert.equal(wf.retrainConfig({}, ['noisy']).skipDenoise, false);
+  assert.equal(wf.retrainConfig({ skipDenoise: false }, ['robotic']).skipDenoise, true);
+  assert.equal(wf.BASE_TRAINING_CONFIG.skipDenoise, true);
   const generic = wf.retrainConfig({}, []);
   assert.deepEqual([generic.sovitsEpochs, generic.gptEpochs], [10, 20]);
   assert.equal(wf.retrainConfig({}, ['noisy'], { sovitsEpochs: 9 }).sovitsEpochs, 9);

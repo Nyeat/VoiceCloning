@@ -168,7 +168,7 @@ export async function runPipelineWithS3(sessionId, {
   gptSaveEvery = 5,
   asrLanguage = 'en',
   asrModel = 'large-v3',
-  skipDenoise = false,
+  skipDenoise = true,
   selectedReferences = {},
   sourceDatasetStats = {},
   testVoiceUrl = '',
