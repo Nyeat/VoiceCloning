@@ -2699,3 +2699,12 @@
 - Owner accidentally withdrew "francisco" (ltyfishes@gmail.com, x-ltyfishes-d450cb_3, trained, in QC) via one-click
   "Cancel set". Restored in staging state to review (nothing had been deleted). Now "Withdraw set" asks first and
   explains the effect; withdrawn sets get "Restore set" (job.cancelledFrom; legacy trained -> review).
+
+## 2026-11-21 — Tester Chat + progress; owner Gmail super user (a5789dc, NOT deployed — AWS creds expired)
+- Chat tab (now first) no longer embeds LivePage, which waited forever on the fixed-GPU status and showed its own
+  voice picker. New VoiceChat over the live chat gateway (typed only, no mic yet); replies spoken via Live Fast.
+- useSpeaker shared by Chat/Read aloud with a progress bar per sentence.
+- STUDIO_PASSWORD_SUPERUSERS (staging = owner's Gmail, also in STUDIO_SUPERUSERS): that email+password account is a
+  super user; as a fixture viewer it sees the dummy accounts. Account already exists (owner signed in earlier).
+- Emails: still none sent — EMAIL_* not set on the Lambdas (lkcmedicine mailbox credentials pending; see BUGS).
+- Tests: lambda 282 pass; studio build OK. Not run in a browser.
