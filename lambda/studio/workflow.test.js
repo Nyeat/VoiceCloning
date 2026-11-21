@@ -298,3 +298,10 @@ test('a withdrawn set can be restored to where it was; nothing is lost', () => {
   assert.equal(wf.restoreJob(legacy, { now: T0 }).status, 'review', 'withdrawn before this existed: a trained set returns to review');
   assert.throws(() => wf.restoreJob(inReview, { now: T0 }), /Only a withdrawn set/u);
 });
+
+test('a password account is a super user only when listed in STUDIO_PASSWORD_SUPERUSERS', () => {
+  const env = { STUDIO_PASSWORD_SUPERUSERS: 'Owner@Gmail.com' };
+  assert.equal(wf.passwordSuperuserAllowed('owner@gmail.com', env), true);
+  assert.equal(wf.passwordSuperuserAllowed('someone@gmail.com', env), false);
+  assert.equal(wf.passwordSuperuserAllowed('owner@gmail.com', {}), false);
+});

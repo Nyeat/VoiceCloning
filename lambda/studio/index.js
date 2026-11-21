@@ -354,7 +354,7 @@ export function createHandler({
 
   // Email + password addresses are not verified, so they are never super users.
   function superuserOf(state, email, passwordAccount) {
-    return !passwordAccount && wf.isSuperuser(state, email, env);
+    return (!passwordAccount || wf.passwordSuperuserAllowed(email, env)) && wf.isSuperuser(state, email, env);
   }
 
   function requireSuperuser(state, email, passwordAccount) {
@@ -903,7 +903,7 @@ export async function studioVoiceScope(email, {
   store = sharedService().store, env = process.env, now = Date.now(), passwordAccount = false,
 } = {}) {
   const { state } = await store.read();
-  const superuser = !passwordAccount && wf.isSuperuser(state, email, env);
+  const superuser = (!passwordAccount || wf.passwordSuperuserAllowed(email, env)) && wf.isSuperuser(state, email, env);
   const names = wf.visibleVoices(state, { email, superuser })
     .filter((voiceName) => wf.voiceAccess(state, { email, voiceName, now, superuser }).allowed);
   // Who each studio voice really belongs to, so a profile created while a super

@@ -7,8 +7,9 @@
 // to the picked voice at once).
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Loader2, MessageCircle, Play, ScanSearch, Square, Volume2 } from 'lucide-react';
-import LivePage from '@/pages/LivePage.jsx';
+import { CheckCircle2, Loader2, MessageCircle, Play, ScanSearch, Send, Square, Volume2 } from 'lucide-react';
+import { createLiveChatSocket } from '@/services/liveChatSocket.js';
+import { acquireApiToken, shouldAttachApiToken } from '@/auth/msalClient.js';
 import { ensureVoiceProfile, prepareVoiceCapacity, scanOovWords, synthesizeSentence } from '@/services/api';
 import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
 import { voiceCapacityNotice } from '@/lib/voiceCapacity';
@@ -127,19 +128,17 @@ function WarmingCard({ gpu, slotWarm }) {
   );
 }
 
-function ReadAloud({ voiceName, ready, onPickWord }) {
-  const [text, setText] = useState('');
-  const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+// Speaks text in the voice, sentence by sentence (Live Fast), fetching the next
+// sentence while the current one plays. progress: { done, total, phase } where
+// phase is 'generating' (waiting for the first audio of a sentence) or 'playing'.
+function useSpeaker(voiceName) {
+  const [speaking, setSpeaking] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0, phase: '' });
   const [waiting, setWaiting] = useState(false);
-  const [error, setError] = useState('');
-  const [scan, setScan] = useState(null);
-  const [scanning, setScanning] = useState(false);
   const stopRef = useRef(false);
   const audioRef = useRef(null);
 
   useEffect(() => () => { stopRef.current = true; audioRef.current?.pause(); }, []);
-  useEffect(() => { setScan(null); }, [text]);
 
   function play(blob) {
     return new Promise((resolve) => {
@@ -153,35 +152,33 @@ function ReadAloud({ voiceName, ready, onPickWord }) {
     });
   }
 
-  async function readAloud() {
+  async function speak(text) {
     const sentences = splitSentences(text);
     if (sentences.length === 0) return;
     stopRef.current = false;
-    setPlaying(true);
-    setError('');
-    setProgress({ done: 0, total: sentences.length });
+    setSpeaking(true);
+    setProgress({ done: 0, total: sentences.length, phase: 'generating' });
     const voiceProfileId = buildVoiceProfileId(voiceName);
     const fetchClip = (sentence) => runSynthesisWithRetry(
       () => synthesizeSentence({ voiceProfileId, text: sentence, text_lang: 'en' }),
       { isCancelled: () => stopRef.current, onCapacityWait: () => setWaiting(true), maxCapacityWaitMs: 5_000 },
     );
     try {
-      // Fetch the next sentence while the current one plays.
       let next = fetchClip(sentences[0]);
       for (let index = 0; index < sentences.length; index += 1) {
+        setProgress({ done: index, total: sentences.length, phase: 'generating' });
         const { blob } = await next;
         setWaiting(false);
         if (stopRef.current) break;
         next = index + 1 < sentences.length ? fetchClip(sentences[index + 1]) : null;
         next?.catch(() => {});
+        setProgress({ done: index, total: sentences.length, phase: 'playing' });
         await play(blob);
-        setProgress({ done: index + 1, total: sentences.length });
         if (stopRef.current) break;
       }
-    } catch (err) {
-      if (!stopRef.current) setError(err?.message || 'Could not read the text aloud');
+      setProgress((current) => ({ ...current, done: current.total, phase: '' }));
     } finally {
-      setPlaying(false);
+      setSpeaking(false);
       setWaiting(false);
     }
   }
@@ -189,7 +186,50 @@ function ReadAloud({ voiceName, ready, onPickWord }) {
   function stop() {
     stopRef.current = true;
     audioRef.current?.pause();
-    setPlaying(false);
+    setSpeaking(false);
+  }
+
+  return { speak, stop, speaking, progress, waiting };
+}
+
+function SpeakProgress({ speaker }) {
+  const { progress, waiting, speaking } = speaker;
+  if (!speaking || !progress.total) return null;
+  // Each sentence counts half when its audio is being made, full once played.
+  const fraction = Math.min(1, (progress.done + (progress.phase === 'playing' ? 0.5 : 0.15)) / progress.total);
+  const label = waiting
+    ? 'Getting the voice ready…'
+    : progress.phase === 'generating'
+      ? `Making sentence ${progress.done + 1} of ${progress.total}…`
+      : `Speaking sentence ${progress.done + 1} of ${progress.total}`;
+  return (
+    <div className="space-y-1.5">
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className={cn('h-full rounded-full bg-primary transition-all duration-500', progress.phase === 'generating' && 'animate-pulse')} style={{ width: `${Math.max(4, fraction * 100)}%` }} />
+      </div>
+      <p className="flex items-center gap-1.5 text-xs text-slate-500">
+        {progress.phase === 'generating' ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />} {label}
+      </p>
+    </div>
+  );
+}
+
+function ReadAloud({ voiceName, ready, onPickWord }) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState('');
+  const [scan, setScan] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const speaker = useSpeaker(voiceName);
+
+  useEffect(() => { setScan(null); }, [text]);
+
+  async function readAloud() {
+    setError('');
+    try {
+      await speaker.speak(text);
+    } catch (err) {
+      setError(err?.message || 'Could not read the text aloud');
+    }
   }
 
   async function scanText() {
@@ -212,16 +252,15 @@ function ReadAloud({ voiceName, ready, onPickWord }) {
         placeholder="Paste or type anything — a lecture paragraph works well."
         className="min-h-[260px] flex-1 resize-none rounded-xl border border-slate-200 p-4 text-[15px] leading-7 text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
       />
+      <SpeakProgress speaker={speaker} />
       <div className="flex flex-wrap items-center gap-2">
-        {playing
-          ? <Button variant="danger" size="lg" onClick={stop}><Square size={15} /> Stop</Button>
+        {speaker.speaking
+          ? <Button variant="danger" size="lg" onClick={speaker.stop}><Square size={15} /> Stop</Button>
           : <Button variant="dark" size="lg" disabled={!text.trim() || !ready} onClick={readAloud}><Play size={15} /> Read aloud</Button>}
         <Button variant="outline" size="lg" disabled={!text.trim() || scanning} onClick={scanText}>
           {scanning ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} />} Scan text
         </Button>
-        <span className="ml-auto text-xs text-slate-500">
-          {playing ? (waiting ? 'Getting the voice ready…' : `Sentence ${Math.min(progress.done + 1, progress.total)} of ${progress.total}`) : `${text.length}/${MAX_TEXT}`}
-        </span>
+        <span className="ml-auto text-xs text-slate-500">{text.length}/{MAX_TEXT}</span>
       </div>
       {scan && (
         <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm">
@@ -244,6 +283,118 @@ function ReadAloud({ voiceName, ready, onPickWord }) {
   );
 }
 
+// Chat with the voice: type a question, the assistant answers in a few
+// sentences, and the answer is spoken in the picked voice (Live Fast).
+const CHAT_PROMPT = 'You are a friendly assistant helping a lecturer hear how their cloned voice sounds. '
+  + 'Reply naturally in two or three short, clear sentences. Vary sentence length and include the occasional '
+  + 'question so the voice can be heard in different intonations. Always respond only in English.';
+
+function VoiceChat({ voiceName, ready }) {
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState('');
+  const [status, setStatus] = useState('connecting'); // connecting | ready | thinking | error
+  const [error, setError] = useState('');
+  const socketRef = useRef(null);
+  const replyRef = useRef('');
+  const listRef = useRef(null);
+  const speaker = useSpeaker(voiceName);
+  const speakRef = useRef(speaker.speak);
+  speakRef.current = speaker.speak;
+
+  useEffect(() => {
+    let closed = false;
+    const socket = createLiveChatSocket({
+      language: 'en',
+      systemPrompt: CHAT_PROMPT,
+      getAuthToken: shouldAttachApiToken() ? acquireApiToken : null,
+      onMessage: (event) => {
+        if (closed) return;
+        if (event?.type === 'session.ready') setStatus('ready');
+        if (event?.type === 'assistant.text.delta') {
+          replyRef.current += event.text || '';
+          setMessages((list) => {
+            const last = list[list.length - 1];
+            if (last?.role === 'assistant' && last.streaming) return [...list.slice(0, -1), { ...last, text: replyRef.current }];
+            return [...list, { role: 'assistant', text: replyRef.current, streaming: true }];
+          });
+        }
+        if (event?.type === 'assistant.text.done') {
+          const text = String(event.text || replyRef.current).trim();
+          replyRef.current = '';
+          setMessages((list) => {
+            const last = list[list.length - 1];
+            const rest = last?.role === 'assistant' && last.streaming ? list.slice(0, -1) : list;
+            return [...rest, { role: 'assistant', text }];
+          });
+          setStatus('ready');
+          if (text) speakRef.current(text).catch((err) => setError(err?.message || 'Could not speak the reply'));
+        }
+        if (event?.type === 'error' || event?.type === 'session.auth.failed') {
+          setStatus('error');
+          setError(event.message || 'The chat could not start.');
+        }
+      },
+      onError: (err) => { if (!closed) { setStatus('error'); setError(err.message); } },
+      onClose: () => { if (!closed) setStatus((current) => (current === 'error' ? current : 'error')); },
+    });
+    socketRef.current = socket;
+    return () => { closed = true; socket.close(); };
+  }, []);
+
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' }); }, [messages]);
+
+  function send(event) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || status !== 'ready') return;
+    speaker.stop();
+    replyRef.current = '';
+    if (!socketRef.current?.send({ type: 'user.text', text })) {
+      setError('The chat connection dropped. Reload the page to reconnect.');
+      return;
+    }
+    setMessages((list) => [...list, { role: 'user', text }]);
+    setDraft('');
+    setStatus('thinking');
+  }
+
+  return (
+    <div className="flex h-full min-h-[520px] flex-col">
+      <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto p-4">
+        {messages.length === 0 && (
+          <div className="flex h-full flex-col items-center justify-center py-16 text-center">
+            <MessageCircle size={28} className="text-slate-300" />
+            <p className="mt-3 text-sm font-semibold text-slate-800">Ask anything</p>
+            <p className="mt-1 max-w-xs text-xs text-slate-500">The answer is spoken in this voice, so you hear it in different sentences and tones.</p>
+          </div>
+        )}
+        {messages.map((message, index) => (
+          <div key={index} className={cn('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}>
+            <p className={cn('max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-6', message.role === 'user' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-800')}>{message.text}</p>
+          </div>
+        ))}
+        {status === 'thinking' && <p className="flex items-center gap-1.5 text-xs text-slate-500"><Loader2 size={12} className="animate-spin" /> Thinking…</p>}
+      </div>
+      <div className="space-y-2 border-t border-slate-100 p-4">
+        <SpeakProgress speaker={speaker} />
+        <form onSubmit={send} className="flex gap-2">
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={status === 'connecting' ? 'Connecting…' : 'Ask a question…'}
+            disabled={status === 'connecting' || status === 'error' || !ready}
+            className="h-11 flex-1 rounded-full border border-slate-300 px-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+          />
+          {speaker.speaking
+            ? <Button variant="danger" onClick={speaker.stop}><Square size={14} /> Stop</Button>
+            : <Button type="submit" variant="dark" disabled={!draft.trim() || status !== 'ready' || !ready}><Send size={14} /> Send</Button>}
+        </form>
+        {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 // audience: 'superuser' (GPU popup, details) or 'lecturer' (tester hidden until
 // the voice is ready; slotWarm = the slot's warm-up state for the estimate).
 export default function VoiceTestBench({
@@ -252,7 +403,7 @@ export default function VoiceTestBench({
   const [params, setParams] = useSearchParams();
   const requested = params.get('voice') || '';
   const voice = voiceNames.includes(requested) ? requested : voiceNames[0] || '';
-  const [tab, setTab] = useState('read');
+  const [tab, setTab] = useState('chat');
   const [pick, setPick] = useState(null);
   const gpu = useVoiceReady(voice);
   const ready = gpu.status === 'ready';
@@ -278,7 +429,7 @@ export default function VoiceTestBench({
           {ready ? 'Ready' : gpu.status === 'error' ? 'This voice cannot be used' : audience === 'lecturer' ? 'Getting your voice ready' : (gpu.capacity?.state === 'STARTING' ? 'Starting a GPU with this voice' : 'Getting this voice ready')}
         </span>
         <div className="ml-auto flex gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label="How to test">
-          {[['read', 'Read aloud', Volume2], ['chat', 'Chat', MessageCircle]].map(([value, label, Icon]) => (
+          {[['chat', 'Chat', MessageCircle], ['read', 'Read aloud', Volume2]].map(([value, label, Icon]) => (
             <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
               className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold', tab === value ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-800')}>
               <Icon size={14} /> {label}
@@ -294,7 +445,7 @@ export default function VoiceTestBench({
         <Card className="min-h-[560px] overflow-hidden">
           {tab === 'read'
             ? <ReadAloud key={voice} voiceName={voice} ready={ready} onPickWord={(word) => setPick({ word, at: Date.now() })} />
-            : <LivePage key={voice} replyMode="phrases" mode="chat" variant="voice-test" voiceScope="studio" />}
+            : <VoiceChat key={voice} voiceName={voice} ready={ready} />}
         </Card>
         <div>{voice ? <PronunciationPanel voiceName={voice} canApply={canApply} prefill={pick} /> : null}</div>
       </div>

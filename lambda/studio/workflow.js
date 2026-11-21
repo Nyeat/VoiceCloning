@@ -115,6 +115,16 @@ export function sameNtuPerson(left, right) {
   return ntu(a) && ntu(b) && a.split('@')[0] === b.split('@')[0];
 }
 
+/**
+ * Email + password addresses are not verified, so they are never super users —
+ * except the ones named in STUDIO_PASSWORD_SUPERUSERS (an owner's own account
+ * that already exists; registering such an address is refused).
+ */
+export function passwordSuperuserAllowed(email, env = process.env) {
+  const listed = String(env.STUDIO_PASSWORD_SUPERUSERS || '').split(',').map((value) => normalizeEmail(value)).filter(Boolean);
+  return listed.includes(normalizeEmail(email));
+}
+
 export function isSuperuser(state, email, env = process.env) {
   if (!normalizeEmail(email)) return false;
   if (bootstrapSuperusers(env).some((entry) => sameNtuPerson(entry, email))) return true;
