@@ -78,9 +78,12 @@ export function formatLength(minutes) {
 }
 
 /** Visible hour range for a day: default 8–20, stretched to include every slot. */
-export function dayHours(slots, { from = 8, to = 20 } = {}) {
+// nowMinutes (today only): the window always reaches a few hours past now, so the
+// rest of today can still be booked in the evening.
+export function dayHours(slots, { from = 8, to = 20, nowMinutes = null } = {}) {
   let start = from * 60;
   let end = to * 60;
+  if (nowMinutes !== null) end = Math.min(24 * 60, Math.max(end, Math.ceil(nowMinutes / 60) * 60 + 3 * 60));
   for (const slot of slots) {
     start = Math.min(start, Math.floor(sgtMinutes(slot.start) / 60) * 60);
     const endMinutes = sgtDayKey(slot.end) === sgtDayKey(slot.start) ? sgtMinutes(slot.end) : 24 * 60;

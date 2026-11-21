@@ -631,7 +631,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     return map;
   }, [slots, nowMs]);
   const daySlots = slots.filter((slot) => sgtDayKey(slot.start) === day || sgtDayKey(slot.end) === day);
-  const hours = dayHours(daySlots);
+  const hours = dayHours(daySlots, { nowMinutes: day === today ? sgtMinutes(nowMs) : null });
   const blocks = daySlots.map((slot) => ({
     id: slot.id,
     start: slot.start,

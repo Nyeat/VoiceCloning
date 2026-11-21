@@ -27,3 +27,10 @@ test('day view stretches to fit early or late slots', () => {
   assert.deepEqual(dayHours([]), { start: 480, end: 1200 });
   assert.deepEqual(dayHours([{ start: sgtIso('2026-11-21', 7 * 60 + 30), end: sgtIso('2026-11-21', 21 * 60 + 15) }]), { start: 420, end: 1320 });
 });
+
+test('today\'s window reaches a few hours past now, so the evening can be booked', async () => {
+  const { dayHours } = await import('./slotCalendar.js');
+  assert.deepEqual(dayHours([], { nowMinutes: 20 * 60 + 15 }), { start: 8 * 60, end: 24 * 60 });
+  assert.deepEqual(dayHours([], { nowMinutes: 10 * 60 }), { start: 8 * 60, end: 20 * 60 });
+  assert.deepEqual(dayHours([]), { start: 8 * 60, end: 20 * 60 });
+});
