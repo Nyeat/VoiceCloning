@@ -2638,3 +2638,20 @@
   scratchpad; owner applies (shared bucket, earlier CORS edit by Claude was blocked).
 - Applied ~18:50 SGT 11-21 (owner asked): shared bucket CORS + both studio origins (17 total, nothing removed). Verified:
   preflight from the staging studio origin 200 with allow-origin; 70 MB presigned PUT 200 in 11 s.
+
+## 2026-11-21 — Voice Studio GPU lifecycle (8277664, deployed dev + staging ~19:40 SGT)
+- Why super-user testing never started a GPU: the picked voice ("Again") had no profile; ensure failed and the tester
+  swallowed it, so capacity was never asked (staging ASG stayed desired 0). Studio pronunciation route also refused
+  non-studio voices ("Voice not found").
+- workflow.gpuHold: test slot holds the inference GPU from 20 min before (SLOT_WARMUP_MINUTES 15 -> 20) to its end, and
+  across a gap < 60 min to the next slot. Tick asks for the slot voice every run (keep-alive vs 30 min scale-in) and
+  stores slot.warm (nextWarmState). Slot preload no longer singleGpu: switches a GPU idle 10 min+ or adds one.
+- Super users locked from warm-up to end (+bridge): voiceAccess, studioVoiceScope.allVoices, and enforced for studio
+  sign-ins on /voice-profile/capacity and /live/tts-sentence (403). Live chat gateway NOT enforced (UI-locked only).
+- Tester: real errors; super users get GpuWaitDialog; lecturers get a "ready at about HH:MM" card until the voice speaks.
+  Console SlotHoldBanner flags warm-ups past estimate.
+- createJob marks fixture-account jobs as fixtures (my 2 "upload probe" jobs marked in staging state); lecturer
+  queueLength ignores fixtures.
+- Verified staging: lecturer queueLength 0 (no real queued/training job), capacity + tts-sentence 403 for a non-slot
+  account. Tests: lambda 164 pass (new: hold/bridge, warm estimate, fixture jobs). NOT verified: a real slot warm-up,
+  super-user GPU start with a voice that has a profile, ETA accuracy.

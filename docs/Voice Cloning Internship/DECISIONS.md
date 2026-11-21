@@ -339,3 +339,6 @@ These live in runtime configuration and will not appear in any branch diff:
 
 - 2026-11-21 Voice Studio fixtures are visible only to fixture accounts and STUDIO_FIXTURE_VIEWERS testers; all other
   super users see real work only, so the console reflects the real world.
+- 2026-11-21 Voice Studio GPU: a test slot holds the inference GPU from 20 min before to its end (bridged if the next
+  slot starts < 1 h later); super users are locked out for that whole window (server-enforced); otherwise super-user
+  testing is on-demand with the normal 30 min idle scale-in.
