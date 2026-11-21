@@ -344,3 +344,6 @@ These live in runtime configuration and will not appear in any branch diff:
   testing is on-demand with the normal 30 min idle scale-in.
 - 2026-11-21 Voice Studio owns its inference GPU (coordinator owner "reserved:studio"): other sites never switch it while
   in use (35 min); inside the studio one GPU serves super users and slots, a slot takes it over at once.
+- 2026-11-21 Voice Studio GPU kinds: a lecturer's test-slot GPU is hard-reserved (never idles off or gets switched during
+  the slot; released right after unless a slot follows within 1 h); the super users' GPU is soft-held (other sites may
+  switch it after 10 min unused; 30 min idle scale-in).

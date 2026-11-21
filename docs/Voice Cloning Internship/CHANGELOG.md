@@ -2680,3 +2680,15 @@
 - Deployed cb34f93 + 817f89b with fresh creds: Lambda + coordinator + studio client, dev and staging (staging
   coordinator LastModified 10:44Z). Re-verified staging lockout (5 routes 403 for a non-slot account). Reservation not
   yet seen live (needs a studio GPU up while another site asks).
+
+## 2026-11-21 — Voice setup never saved; slot GPU hard-reserved + released; super-user GPU soft-held (e55bbc0, deployed dev + staging)
+- BUG (all sites): /voice-profile/ensure passed a draft already carrying the clips, so persistSavedProfileReferenceSelection
+  saw "unchanged" and never wrote it -> created:true but no profile -> "Getting this voice ready" forever. Fixed with
+  force:true; no write = 500. Test now uses the real persister. Local probe: x-ltyfishes-d450cb_3 models + best refs resolve.
+- Coordinator owner kinds: "reserved:" hard (never switched by others; Voice Studio slots, STUDIO_SLOT_OWNER) and
+  "held:" soft (others may switch after 10 min unused; super users, STUDIO_GPU_OWNER). Same family "studio" = own GPU
+  (slot takes it at once). New action "release": studio tick releases the slot owner when its last slot ended (no slot
+  within 1 h); released GPUs scale in as soon as idle (scaleInCandidates releasedWorkerIds).
+- Tester retries ensure until it succeeds and shows "Still trying: <error>" to super users.
+- Tests: lambda 280+ pass (new: soft hold, release scale-in, real ensure write). Staging lockout re-verified.
+  Not yet seen live: a profile created by the fixed ensure (reload the test page), slot release, cross-site hold.
