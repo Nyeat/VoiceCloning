@@ -2740,3 +2740,6 @@
   `wf.sanitizeTrainingConfig`). Retrain form shows the same settings (noise removal follows "Noisy" until changed).
   Lecturer page labels a retrain "Retraining" (try n) -> quality check -> test. New `client/src/studio/TrainingSettings.jsx`.
   Tests: lambda studio 32/32, client 561/561, studio build OK. Not clicked through in a browser.
+- DEPLOYED f95c8d6 (incl. 0ebdad4) 12:50 UTC: dev + staging main Lambdas (LastUpdateStatus Successful), studio + training
+  clients both envs (live App chunks contain the new UI text). Training GPU worker NOT redeployed/baked: both clients and
+  Studio now send skipDenoise explicitly, so the worker default is unused. Dev branch fast-forwarded to the same commit.
