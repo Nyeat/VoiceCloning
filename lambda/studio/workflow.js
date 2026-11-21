@@ -549,6 +549,9 @@ export function claimSlot(state, id, { email, name = '', now }) {
   if (!cleanText(name, 80)) throw clientError(400, 'Enter your name');
   const mine = liveSlots(state).find((item) => slotKind(item) === 'recording' && sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
   if (mine) throw clientError(409, 'You already have a recording session booked. Use Change to move it to another time.');
+  if (hasSubmittedVoice(state, email)) {
+    throw clientError(409, 'Your recordings are already in. One recording session per person — we email you as your voice moves along.');
+  }
   slot.assigneeEmail = normalizeEmail(email);
   slot.assigneeName = cleanText(name, 80);
   slot.claimedAt = iso(now);
@@ -628,6 +631,58 @@ export function uploadWindowOpen(state, job, { now, superuser }) {
   const slot = state.slots.find((item) => item.id === job.recordingSlotId);
   if (!slot) return false;
   return now < ms(slot.end) + RECORDING_GRACE_MINUTES * MINUTE;
+}
+
+/**
+ * One recording session per person: once their recordings are submitted
+ * (anything but an unsent or withdrawn set), they cannot book another. A set
+ * sent back for new recordings is withdrawn, so that person may book again.
+ */
+export function hasSubmittedVoice(state, email) {
+  return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && !['uploading', 'cancelled'].includes(job.status));
+}
+
+// Emails before a booked session. Recording: the day before, then shortly
+// before it starts. Test slot: on the morning of the day (the GPU "starts soon"
+// email at warm-up is separate, see slotsToRemind).
+const SGT_OFFSET_MS = 8 * 60 * MINUTE;
+function sgtMorningOf(startMs, hour = 7) {
+  const dayStart = Math.floor((startMs + SGT_OFFSET_MS) / (24 * 60 * MINUTE)) * 24 * 60 * MINUTE - SGT_OFFSET_MS;
+  return dayStart + hour * 60 * MINUTE;
+}
+export const SESSION_REMINDERS = Object.freeze({
+  recording: [
+    { kind: 'day', from: (start) => start - 24 * 60 * MINUTE, until: (start) => start - 2 * 60 * MINUTE },
+    { kind: 'soon', from: (start) => start - 60 * MINUTE, until: (start) => start },
+  ],
+  test: [
+    { kind: 'today', from: (start) => sgtMorningOf(start), until: (start) => start - SLOT_WARMUP_MINUTES * MINUTE },
+  ],
+});
+
+/**
+ * Booked sessions whose reminder is due. Each reminder is recorded against the
+ * person and start time it was sent for, so a moved or re-assigned session is
+ * reminded again and an unchanged one never twice. A booking made after a
+ * reminder's window has passed simply skips that reminder.
+ */
+export function sessionRemindersDue(state, now) {
+  const due = [];
+  for (const slot of liveSlots(state)) {
+    // Fixtures (@voice-studio.test) are never emailed.
+    if (slot.status !== 'published' || !slot.assigneeEmail || !real(slot)) continue;
+    const start = ms(slot.start);
+    const key = reminderKey(slot);
+    for (const reminder of SESSION_REMINDERS[slotKind(slot)]) {
+      if (slot.reminders?.[reminder.kind] === key) continue;
+      if (reminder.from(start) <= now && now < reminder.until(start)) due.push({ slot, kind: reminder.kind, key });
+    }
+  }
+  return due;
+}
+
+export function reminderKey(slot) {
+  return `${normalizeEmail(slot.assigneeEmail)}|${slot.start}`;
 }
 
 /** Test slots inside the warm-up window whose "starts soon" email has not gone out. */

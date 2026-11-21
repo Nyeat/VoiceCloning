@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { HelpCircle, Loader2, LogOut, X } from 'lucide-react';
 import ntuLogo from '@/assets/ntu-logo.png';
+import campusPhoto from '@/assets/lkc-campus.jpg';
 import { useAuth } from '@/auth/useAuth';
 import { cn } from '@/lib/utils';
 
@@ -251,8 +252,10 @@ export function SignInScreen({
   return (
     <div className="grid min-h-screen bg-white lg:grid-cols-[minmax(0,1.2fr)_minmax(440px,1fr)]">
       <style>{HALO_CSS}</style>
-      <section className={cn('hidden bg-gradient-to-br lg:block', accent)}>
-        <div className="flex h-full max-w-lg flex-col justify-end p-14 text-white">
+      <section className={cn('relative hidden overflow-hidden bg-gradient-to-br lg:block', accent)}>
+        <img src={campusPhoto} alt="Lee Kong Chian School of Medicine, Novena campus" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/45 to-transparent" aria-hidden="true" />
+        <div className="relative flex h-full max-w-lg flex-col justify-end p-14 text-white">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">Lee Kong Chian School of Medicine</p>
           <h1 className="mt-3 text-4xl font-semibold leading-tight tracking-tight">{headline}</h1>
           <ol className="mt-10 space-y-5">

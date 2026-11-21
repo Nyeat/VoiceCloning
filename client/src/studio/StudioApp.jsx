@@ -7,7 +7,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  CalendarCheck, CalendarClock, CheckCircle2, ClipboardCheck, Cpu, Loader2, MessageSquareText, Mic2, RefreshCw, ShieldCheck,
+  CalendarCheck, CalendarClock, CheckCircle2, ChevronDown, ClipboardCheck, Cpu, Loader2, MessageSquareText, Mic2, RefreshCw, ShieldCheck,
   Star, ThumbsDown, ThumbsUp, Trash2, UserPlus, Users, X,
 } from 'lucide-react';
 import { PostLoginRedirectHandler, ProtectedRoute } from '@/auth/AppAuthGate';
@@ -15,8 +15,8 @@ import { useAuth } from '@/auth/useAuth';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { GpuStatusProvider } from '@/lib/gpuStatus.jsx';
 import { cn } from '@/lib/utils';
-import LivePage from '@/pages/LivePage.jsx';
-import PronunciationPanel from './PronunciationPanel.jsx';
+import { getMyVoiceProfiles } from '@/services/api';
+import VoiceTestBench from './VoiceTestBench.jsx';
 import { RecordWorkspace } from './RecordApp.jsx';
 import { FaqList, FaqPage } from './ConsentAndFaq.jsx';
 import { saveStudioSession } from '@/auth/studioSession.js';
@@ -87,8 +87,6 @@ function Overview({ overview, onAction }) {
   const needSlot = jobs.filter((job) => job.status === 'approved' && !slotted.has(job.ownerEmail));
   const training = jobs.find((job) => job.status === 'training');
   const queue = overview.queue.map((id) => byId.get(id)).filter(Boolean);
-  const [filter, setFilter] = useState('all');
-  const listed = jobs.filter((job) => filter === 'all' || job.status === filter);
   const recordingSlots = overview.slots.filter((slot) => slot.kind === 'recording' && Date.parse(slot.end) > now);
   const recordingBooked = recordingSlots.filter((slot) => slot.assigneeEmail).sort((a, b) => a.start.localeCompare(b.start));
   const recordingOpen = recordingSlots.filter((slot) => !slot.assigneeEmail && slot.status === 'published').length;
@@ -142,7 +140,7 @@ function Overview({ overview, onAction }) {
           <h2 className="font-semibold text-slate-900">Booked recording sessions</h2>
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-500">{recordingOpen} open session{recordingOpen === 1 ? '' : 's'} not picked yet</span>
-            <Button variant="outline" size="sm" onClick={() => navigate('/sessions')}><CalendarClock size={13} /> Calendar</Button>
+            <Button variant="dark" size="sm" onClick={() => navigate('/sessions')}><CalendarClock size={13} /> Add &amp; publish sessions</Button>
           </div>
         </div>
         {recordingBooked.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">Nobody has a recording session booked yet.</p> : (
@@ -210,35 +208,72 @@ function Overview({ overview, onAction }) {
         </Card>
       </div>
 
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-3">
-          <h2 className="font-semibold text-slate-900">All recording sets</h2>
-          <select value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8 rounded-lg border border-slate-300 px-2 text-xs" aria-label="Filter by status">
-            {['all', 'queued', 'training', 'review', 'approved', 'scheduled', 'failed', 'cancelled', 'uploading'].map((status) => <option key={status} value={status}>{status}</option>)}
-          </select>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-[0.06em] text-slate-500">
-              <tr><th className="px-5 py-2">Lecturer</th><th className="px-3 py-2">Voice</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Audio</th><th className="px-3 py-2">Submitted</th><th className="px-3 py-2" /></tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {listed.map((job) => (
-                <tr key={job.id} className="hover:bg-slate-50">
-                  <td className="px-5 py-2.5"><p className="font-medium text-slate-800">{who(job)}</p><p className="text-xs text-slate-500">{job.ownerEmail}</p></td>
-                  <td className="px-3 py-2.5"><p>{job.label}</p><p className="text-xs text-slate-500">{job.expName} · attempt {job.attempt}</p></td>
-                  <td className="px-3 py-2.5"><StatusPill status={job.status} /></td>
-                  <td className="px-3 py-2.5 text-xs text-slate-600">{job.files.length} files · {formatBytes(job.totalBytes)}</td>
-                  <td className="px-3 py-2.5 text-xs text-slate-600">{formatSgt(job.queuedAt || job.createdAt)}</td>
-                  <td className="px-3 py-2.5 text-right"><button type="button" onClick={() => navigate(`/review/${job.id}`)} className="text-xs font-medium text-primary hover:underline">Open</button></td>
-                </tr>
-              ))}
-              {listed.length === 0 && <tr><td colSpan={6} className="px-5 py-6 text-center text-sm text-slate-500">Nothing here.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <VoicesByStage jobs={jobs} />
     </div>
+  );
+}
+
+// Every voice, grouped by where it is. Each stage is collapsible; the ones
+// that need someone (waiting to train, quality check) are open and marked.
+const STAGES = [
+  { key: 'queued', title: 'Waiting to train', statuses: ['queued'], tone: 'amber', open: true },
+  { key: 'training', title: 'Training now', statuses: ['training'], tone: 'blue', open: true },
+  { key: 'qc', title: 'Quality check', statuses: ['review', 'failed'], tone: 'violet', open: true },
+  { key: 'approved', title: 'Approved — needs a test slot', statuses: ['approved'], tone: 'emerald', open: false },
+  { key: 'scheduled', title: 'Test slot booked', statuses: ['scheduled'], tone: 'emerald', open: false },
+  { key: 'uploading', title: 'Not submitted yet', statuses: ['uploading'], tone: 'slate', open: false },
+  { key: 'cancelled', title: 'Withdrawn', statuses: ['cancelled'], tone: 'slate', open: false },
+];
+const STAGE_TONES = {
+  amber: 'border-amber-300 bg-amber-50/70', blue: 'border-blue-200 bg-blue-50/50', violet: 'border-violet-200 bg-violet-50/50',
+  emerald: 'border-slate-200 bg-white', slate: 'border-slate-200 bg-white',
+};
+const STAGE_DOTS = { amber: 'bg-amber-500', blue: 'bg-blue-500', violet: 'bg-violet-500', emerald: 'bg-emerald-500', slate: 'bg-slate-300' };
+
+function VoicesByStage({ jobs }) {
+  const navigate = useNavigate();
+  return (
+    <Card>
+      <div className="border-b border-slate-200 px-5 py-3">
+        <h2 className="font-semibold text-slate-900">Voices by stage</h2>
+        <p className="text-xs text-slate-500">Each lecturer's submitted recordings, from waiting to train through to testing.</p>
+      </div>
+      <div className="space-y-2 p-3">
+        {STAGES.map((stage) => {
+          const items = jobs.filter((job) => stage.statuses.includes(job.status))
+            .sort((a, b) => String(a.queuedAt || a.createdAt).localeCompare(String(b.queuedAt || b.createdAt)));
+          if (items.length === 0 && !stage.open) return null;
+          const highlight = stage.key === 'queued' && items.length > 0;
+          return (
+            <details key={stage.key} open={stage.open && items.length > 0} className={cn('group rounded-xl border', highlight ? STAGE_TONES.amber : STAGE_TONES[stage.tone])}>
+              <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-2.5">
+                <span className={cn('h-2.5 w-2.5 rounded-full', STAGE_DOTS[stage.tone])} />
+                <span className={cn('text-sm font-semibold', highlight ? 'text-amber-900' : 'text-slate-800')}>{stage.title}</span>
+                <span className={cn('rounded-full px-2 text-xs font-semibold', highlight ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600')}>{items.length}</span>
+                <ChevronDown size={15} className="ml-auto text-slate-400 transition group-open:rotate-180" />
+              </summary>
+              {items.length === 0 ? <p className="px-4 pb-3 text-xs text-slate-500">None.</p> : (
+                <ul className="divide-y divide-slate-100 border-t border-slate-100 bg-white/70">
+                  {items.map((job) => (
+                    <li key={job.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-slate-800">{who(job)} <span className="font-normal text-slate-500">· {job.label}</span></p>
+                        <p className="text-xs text-slate-500">
+                          {job.ownerEmail} · {job.expName}{job.attempt > 1 ? ` · attempt ${job.attempt}` : ''} · {job.files.length} files, {formatBytes(job.totalBytes)}
+                          {job.estimate?.finishAt ? ` · done ${relativeFromNow(job.estimate.finishAt)}` : ''}
+                        </p>
+                      </div>
+                      <span className="text-xs text-slate-500">{formatSgt(job.queuedAt || job.createdAt)}</span>
+                      <button type="button" onClick={() => navigate(`/review/${job.id}`)} className="text-xs font-medium text-primary hover:underline">Open</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </details>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
@@ -665,71 +700,34 @@ function Schedule({ overview, onAction, kind = 'test' }) {
 
 // ── Testing (both roles) ─────────────────────────────────────────────────
 
-// Chat with the voice, or type text for it to read aloud once (Text to Speech).
-function VoiceTester() {
-  const [mode, setMode] = useState('chat');
-  return (
-    <div className="flex h-full min-h-[640px] flex-col">
-      <div className="flex gap-1 border-b border-slate-200 bg-slate-50 px-3 py-2" role="tablist" aria-label="How to test">
-        {[['chat', 'Chat with your voice'], ['tts', 'Read text aloud']].map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={mode === value}
-            onClick={() => setMode(value)}
-            className={cn('rounded-lg px-3 py-1.5 text-sm font-semibold', mode === value ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-800')}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="min-h-0 flex-1">
-        <LivePage key={mode} replyMode="phrases" mode={mode} variant="voice-test" voiceScope="studio" />
-      </div>
-    </div>
-  );
+function TestBench(props) {
+  return <VoiceTestBench {...props} />;
 }
 
-function TestBench({ voiceNames, canApply, header }) {
-  const [params, setParams] = useSearchParams();
-  const requested = params.get('voice') || '';
-  const voice = voiceNames.includes(requested) ? requested : voiceNames[0] || '';
-  return (
-    <div className="space-y-4">
-      {header}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-h-[640px] overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <VoiceTester />
-        </div>
-        <div className="space-y-3">
-          {voiceNames.length > 1 && (
-            <label className="block text-xs font-medium text-slate-600">Pronunciation list for
-              <select value={voice} onChange={(event) => setParams({ voice: event.target.value })} className="mt-1 block h-9 w-full rounded-lg border border-slate-300 px-2 text-sm">
-                {voiceNames.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
-            </label>
-          )}
-          {voice ? <PronunciationPanel voiceName={voice} canApply={canApply} /> : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
+// Super users test any trained voice of any user (the server lists them all
+// while no lecturer's slot holds the GPU).
 function SuperTest({ overview }) {
-  const voices = [...new Set(overview.jobs.flatMap(trainedVoices))];
-  if (overview.currentSlot) {
+  const [voices, setVoices] = useState(null);
+  const [labels, setLabels] = useState({});
+  const [error, setError] = useState('');
+  const locked = Boolean(overview.currentSlot);
+  useEffect(() => {
+    if (locked) return;
+    getMyVoiceProfiles('studio')
+      .then(({ data }) => {
+        const list = (data?.voices || []).map((voice) => voice.displayName).filter(Boolean);
+        setVoices(list);
+        setLabels(Object.fromEntries((data?.voices || []).filter((voice) => voice.label).map((voice) => [voice.displayName, voice.label])));
+      })
+      .catch((err) => setError(errorText(err, 'Could not load the voices')));
+  }, [locked]);
+  if (locked) {
     return <Notice tone="warn">Locked: {overview.currentSlot.assigneeName || overview.currentSlot.assigneeEmail} is using the GPU until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT. Testing opens again after that.</Notice>;
   }
+  if (error) return <Notice tone="error">{error}</Notice>;
+  if (!voices) return <div className="flex justify-center py-16"><Loader2 className="animate-spin text-slate-400" /></div>;
   if (voices.length === 0) return <Notice tone="info">No trained voices yet.</Notice>;
-  return (
-    <TestBench
-      voiceNames={voices}
-      canApply
-      header={<p className="text-sm text-slate-600">Pick a voice in the chat panel. Every trained version is listed, including earlier attempts.</p>}
-    />
-  );
+  return <TestBench voiceNames={voices} voiceLabels={labels} canApply />;
 }
 
 // ── Feedback & super users ───────────────────────────────────────────────
@@ -1025,34 +1023,93 @@ function useNow(intervalMs = 15_000) {
   return now;
 }
 
-function lecturerLine(job, now) {
-  if (job.status === 'queued') return job.estimate ? `Queued (#${job.estimate.position}) — training should finish ${formatSgt(job.estimate.finishAt)} SGT (${relativeFromNow(job.estimate.finishAt, now)}).` : 'Queued for training.';
-  if (job.status === 'training') return job.estimate ? `Training now — should finish ${formatSgt(job.estimate.finishAt)} SGT (${relativeFromNow(job.estimate.finishAt, now)}).` : 'Training now.';
-  if (job.status === 'quality-check') return 'Trained — our team is checking the quality.';
-  if (job.status === 'ready') return 'Passed quality check — ready to test in your slot.';
-  return '';
+// A lecturer's voice, step by step: recorded → training → quality check → test.
+const JOURNEY = [
+  ['recorded', 'Recorded'],
+  ['training', 'Training'],
+  ['quality-check', 'Quality check'],
+  ['test', 'Test your voice'],
+];
+
+function journeyStep(status) {
+  if (status === 'queued' || status === 'training') return 1;
+  if (status === 'quality-check') return 2;
+  if (status === 'ready') return 3;
+  return 0;
 }
 
-function MyVoicesStatus({ jobs, now }) {
-  const shown = jobs.filter((job) => !['uploading', 'cancelled'].includes(job.status));
+function JourneySteps({ step }) {
   return (
-    <Card>
-      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-        <h2 className="font-semibold text-slate-900">Your voices</h2>
-        <span className="text-xs text-slate-500">To record another, book a recording session.</span>
+    <ol className="flex items-center">
+      {JOURNEY.map(([key, label], index) => {
+        const done = index < step;
+        const current = index === step;
+        return (
+          <li key={key} className={cn('flex items-center', index < JOURNEY.length - 1 && 'flex-1')}>
+            <div className="flex flex-col items-center gap-1.5">
+              <span className={cn(
+                'relative flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold',
+                done ? 'bg-emerald-500 text-white' : current ? 'bg-primary text-white ring-4 ring-primary/15' : 'bg-slate-100 text-slate-400',
+              )}>
+                {done ? <CheckCircle2 size={18} /> : index + 1}
+                {current && <span className="absolute inset-0 animate-ping rounded-full bg-primary/25" aria-hidden="true" />}
+              </span>
+              <span className={cn('whitespace-nowrap text-xs font-semibold', current ? 'text-slate-900' : done ? 'text-emerald-700' : 'text-slate-400')}>{label}</span>
+            </div>
+            {index < JOURNEY.length - 1 && <span className={cn('mx-2 mb-5 h-0.5 flex-1 rounded', index < step ? 'bg-emerald-400' : 'bg-slate-200')} />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function VoiceJourney({ job, now, testSlot }) {
+  const step = journeyStep(job.status);
+  const estimate = job.estimate;
+  let title = '';
+  let body = null;
+  if (job.status === 'queued') {
+    const ahead = Math.max(0, (estimate?.position || 1) - 1);
+    title = ahead > 0 ? `Waiting to train — ${ahead} voice${ahead === 1 ? '' : 's'} ahead of yours` : 'Waiting to train — yours is next';
+    body = estimate
+      ? <p>Training should start {formatSgt(estimate.startAt)} and finish around <b>{formatSgt(estimate.finishAt)}</b> ({relativeFromNow(estimate.finishAt, now)}).</p>
+      : <p>Your voice starts training as soon as the GPU is free.</p>;
+  } else if (job.status === 'training') {
+    const start = Date.parse(estimate?.startAt || job.queuedAt || '') || now;
+    const finish = Date.parse(estimate?.finishAt || '') || 0;
+    const pct = finish > start ? Math.max(4, Math.min(96, Math.round(((now - start) / (finish - start)) * 100))) : 50;
+    title = 'Training your voice now';
+    body = (
+      <>
+        <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
+        {estimate?.finishAt && <p className="mt-2">Should finish around <b>{formatSgt(estimate.finishAt)}</b> ({relativeFromNow(estimate.finishAt, now)}).</p>}
+      </>
+    );
+  } else if (job.status === 'quality-check') {
+    title = 'Our team is listening to your voice';
+    body = <p>Training is done. Quality control is done by people, so it can take longer than training — sometimes we retrain to get it right. We email you when it passes.</p>;
+  } else if (job.status === 'ready' && testSlot) {
+    title = 'Your test time is booked';
+    body = <p><b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}). We email you that morning; when it starts, this page opens your voice for you to test.</p>;
+  } else if (job.status === 'ready') {
+    title = 'Passed quality control — awaiting your test slot';
+    body = <p>Our team is choosing a time for you to test it. We email you the time, and it shows here too.</p>;
+  }
+  return (
+    <Card className="p-6 sm:p-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{job.label}</p>
+        {job.attempt > 1 && job.status !== 'ready' && <span className="text-xs text-slate-400">improving it (try {job.attempt})</span>}
       </div>
-      {shown.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">Nothing submitted yet.</p> : (
-        <ul className="divide-y divide-slate-100">
-          {shown.map((job) => (
-            <li key={job.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2"><p className="font-medium text-slate-900">{job.label}</p><StatusPill status={job.status} /></div>
-                <p className="mt-0.5 text-sm text-slate-600">{lecturerLine(job, now)}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="mt-5"><JourneySteps step={step} /></div>
+      <div className="mt-6 rounded-2xl bg-slate-50 px-5 py-4">
+        <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+        <div className="mt-1 space-y-1 text-sm leading-6 text-slate-600">
+          {body}
+          {(job.status === 'queued' || job.status === 'training') && <p className="text-slate-500">After training comes quality control, which usually takes longer than training.</p>}
+        </div>
+      </div>
     </Card>
   );
 }
@@ -1191,64 +1248,21 @@ function LecturerHome({ me: initialMe, refresh }) {
     return () => window.clearInterval(id);
   }, [refresh]);
 
-  let hero = null;
+  // One stage at a time: testing → recording → the voice's journey → booking.
+  let content;
   if (testing) {
-    hero = (
+    content = (
       <>
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-white">
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-emerald-600 px-5 py-4 text-white">
           <CheckCircle2 size={22} />
           <div className="flex-1">
-            <p className="text-lg font-semibold">The GPU is yours until {formatSgt(testing.end, { withDate: false })} SGT</p>
-            <p className="text-sm text-white/85">
-              {voiceNames.length > 1 ? 'Switch between your voices — the GPU loads the one you pick straight away. ' : ''}
-              Chat with your voice, or switch to “Read text aloud” and type anything for it to say.
-            </p>
+            <p className="text-lg font-semibold">Your test time — until {formatSgt(testing.end, { withDate: false })} SGT</p>
+            <p className="text-sm text-white/85">Paste some text to hear it read in your voice, or chat with it. Fix any word it says wrongly on the right.</p>
           </div>
         </div>
         {voiceNames.length === 0
           ? <Notice tone="warn">None of your voices has passed the quality check yet, so there is nothing to test in this slot.</Notice>
-          : <TestBench voiceNames={voiceNames} canApply header={null} />}
-      </>
-    );
-  } else if (recordingOpen) {
-    hero = <RecordWorkspace embedded sessionEnd={recording.slot?.end} onSubmitted={(view) => setMe(view)} />;
-  } else {
-    let title = '';
-    let body = null;
-    if (testSlot) {
-      title = 'Your voice is ready — your test time is booked';
-      body = <><p className="mt-2 text-slate-600"><b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}).</p><p className="mt-1 text-sm text-slate-500">We email you just before it starts; the GPU warms up with your voice and this page opens the tester automatically.</p></>;
-    } else if (ready.length > 0) {
-      title = 'Your voice passed quality control';
-      body = <p className="mt-2 text-slate-600">Our team will allocate your test time and email you. It will show here too.</p>;
-    } else if (submitted.length > 0) {
-      title = 'Your voice is on its way';
-      body = <p className="mt-2 text-slate-600">Follow its training below. We email you when it passes the quality check, with your test time.</p>;
-    } else if (booked) {
-      title = 'Your recording session is booked';
-      body = <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">The recording page unlocks here when it starts. You can change the time below until then.</p></>;
-    } else {
-      title = 'Book a recording session';
-      body = <p className="mt-2 text-slate-600">Pick an open time on the calendar below. During your session this page becomes your recording studio.</p>;
-    }
-    hero = (
-      <Card className="p-6 text-center sm:p-8">
-        <CalendarClock size={30} className="mx-auto text-slate-400" />
-        <h1 className="mt-3 text-2xl font-semibold text-slate-900">{title}</h1>
-        {body}
-      </Card>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <Header product="Voice Studio" />
-      <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
-        {hero}
-        <div className={cn('grid gap-5', submitted.length > 0 && 'xl:grid-cols-2')}>
-          {submitted.length > 0 && <MyVoicesStatus jobs={me.jobs} now={now} />}
-          {!recordingOpen && !testing && <SessionPicker me={me} onChanged={setMe} />}
-        </div>
+          : <TestBench voiceNames={voiceNames} canApply />}
         {feedbackTarget && (
           <div className="space-y-2">
             {ready.length > 1 && (
@@ -1259,7 +1273,31 @@ function LecturerHome({ me: initialMe, refresh }) {
             <FeedbackForm key={feedbackTarget.id} job={feedbackTarget} />
           </div>
         )}
-      </main>
+      </>
+    );
+  } else if (recordingOpen) {
+    content = <RecordWorkspace embedded sessionEnd={recording.slot?.end} onSubmitted={(view) => setMe(view)} />;
+  } else if (submitted.length > 0) {
+    content = submitted.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />);
+  } else {
+    content = (
+      <>
+        <Card className="p-6 text-center sm:p-8">
+          <CalendarClock size={30} className="mx-auto text-slate-400" />
+          <h1 className="mt-3 text-2xl font-semibold text-slate-900">{booked ? 'Your recording session is booked' : 'Book a recording session'}</h1>
+          {booked
+            ? <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">We email you the day before and again just before it starts. The recording page opens here then.</p></>
+            : <p className="mt-2 text-slate-600">Pick an open time below. During your session this page becomes your recording studio.</p>}
+        </Card>
+        <SessionPicker me={me} onChanged={setMe} />
+      </>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <Header product="Voice Studio" />
+      <main className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:px-6">{content}</main>
     </div>
   );
 }

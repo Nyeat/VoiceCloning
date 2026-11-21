@@ -156,6 +156,11 @@ export function createStudioService({
     for (const event of events) {
       const job = wf.findJob(state, event.jobId);
       await notify(job.id, event.kind, superuserEmails(state), templates[event.kind]({ job, env }));
+      // The lecturer hears once that their voice moved into quality control
+      // (not again for a retrain, and never for fixtures).
+      if (event.kind === 'readyForReview' && !job.fixture && !job.notifications.some((entry) => entry.kind === 'inQualityCheck')) {
+        await notify(job.id, 'inQualityCheck', job.ownerEmail, templates.inQualityCheck({ job, env }));
+      }
     }
 
     // Dispatch the next job when the GPU is up and its trainer is free.
@@ -212,6 +217,22 @@ export function createStudioService({
         return { claimed: true };
       });
       if (claim.result?.claimed) await mailer.send(slot.assigneeEmail, templates.slotReminder({ slot, env }));
+    }
+
+    // Session reminders: recording (day before, then shortly before) and the
+    // test slot's same-day email. Claimed first so it is sent once.
+    for (const { slot, kind, key } of wf.sessionRemindersDue(state, now)) {
+      const claim = await updateState(store, (draft) => {
+        const current = wf.findSlot(draft, slot.id);
+        if (!current || current.reminders?.[kind] === key || wf.reminderKey(current) !== key) return { skipWrite: true };
+        current.reminders = { ...(current.reminders || {}), [kind]: key };
+        return { claimed: true };
+      });
+      if (!claim.result?.claimed) continue;
+      const message = wf.slotKind(slot) === 'recording'
+        ? templates.recordingReminder({ slot, kind, env })
+        : templates.testDayReminder({ slot, env });
+      await mailer.send(slot.assigneeEmail, message);
     }
 
     // Load the person's voice before their slot starts, once the GPU is up.
@@ -833,5 +854,10 @@ export async function studioVoiceScope(email, {
     }
   }
   const voiceNames = [...new Set(names)];
-  return { superuser, voiceNames, owners: Object.fromEntries(voiceNames.map((name) => [name, owners[name] || ''])) };
+  // Super users may test any trained voice of any user (studio or training
+  // site), except while a lecturer's test slot holds the GPU.
+  const allVoices = superuser && !wf.currentSlot(state, now);
+  return {
+    superuser, allVoices, voiceNames, owners: Object.fromEntries(voiceNames.map((name) => [name, owners[name] || ''])), studioOwners: owners,
+  };
 }

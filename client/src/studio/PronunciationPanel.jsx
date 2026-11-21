@@ -21,7 +21,8 @@ const PHONEME_HELP = [
 
 const EMPTY = { word: '', mode: 'soundsLike', soundsLike: '', arpabet: '', notes: '' };
 
-export default function PronunciationPanel({ voiceName, canApply = true, compact = false }) {
+// prefill: { word, at } from the tester's "Scan text" — starts a new entry for that word.
+export default function PronunciationPanel({ voiceName, canApply = true, compact = false, prefill = null }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(EMPTY);
@@ -46,6 +47,11 @@ export default function PronunciationPanel({ voiceName, canApply = true, compact
   }, [voiceName]);
 
   useEffect(() => { setForm(EMPTY); setEditing(''); setPendingApply(false); setMessage(null); load(); }, [load]);
+  useEffect(() => {
+    if (!prefill?.word) return;
+    setEditing('');
+    setForm({ ...EMPTY, word: prefill.word });
+  }, [prefill]);
 
   function edit(entry) {
     setEditing(entry.word);

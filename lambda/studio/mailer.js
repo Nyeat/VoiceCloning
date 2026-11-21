@@ -55,8 +55,41 @@ export const templates = {
         eta
           ? `Estimated training finish: ${eta} (position ${estimate.position || 1} in the queue; each voice takes about ${minutes} minutes).`
           : `Each voice takes about ${minutes} minutes to train; yours will start as soon as the GPU is free.`,
-        'After training, our team checks the quality. We will email you again once it passes, with a reserved time to test your voice.',
+        'After training, our team checks the quality by listening to it. Quality control is done by people and can take longer than the training itself, so please allow extra time.',
+        'We will email you when your voice moves into quality control, and again once it passes, with a reserved time to test it.',
       ], record ? { label: 'See your submission', url: record } : null),
+    };
+  },
+  inQualityCheck({ job, env }) {
+    const { studio } = studioLinks(env);
+    return {
+      subject: `Your voice is in quality control: ${job.label}`,
+      ...layout('Training is done — your voice is in quality control', [
+        `Your voice "${job.label}" has finished training. Our team is now listening to it to check the quality.`,
+        'This is done by people, so it can take longer than training did. If something is not right we retrain it, which adds a little time.',
+        'We will email you once it passes, with a reserved time to test your voice.',
+      ], studio ? { label: 'See its progress', url: studio } : null),
+    };
+  },
+  recordingReminder({ slot, kind, env }) {
+    const { studio } = studioLinks(env);
+    const tomorrow = kind === 'day';
+    return {
+      subject: tomorrow ? 'Reminder: your voice recording session is tomorrow' : 'Your voice recording session starts soon',
+      ...layout(tomorrow ? 'Your recording session is tomorrow' : 'Your recording session starts soon', [
+        `Your recording session is ${formatSgtRange(slot.start, slot.end)}.`,
+        'Find a quiet room and use a headset or a microphone close to you. Sign in to Voice Studio when it starts — the recording page opens for you then.',
+      ], studio ? { label: 'Open Voice Studio', url: studio } : null),
+    };
+  },
+  testDayReminder({ slot, env }) {
+    const { studio } = studioLinks(env);
+    return {
+      subject: 'Today: your voice test time',
+      ...layout('Your voice test is today', [
+        `Your test time is ${formatSgtRange(slot.start, slot.end)}. The GPU is reserved for you, with your voice loaded just before it starts.`,
+        'Sign in to Voice Studio then to talk to your voice, have it read text aloud, fix how it says words and tell us what you think.',
+      ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },
   readyForReview({ job, env }) {

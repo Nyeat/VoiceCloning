@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import {
-  CheckCircle2, ChevronLeft, ChevronRight, Clock, FileAudio, Loader2, Mail, Mic, Pause, Play, Square, Trash2, Upload, X,
+  CheckCircle2, ChevronLeft, ChevronRight, Clock, FileAudio, Loader2, Mail, Mic, Pause, Play, ShieldCheck, Square, Trash2, Upload, X,
 } from 'lucide-react';
 import { useAuth } from '@/auth/useAuth';
 import { PostLoginRedirectHandler, ProtectedRoute } from '@/auth/AppAuthGate';
@@ -58,7 +58,7 @@ function LevelMeter({ level }) {
 // (swipe, the arrow buttons, the section chips or the ← → keys) never stops it;
 // Pause is for a break. Finish saves ONE file, which is what training gets —
 // not a pile of fragments.
-function ScriptReader({ onTake, disabled }) {
+function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState('idle'); // idle | recording | paused | saving
   const [elapsed, setElapsed] = useState(0);
@@ -233,7 +233,12 @@ function ScriptReader({ onTake, disabled }) {
           <Button variant="outline" size="md" disabled={index === 0} onClick={() => go(index - 1)} aria-label="Previous section">
             <ChevronLeft size={16} />
           </Button>
-          {phase === 'idle' && (
+          {phase === 'idle' && onNeedConsent && (
+            <Button variant="primary" size="lg" onClick={onNeedConsent} className="min-w-[190px]">
+              <ShieldCheck size={16} aria-hidden="true" /> Accept the consent form to start
+            </Button>
+          )}
+          {phase === 'idle' && !onNeedConsent && (
             <Button variant="dark" size="lg" onClick={start} disabled={disabled || !microphoneSupported()} className="min-w-[190px]">
               <Mic size={16} aria-hidden="true" /> {parts ? 'Record another part' : 'Start reading'}
             </Button>
@@ -595,8 +600,13 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
           </Notice>
         )}
 
-        <div className={cn('grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]', (consentMissing || !me) && 'pointer-events-none opacity-50')} aria-disabled={consentMissing || !me}>
-          <ScriptReader onTake={(take) => setTakes((current) => [...current, take])} disabled={submitting || consentMissing || !me} />
+        {/* Without consent the reader stays readable; its Start button opens the consent form instead. */}
+        <div className={cn('grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]', !me && 'pointer-events-none opacity-50')} aria-disabled={!me}>
+          <ScriptReader
+            onTake={(take) => setTakes((current) => [...current, take])}
+            disabled={submitting || consentMissing || !me}
+            onNeedConsent={consentMissing ? () => setConsentOpen(true) : null}
+          />
           <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} />
         </div>
 

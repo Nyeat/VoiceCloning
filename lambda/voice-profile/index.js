@@ -3,7 +3,9 @@ import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 import { isSafePathSegment } from '../shared/paths.js';
 import { inferencePost } from '../shared/gpuWorker.js';
 import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
-import { peekCoordinatedModel, prepareCoordinatedModel, trainingOwnerOption } from '../shared/modelCoordinator.js';
+import {
+  peekCoordinatedModel, prepareCoordinatedModel, trainingOwnerOption, ttsSiteOption,
+} from '../shared/modelCoordinator.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import { buildVoiceProfileId, isNtuEmail, normalizeEmail, ownsVoiceName } from '../shared/voiceIdentity.js';
 import { bestModelsForVoice, listTrainedVoiceNames } from '../shared/trainedVoices.js';
@@ -337,9 +339,12 @@ export function createHandler({
         // super user's review list, or a lecturer's approved voice during their
         // booked slot. Studio decides; this route only lists.
         let studioVoices = null;
+        let studioAll = false;
         if (requestedScope === 'studio') {
           try {
-            studioVoices = new Set((await studioScope(identity?.email, { passwordAccount: identity?.passwordAccount === true })).voiceNames);
+            const studio = await studioScope(identity?.email, { passwordAccount: identity?.passwordAccount === true });
+            studioVoices = new Set(studio.voiceNames);
+            studioAll = studio.allVoices === true;
           } catch (error) {
             return err(503, `Voice Studio is unavailable: ${error.message}`, event);
           }
@@ -377,6 +382,8 @@ export function createHandler({
         }
 
         const names = new Set([...trainedNames, ...profilesByName.keys()]);
+        // A super user on Voice Studio tests any trained voice of any user.
+        if (studioAll) for (const name of trainedNames) studioVoices.add(name);
         const voices = [];
         for (const voiceName of names) {
           const summary = buildOwnedVoiceSummary({
@@ -466,15 +473,23 @@ export function createHandler({
         // Studio callers (any Microsoft account) may instead set up a voice the
         // studio currently lets them use; the record keeps the real owner.
         let studioOwner = '';
+        // A super user testing another user's voice: allowed, and the record
+        // keeps that voice's real owner (or none, so ownership falls back to
+        // the voice name) — never the super user.
+        let superuserAnyVoice = false;
         if (identity?.studio) {
           try {
             const scope = await studioScope(identity.email, { passwordAccount: identity.passwordAccount === true });
             if (scope.voiceNames.includes(voiceName)) studioOwner = scope.owners?.[voiceName] || normalizeEmail(identity.email);
+            else if (scope.allVoices) {
+              superuserAnyVoice = true;
+              studioOwner = scope.studioOwners?.[voiceName] || '';
+            }
           } catch {
             studioOwner = '';
           }
         }
-        if (!studioOwner && !ownsVoiceName(identity?.email, voiceName)) {
+        if (!studioOwner && !superuserAnyVoice && !ownsVoiceName(identity?.email, voiceName)) {
           return err(403, `${normalizeEmail(identity?.email)} does not own a voice called ${voiceName}`, event);
         }
 
@@ -492,7 +507,9 @@ export function createHandler({
         const draft = {
           voiceProfileId,
           displayName: voiceName,
-          ownerEmail: normalizeEmail(studioOwner || identity?.email),
+          ...(superuserAnyVoice
+            ? (studioOwner ? { ownerEmail: normalizeEmail(studioOwner) } : {})
+            : { ownerEmail: normalizeEmail(studioOwner || identity?.email) }),
           gptKey: models.gptKey,
           sovitsKey: models.sovitsKey,
           prompt_lang: 'en',
@@ -596,6 +613,8 @@ export function createHandler({
           allowScale: true,
           source: body.source === 'prewarm' ? 'prewarm' : 'lecture-preflight',
           ...await trainingOwnerOption(event, authGuard),
+          // Voice Studio / admin TTS: one GPU, switched to this voice at once.
+          ...ttsSiteOption(event),
         }), {}, event);
       }
 

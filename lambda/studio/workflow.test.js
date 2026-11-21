@@ -111,7 +111,7 @@ test('slots cannot overlap, drafts included; edits and publish email only real c
 test('lecturers pick open published recording sessions, one upcoming each', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
-  job(state, 'a1', 'a@ntu.edu.sg', 0);
+  job(state, 'a1', 'a@ntu.edu.sg', 0).status = 'uploading';
   wf.addSlot(state, { id: 'open1', kind: 'recording', start: at(60), end: at(120), now: T0 });
   wf.addSlot(state, { id: 'open2', kind: 'recording', start: at(120), end: at(180), now: T0 });
   assert.throws(() => wf.claimSlot(state, 'open1', { email: 'a@ntu.edu.sg', now: T0 }), /not available/u, 'drafts cannot be picked');
@@ -190,4 +190,38 @@ test('test fixtures show up but never reach the GPU or real lecturers', () => {
   assert.equal(wf.publicSlots(state, 'real@ntu.edu.sg', T0).length, 0, 'real lecturers do not see fixture sessions');
   assert.equal(wf.publicSlots(state, 'new@voice-studio.test', T0).length, 1);
   assert.throws(() => wf.claimSlot(state, 'rs', { email: 'real@ntu.edu.sg', name: 'R', now: T0 }), { statusCode: 404 });
+});
+
+test('one recording session per person: a submitted voice cannot book again', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  const a = job(state, 'a1', 'a@ntu.edu.sg', 0);
+  wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), now: T0 });
+  wf.publishSlots(state, T0);
+  assert.throws(() => wf.claimSlot(state, 'r1', { email: 'a@ntu.edu.sg', name: 'A', now: T0 }), /already in/u);
+  a.status = 'cancelled'; // sent back for new recordings
+  wf.claimSlot(state, 'r1', { email: 'a@ntu.edu.sg', name: 'A', now: T0 });
+});
+
+test('session reminders: recording day-before + soon, test slot on the day, each once per booking', () => {
+  const state = wf.emptyState();
+  const start = Date.parse('2026-12-02T06:00:00Z'); // 14:00 SGT
+  const iso = (value) => new Date(value).toISOString();
+  const now0 = start - 3 * 24 * 60 * MIN;
+  wf.addSlot(state, { id: 'rec', kind: 'recording', start: iso(start), end: iso(start + 60 * MIN), assigneeEmail: 'a@ntu.edu.sg', now: now0 });
+  wf.addSlot(state, { id: 'tst', kind: 'test', start: iso(start + 2 * 60 * MIN), end: iso(start + 3 * 60 * MIN), assigneeEmail: 'b@ntu.edu.sg', now: now0 });
+  wf.publishSlots(state, now0);
+  const due = (now) => wf.sessionRemindersDue(state, now).map((item) => `${item.slot.id}:${item.kind}`).sort();
+  assert.deepEqual(due(start - 30 * 60 * MIN - 24 * 60 * MIN), [], 'nothing 24.5 h before');
+  assert.deepEqual(due(start - 23 * 60 * MIN), ['rec:day']);
+  const mark = (now) => { for (const item of wf.sessionRemindersDue(state, now)) item.slot.reminders = { ...(item.slot.reminders || {}), [item.kind]: item.key }; };
+  mark(start - 23 * 60 * MIN);
+  assert.deepEqual(due(start - 22 * 60 * MIN), [], 'sent once');
+  // 07:00 SGT on the day = 23:00 UTC the day before.
+  assert.deepEqual(due(Date.parse('2026-12-01T23:30:00Z')), ['tst:today']);
+  assert.deepEqual(due(start - 30 * MIN), ['rec:soon', 'tst:today']);
+  // Moving the recording session re-arms its reminders.
+  mark(start - 30 * MIN);
+  wf.findSlot(state, 'rec').start = iso(start + 24 * 60 * MIN);
+  assert.deepEqual(due(start + 60 * MIN), ['rec:day'], '23 h before the new time');
 });
