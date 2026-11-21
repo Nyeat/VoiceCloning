@@ -2636,3 +2636,5 @@
 - Upload "failed — check your connection": shared S3 bucket CORS lacks both studio origins (preflight 403 from
   d271zk8d8curic). Node PUT of 70 MB to the same presigned URL = 200 in 14.5 s. Prepared rule (17 origins) in the session
   scratchpad; owner applies (shared bucket, earlier CORS edit by Claude was blocked).
+- Applied ~18:50 SGT 11-21 (owner asked): shared bucket CORS + both studio origins (17 total, nothing removed). Verified:
+  preflight from the staging studio origin 200 with allow-origin; 70 MB presigned PUT 200 in 11 s.
