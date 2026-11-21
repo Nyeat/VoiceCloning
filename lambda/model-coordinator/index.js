@@ -1298,7 +1298,10 @@ async function prepareCapacity(event) {
     && chooseCapacityAction({ ...capacityInput, reassignIdleMs: preflightReassignIdleMs }).type === 'scale'
     && chooseCapacityAction({ ...capacityInput, reassignIdleMs: 0 }).type === 'reassign';
   const switchIdleMs = singleGpu ? 0 : preflightReassignIdleMs;
-  const noGpuYet = !workers.some((worker) => worker.reachable !== false);
+  // A GPU reserved for someone else (a Voice Studio test slot) is not one this
+  // caller can use: a single-GPU site then adds its own instead of waiting on it.
+  const reservedForOthers = new Set(capacityInput.reservedWorkerIds);
+  const noGpuYet = !workers.some((worker) => worker.reachable !== false && !reservedForOthers.has(worker.instanceId));
   // Training site: this account already has a GPU (holding one of its own
   // voices). It switches to this pick when free; never a second GPU.
   const ownGpu = capacityInput.ownedWorkerIds.some((id) => workers.some((worker) => (
