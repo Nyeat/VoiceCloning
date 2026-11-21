@@ -2577,3 +2577,14 @@
   Verified: staging coordinator package contains own-gpu-await-idle + foreignOwnedWorkerIds; training site 200.
   Not live-tested with two accounts. Other clients (live-fast/chatbot/mc) not redeployed (label change only matters
   on Test your voice).
+
+## 2026-11-21 — Voice Studio sign-in: auto sign-up, Google, calmer page (not deployed)
+- `auth/login` now signs up an unknown address on the spot (name from the address, 8+ char password); wrong
+  password on an existing account -> "Wrong password for this email". New `POST /studio/auth/google`
+  (`lambda/studio/googleToken.js`, RS256 vs Google JWKS, aud = STUDIO_GOOGLE_CLIENT_ID, email_verified; NTU -> Microsoft)
+  issues the usual studio session (never super user).
+- Sign-in page (`StudioChrome.jsx`): one screen, Continue with Google (GIS button + One Tap, only when
+  VITE_GOOGLE_CLIENT_ID set) / Microsoft / email form; rainbow FAQ card -> round primary button with halo; no glass cards.
+- Tests: `node --test studio/index.test.js studio/workflow.test.js` 22 pass (auto sign-up + Google stub). Studio build OK.
+  Not run: browser look (extension offline), real Google token (no client ID yet). Fixture password unknown; reseed blocked
+  in-session.

@@ -14,7 +14,7 @@ const SESSION_KEYS = (() => {
 const T0 = Date.parse('2026-11-20T01:00:00Z');
 const MIN = 60_000;
 
-function harness({ realAuth = false } = {}) {
+function harness({ realAuth = false, googleVerifier = null } = {}) {
   let now = T0;
   let ids = 0;
   const sent = [];
@@ -48,6 +48,7 @@ function harness({ realAuth = false } = {}) {
   });
   const handler = createHandler({
     service,
+    googleVerifier,
     authGuard: realAuth
       ? createLiveAuthGuard({ env, forceStudio: true, studioVerifier: { verify: async () => { throw new Error('not a Microsoft token'); } } })
       : { authorize: async (event) => ({ email: event.headers['x-user'], synthetic: false, passwordAccount: event.headers['x-password'] === '1' }) },
@@ -239,7 +240,12 @@ test('email + password accounts: register, sign in, use the studio, never a supe
   assert.equal(registered.status, 200, JSON.stringify(registered.body));
   assert.equal((await anon('auth/register', { email: 'dee@gmail.com', password: 'longenough2', name: 'Dee' })).status, 409, 'one account per address');
   assert.equal((await anon('auth/login', { email: 'dee@gmail.com', password: 'wrong-password' })).status, 401);
-  assert.equal((await anon('auth/login', { email: 'nobody@gmail.com', password: 'whatever1' })).status, 401);
+  const autoCreated = await anon('auth/login', { email: 'new.person@gmail.com', password: 'whatever1' });
+  assert.equal(autoCreated.status, 200, 'unknown address is signed up on the spot');
+  assert.equal(autoCreated.body.created, true);
+  assert.equal(autoCreated.body.name, 'new person');
+  assert.equal((await anon('auth/login', { email: 'new.person@gmail.com', password: 'whatever2' })).status, 401);
+  assert.equal((await anon('auth/login', { email: 'short@gmail.com', password: 'abc' })).status, 400, 'new account still needs 8+ chars');
   const login = await anon('auth/login', { email: 'dee@gmail.com', password: 'longenough' });
   assert.equal(login.status, 200);
   const auth = { 'x-vcs-entra-token': login.body.token };
@@ -302,4 +308,21 @@ test('feedback keeps the structured answers', async () => {
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
   const entry = h.store.snapshot().jobs[0].feedback[0];
   assert.deepEqual([entry.likeness, entry.issues, entry.words, entry.comment], ['mostly', ['wrong-words'], 'cohesin, apoptosis', 'A bit fast']);
+});
+
+test('Google sign-in: verified Gmail gets a session; bad token and NTU addresses do not', async () => {
+  const googleVerifier = { verify: async (credential) => {
+    if (credential === 'good') return { email: 'gee@gmail.com', name: 'Gee' };
+    if (credential === 'ntu') return { email: 'someone@ntu.edu.sg', name: 'N' };
+    const error = new Error('Google sign-in token is not valid.'); error.code = 'bad_signature'; throw error;
+  } };
+  const h = harness({ realAuth: true, googleVerifier });
+  const signedIn = await h.call('', 'POST', 'auth/google', { credential: 'good' });
+  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+  assert.equal(signedIn.body.email, 'gee@gmail.com');
+  const me = await h.call('', 'GET', 'me', undefined, { 'x-vcs-entra-token': signedIn.body.token });
+  assert.equal(me.body.email, 'gee@gmail.com');
+  assert.equal(me.body.role, 'lecturer');
+  assert.equal((await h.call('', 'POST', 'auth/google', { credential: 'forged' })).status, 401);
+  assert.equal((await h.call('', 'POST', 'auth/google', { credential: 'ntu' })).status, 400);
 });

@@ -1,6 +1,6 @@
-// Shared pieces of the two Voice Studio sites: brand header, Microsoft sign-in
-// screen and small UI atoms. Both sites sign in with NTU Microsoft accounts.
-import React, { useEffect, useState } from 'react';
+// Shared pieces of the two Voice Studio sites: brand header, sign-in screen
+// (Google, Microsoft, email + password) and small UI atoms.
+import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { HelpCircle, Loader2, LogOut, X } from 'lucide-react';
 import ntuLogo from '@/assets/ntu-logo.png';
@@ -47,14 +47,18 @@ export function Header({ product, badge, children }) {
   );
 }
 
-// Soft pulsing glow for the FAQ call-out on the sign-in page.
-const GLOW_CSS = `
-@keyframes vs-faq-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.0), 0 0 18px 2px rgba(139, 92, 246, 0.35); }
-  50% { box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15), 0 0 34px 8px rgba(236, 72, 153, 0.45); }
+// FAQ call-out on the sign-in page: one round button with a slow halo.
+const HALO_CSS = `
+@keyframes vs-halo {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0; }
 }
-.vs-faq-glow { animation: vs-faq-glow 2.6s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .vs-faq-glow { animation: none; box-shadow: 0 0 24px 4px rgba(139, 92, 246, 0.35); } }
+.vs-halo::before, .vs-halo::after {
+  content: ''; position: absolute; inset: 0; border-radius: 9999px;
+  background: hsl(var(--primary)); animation: vs-halo 2.4s ease-out infinite; z-index: -1;
+}
+.vs-halo::after { animation-delay: 1.2s; }
+@media (prefers-reduced-motion: reduce) { .vs-halo::before, .vs-halo::after { animation: none; opacity: 0.25; transform: scale(1.25); } }
 `;
 
 function FaqDialog({ onClose, children }) {
@@ -79,6 +83,17 @@ function FaqDialog({ onClose, children }) {
   );
 }
 
+const providerButton = 'inline-flex h-11 w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60';
+
+function MicrosoftLogo() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" /><rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" /><rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
+
 function MicrosoftSignIn({ from }) {
   const auth = useAuth();
   const [busy, setBusy] = useState(false);
@@ -95,97 +110,158 @@ function MicrosoftSignIn({ from }) {
   }
   return (
     <div>
-      <p className="text-sm text-slate-600">NTU staff, or any Microsoft account (Outlook, Hotmail, work or school).</p>
-      <button
-        type="button"
-        onClick={signIn}
-        disabled={busy || auth.isLoading}
-        className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-      >
-        {(busy || auth.isLoading) && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
-        Sign in with Microsoft
+      <button type="button" onClick={signIn} disabled={busy || auth.isLoading} className={providerButton}>
+        {busy || auth.isLoading ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <MicrosoftLogo />}
+        Continue with Microsoft
       </button>
-      {(error || auth.error) && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error || auth.error}</p>}
+      {(error || auth.error) && <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error || auth.error}</p>}
     </div>
   );
 }
 
-function PasswordSignIn({ onSignIn }) {
-  const [mode, setMode] = useState('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+// "Sign in with Google" through Google Identity Services: Google's own button
+// (account chooser) plus One Tap, which offers the Gmail accounts already
+// signed in on this browser. Shown only when VITE_GOOGLE_CLIENT_ID is set.
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+let googleScript = null;
+function loadGoogleScript() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (!googleScript) {
+    googleScript = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => { googleScript = null; reject(new Error('Google sign-in could not load.')); };
+      document.head.appendChild(script);
+    });
+  }
+  return googleScript;
+}
+
+function GoogleSignIn({ onSignIn }) {
+  const slot = useRef(null);
+  const handler = useRef(onSignIn);
+  handler.current = onSignIn;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const field = 'mt-1 block h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
+  useEffect(() => {
+    let cancelled = false;
+    loadGoogleScript().then(() => {
+      if (cancelled || !slot.current) return;
+      const id = window.google.accounts.id;
+      id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        ux_mode: 'popup',
+        itp_support: true,
+        callback: async ({ credential }) => {
+          setBusy(true);
+          setError('');
+          try {
+            await handler.current(credential);
+          } catch (err) {
+            setError(err?.response?.data?.error || err?.message || 'Google sign-in failed');
+            setBusy(false);
+          }
+        },
+      });
+      id.renderButton(slot.current, {
+        theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', logo_alignment: 'center',
+        width: Math.min(400, slot.current.offsetWidth || 320),
+      });
+      id.prompt();
+    }).catch((err) => { if (!cancelled) setError(err.message); });
+    return () => {
+      cancelled = true;
+      window.google?.accounts?.id?.cancel();
+    };
+  }, []);
+  return (
+    <div>
+      <div className="relative flex h-11 justify-center">
+        <div ref={slot} className="w-full [&>div]:mx-auto" />
+        {busy && <div className="absolute inset-0 flex items-center justify-center rounded-full bg-white/80"><Loader2 size={18} className="animate-spin text-slate-500" aria-hidden="true" /></div>}
+      </div>
+      {error && <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+    </div>
+  );
+}
+
+// One form for everyone: an email with no account yet is signed up on the spot.
+function PasswordSignIn({ onSignIn }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const field = 'block h-11 w-full rounded-xl border border-slate-300 px-3.5 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
     setError('');
     try {
-      await onSignIn(mode, { email: email.trim(), password, name: name.trim() });
+      await onSignIn('login', { email: email.trim(), password });
     } catch (err) {
       setError(err?.response?.data?.error || err?.message || 'Could not sign in');
       setBusy(false);
     }
   }
   return (
-    <form onSubmit={submit} className="space-y-3">
-      <p className="text-sm text-slate-600">Any email works — Gmail, Yahoo, anything. {mode === 'login' ? 'New here? ' : 'Have an account? '}
-        <button type="button" className="font-semibold text-primary hover:underline" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>
-          {mode === 'login' ? 'Create an account' : 'Sign in instead'}
-        </button>
-      </p>
-      {mode === 'register' && (
-        <label className="block text-xs font-medium text-slate-600">Your name
-          <input required value={name} onChange={(event) => setName(event.target.value)} maxLength={80} autoComplete="name" className={field} />
-        </label>
-      )}
-      <label className="block text-xs font-medium text-slate-600">Email
-        <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className={field} />
-      </label>
-      <label className="block text-xs font-medium text-slate-600">Password{mode === 'register' && ' (at least 8 characters)'}
-        <input required type="password" minLength={mode === 'register' ? 8 : 1} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} className={field} />
-      </label>
-      <button type="submit" disabled={busy} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60">
+    <form onSubmit={submit} className="space-y-2.5">
+      <input required type="email" aria-label="Email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className={field} />
+      <input required type="password" aria-label="Password" placeholder="Password (8+ characters if new)" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" className={field} />
+      <button type="submit" disabled={busy} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60">
         {busy && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
-        {mode === 'login' ? 'Sign in' : 'Create account'}
+        Continue
       </button>
+      <p className="text-xs text-slate-500">No account yet? Just enter an email and a password and we create one.</p>
       {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
     </form>
   );
 }
 
+function FaqHalo({ onOpen }) {
+  return (
+    <button type="button" onClick={onOpen} className="group flex w-full items-center gap-4 rounded-2xl p-2 text-left hover:bg-slate-50">
+      <span className="vs-halo relative isolate flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-lg shadow-primary/30">
+        <HelpCircle size={22} aria-hidden="true" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-slate-900">New here? Start with the FAQ</span>
+        <span className="block text-xs text-slate-500">What happens to your voice and how long it takes</span>
+      </span>
+    </button>
+  );
+}
+
 /**
  * Sign-in page. With onPasswordSignIn it also offers email + password (any
- * address, no Microsoft account needed). faq: content for the glowing FAQ call-out.
+ * address; a new one is signed up on the spot), with onGoogleSignIn "Continue
+ * with Google". faq: content for the FAQ call-out.
  */
 export function SignInScreen({
-  product, headline, lines, accent = 'from-[#0f1b3d] via-[#16285a] to-[#3a1230]', onPasswordSignIn = null, faq = null,
+  product, headline, lines, accent = 'from-[#0f1b3d] to-[#16285a]', onPasswordSignIn = null, onGoogleSignIn = null, faq = null,
 }) {
   const auth = useAuth();
   const location = useLocation();
-  const [method, setMethod] = useState(onPasswordSignIn ? 'email' : 'microsoft');
   const [faqOpen, setFaqOpen] = useState(false);
   if (auth.isAuthenticated) return <Navigate to="/" replace />;
   const from = typeof location.state?.from === 'string' ? location.state.from : '/';
+  const google = Boolean(onGoogleSignIn && GOOGLE_CLIENT_ID);
 
   return (
-    <div className="grid min-h-screen bg-white lg:grid-cols-[minmax(0,1.4fr)_minmax(420px,1fr)]">
-      <style>{GLOW_CSS}</style>
-      <section className={cn('relative hidden overflow-hidden bg-gradient-to-br lg:block', accent)}>
-        <div className="absolute -right-32 -top-32 h-[28rem] w-[28rem] rounded-full bg-[#d71440]/25 blur-3xl" aria-hidden="true" />
-        <div className="absolute -bottom-40 -left-24 h-[30rem] w-[30rem] rounded-full bg-indigo-400/20 blur-3xl" aria-hidden="true" />
-        <div className="relative flex h-full max-w-lg flex-col justify-end p-14 text-white">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">Lee Kong Chian School of Medicine</p>
+    <div className="grid min-h-screen bg-white lg:grid-cols-[minmax(0,1.2fr)_minmax(440px,1fr)]">
+      <style>{HALO_CSS}</style>
+      <section className={cn('hidden bg-gradient-to-br lg:block', accent)}>
+        <div className="flex h-full max-w-lg flex-col justify-end p-14 text-white">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">Lee Kong Chian School of Medicine</p>
           <h1 className="mt-3 text-4xl font-semibold leading-tight tracking-tight">{headline}</h1>
-          <ol className="mt-8 space-y-2.5">
+          <ol className="mt-10 space-y-5">
             {lines.map(([title, detail], index) => (
-              <li key={title} className="flex gap-3 rounded-xl border border-white/15 bg-[#0b1430]/45 p-3.5 backdrop-blur-md">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/15 text-xs font-semibold">{index + 1}</span>
+              <li key={title} className="flex gap-4">
+                <span className="mt-0.5 text-sm font-semibold tabular-nums text-white/50">0{index + 1}</span>
                 <div>
                   <p className="text-sm font-semibold">{title}</p>
-                  <p className="mt-0.5 text-xs leading-5 text-white/75">{detail}</p>
+                  <p className="mt-0.5 text-sm leading-6 text-white/70">{detail}</p>
                 </div>
               </li>
             ))}
@@ -195,40 +271,21 @@ export function SignInScreen({
       <section className="flex flex-col justify-center px-4 py-10 sm:px-12">
         <div className="mx-auto w-full max-w-sm">
           <Brand product={product} />
-          {faq && (
-            <button
-              type="button"
-              onClick={() => setFaqOpen(true)}
-              className="vs-faq-glow mt-8 flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-rose-500 px-4 py-3.5 text-left text-white"
-            >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20"><HelpCircle size={22} aria-hidden="true" /></span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">New here? Read the FAQ first</span>
-                <span className="block text-xs text-white/85">What happens to your voice, how long it takes, what to expect</span>
-              </span>
-              <span className="text-lg" aria-hidden="true">→</span>
-            </button>
-          )}
-          <h2 className="mt-8 text-2xl font-semibold tracking-tight text-slate-900">Sign in</h2>
-          {onPasswordSignIn && (
-            <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label="How to sign in">
-              {[['email', 'Email & password'], ['microsoft', 'Microsoft']].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="tab"
-                  aria-selected={method === value}
-                  onClick={() => setMethod(value)}
-                  className={cn('h-9 rounded-md text-sm font-semibold', method === value ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-800')}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="mt-4">
-            {method === 'email' && onPasswordSignIn ? <PasswordSignIn onSignIn={onPasswordSignIn} /> : <MicrosoftSignIn from={from} />}
+          <h2 className="mt-10 text-2xl font-semibold tracking-tight text-slate-900">Welcome</h2>
+          <p className="mt-1 text-sm text-slate-500">Sign in, or create an account in one step.</p>
+          <div className="mt-6 space-y-2.5">
+            {google && <GoogleSignIn onSignIn={onGoogleSignIn} />}
+            <MicrosoftSignIn from={from} />
           </div>
+          {onPasswordSignIn && (
+            <>
+              <div className="my-5 flex items-center gap-3 text-xs text-slate-400" aria-hidden="true">
+                <span className="h-px flex-1 bg-slate-200" />or use email<span className="h-px flex-1 bg-slate-200" />
+              </div>
+              <PasswordSignIn onSignIn={onPasswordSignIn} />
+            </>
+          )}
+          {faq && <div className="mt-8 border-t border-slate-100 pt-5"><FaqHalo onOpen={() => setFaqOpen(true)} /></div>}
           <p className="mt-6 text-xs leading-5 text-slate-500">
             Your recordings are used only to build a private copy of your voice for LKCMedicine teaching tools. You can ask for them to be deleted at any time.
           </p>

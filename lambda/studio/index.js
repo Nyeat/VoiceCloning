@@ -18,8 +18,9 @@ import { listTrainedVoiceNames, bestModelsForVoice } from '../shared/trainedVoic
 import * as wf from './workflow.js';
 import { createS3StateStore, updateState } from './store.js';
 import {
-  ACCOUNTS_KEY, findAccount, hashPassword, normalizeAccounts, passwordMatches, validateRegistration,
+  ACCOUNTS_KEY, findAccount, hashPassword, normalizeAccounts, passwordMatches, requiresMicrosoft, validateRegistration,
 } from './accounts.js';
+import { createGoogleVerifier } from './googleToken.js';
 import { signStudioSession, STUDIO_SESSION_DAYS } from '../shared/studioSession.js';
 import { createMailer, templates } from './mailer.js';
 import { validatePronunciation, voiceDictionaryKey } from './pronunciation.js';
@@ -274,8 +275,13 @@ function respondError(error, event) {
   return err(500, error?.message || 'Voice Studio error', event);
 }
 
-export function createHandler({ service = createStudioService(), authGuard = createLiveAuthGuard({ forceStudio: true }) } = {}) {
+export function createHandler({
+  service = createStudioService(),
+  authGuard = createLiveAuthGuard({ forceStudio: true }),
+  googleVerifier = null,
+} = {}) {
   const { store, env, clock, newId } = service;
+  const google = googleVerifier || createGoogleVerifier({ clientId: env.STUDIO_GOOGLE_CLIENT_ID || '' });
 
   async function identify(event) {
     if (!authGuard) throw wf.clientError(503, 'Voice Studio sign-in is not configured');
@@ -313,16 +319,36 @@ export function createHandler({ service = createStudioService(), authGuard = cre
       accounts.accounts.push({ email, name, passwordHash, createdAt: new Date(clock()).toISOString() });
       return null;
     });
-    return session({ email, name });
+    return { ...session({ email, name }), created: true };
   }
 
+  // One form: an address with no account yet is signed up on the spot, its
+  // name taken from the address unless one is given.
   async function login(body) {
     const { state: accounts } = await service.accountStore.read();
     const account = findAccount(accounts, body.email);
-    // Same answer and similar work whether or not the address exists.
-    const matches = await passwordMatches(String(body.password || ''), account?.passwordHash || 'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
-    if (!account || !matches) throw wf.clientError(401, 'Email or password is not right');
+    if (!account) {
+      const local = String(body.email || '').split('@')[0].replace(/[._+-]+/gu, ' ').trim();
+      return register({ ...body, name: String(body.name || '').trim() || local });
+    }
+    if (!(await passwordMatches(String(body.password || ''), account.passwordHash))) {
+      throw wf.clientError(401, 'Wrong password for this email');
+    }
     return session(account);
+  }
+
+  // "Sign in with Google": the address is verified by Google, so no password.
+  async function googleLogin(body) {
+    let verified;
+    try {
+      verified = await google.verify(body.credential);
+    } catch (error) {
+      throw wf.clientError(error.code === 'misconfigured' ? 503 : 401, error.message || 'Google sign-in failed');
+    }
+    if (requiresMicrosoft(verified.email, env)) throw wf.clientError(400, 'NTU addresses sign in with Microsoft');
+    const { state: accounts } = await service.accountStore.read();
+    const name = verified.name || findAccount(accounts, verified.email)?.name || verified.email.split('@')[0];
+    return session({ email: verified.email, name });
   }
 
   function session({ email, name }) {
@@ -443,8 +469,9 @@ export function createHandler({ service = createStudioService(), authGuard = cre
 
     try {
       // Email + password sign-in (no Microsoft account): the only routes without a token.
-      if (method === 'POST' && parts.length === 2 && parts[0] === 'auth' && ['register', 'login'].includes(parts[1])) {
-        return ok(parts[1] === 'register' ? await register(body) : await login(body), {}, event);
+      if (method === 'POST' && parts.length === 2 && parts[0] === 'auth' && ['register', 'login', 'google'].includes(parts[1])) {
+        const handlers = { register, login, google: googleLogin };
+        return ok(await handlers[parts[1]](body), {}, event);
       }
       const { email, passwordAccount } = await identify(event);
       const now = clock();

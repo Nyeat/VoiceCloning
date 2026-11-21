@@ -14,7 +14,12 @@ export async function createSubmission({ label, name, consent = null }) {
 /** Email + password sign-in. mode: 'login' | 'register'. No token is needed (or sent if absent). */
 export async function passwordSignIn(mode, { email, password, name }) {
   const path = mode === 'register' ? '/studio/auth/register' : '/studio/auth/login';
-  return (await api.post(path, { email, password, ...(mode === 'register' ? { name } : {}) }, { vcsOptionalAuth: true })).data;
+  return (await api.post(path, { email, password, ...(name ? { name } : {}) }, { vcsOptionalAuth: true })).data;
+}
+
+/** "Sign in with Google": credential is the Google ID token from Google Identity Services. */
+export async function googleSignIn(credential) {
+  return (await api.post('/studio/auth/google', { credential }, { vcsOptionalAuth: true })).data;
 }
 
 /**

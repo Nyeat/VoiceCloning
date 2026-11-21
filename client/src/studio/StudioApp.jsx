@@ -26,7 +26,7 @@ import {
 } from './slotCalendar.js';
 import {
   addSlot, addSuperuser, cancelJob, claimSlot, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
-  moveSlot, passwordSignIn, publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob,
+  googleSignIn, moveSlot, passwordSignIn, publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob,
   runTick, sendFeedback,
 } from './studioApi.js';
 import {
@@ -1289,6 +1289,10 @@ function StudioSignIn() {
     saveStudioSession(session);
     await auth.refreshAuthState();
   }
+  async function onGoogleSignIn(credential) {
+    saveStudioSession(await googleSignIn(credential));
+    await auth.refreshAuthState();
+  }
   return (
     <SignInScreen
       product="Voice Studio"
@@ -1300,6 +1304,7 @@ function StudioSignIn() {
       ]}
       accent="from-[#052e2b] via-[#0f3d3a] to-[#1e1b4b]"
       onPasswordSignIn={onPasswordSignIn}
+      onGoogleSignIn={onGoogleSignIn}
       faq={<FaqList />}
     />
   );
