@@ -12,7 +12,9 @@ import {
 } from 'lucide-react';
 import { createLiveChatSocket } from '@/services/liveChatSocket.js';
 import { acquireApiToken, shouldAttachApiToken } from '@/auth/msalClient.js';
-import { ensureVoiceProfile, prepareVoiceCapacity, scanOovWords, synthesizeSentence } from '@/services/api';
+import {
+  ensureVoiceProfile, prepareVoiceCapacity, scanOovWords, startInstance, synthesizeSentence,
+} from '@/services/api';
 import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
 import { voiceCapacityNotice } from '@/lib/voiceCapacity';
 import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
@@ -349,7 +351,11 @@ const SpeechRecognition = typeof window !== 'undefined' ? (window.SpeechRecognit
 function VoiceChat({ voiceName, ready }) {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
-  const [status, setStatus] = useState('connecting'); // connecting | ready | thinking | error
+  const [status, setStatus] = useState('connecting'); // connecting | starting | ready | thinking | error
+  // The chat service runs on the fixed GPU machine, which turns itself off when
+  // idle: a failed connection starts it, then the chat reconnects until it is up.
+  const [attempt, setAttempt] = useState(0);
+  const startedServiceRef = useRef(false);
   const [error, setError] = useState('');
   const socketRef = useRef(null);
   const replyRef = useRef('');
@@ -396,13 +402,25 @@ function VoiceChat({ voiceName, ready }) {
 
   useEffect(() => {
     let closed = false;
+    let ready = false;
+    let retryTimer = null;
+    function retryLater() {
+      if (closed || ready || retryTimer) return;
+      if (!startedServiceRef.current) {
+        startedServiceRef.current = true;
+        startInstance().catch(() => {});
+      }
+      setStatus('starting');
+      setError('');
+      retryTimer = window.setTimeout(() => setAttempt((count) => count + 1), 15_000);
+    }
     const socket = createLiveChatSocket({
       language: 'en',
       systemPrompt: CHAT_PROMPT,
       getAuthToken: shouldAttachApiToken() ? acquireApiToken : null,
       onMessage: (event) => {
         if (closed) return;
-        if (event?.type === 'session.ready') setStatus('ready');
+        if (event?.type === 'session.ready') { ready = true; setStatus('ready'); setError(''); }
         if (event?.type === 'assistant.text.delta') {
           replyRef.current += event.text || '';
           setMessages((list) => {
@@ -427,12 +445,21 @@ function VoiceChat({ voiceName, ready }) {
           setError(event.message || 'The chat could not start.');
         }
       },
-      onError: (err) => { if (!closed) { setStatus('error'); setError(err.message); } },
-      onClose: () => { if (!closed) setStatus((current) => (current === 'error' ? current : 'error')); },
+      onError: (err) => {
+        if (closed) return;
+        // Not connected yet: the service is most likely off — start it and retry.
+        if (!ready && attempt < 40) retryLater();
+        else { setStatus('error'); setError(err.message); }
+      },
+      onClose: () => {
+        if (closed) return;
+        if (!ready && attempt < 40) retryLater();
+        else setStatus('error');
+      },
     });
     socketRef.current = socket;
-    return () => { closed = true; socket.close(); };
-  }, []);
+    return () => { closed = true; window.clearTimeout(retryTimer); socket.close(); };
+  }, [attempt]);
 
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' }); }, [messages]);
 
@@ -471,6 +498,9 @@ function VoiceChat({ voiceName, ready }) {
           </div>
         ))}
         {status === 'thinking' && <p className="flex items-center gap-1.5 text-xs text-slate-500"><Loader2 size={12} className="animate-spin" /> Thinking…</p>}
+        {status === 'starting' && (
+          <p className="flex items-center justify-center gap-1.5 text-xs text-amber-700"><Loader2 size={12} className="animate-spin" /> Starting the chat service — this usually takes 3–5 minutes. It connects by itself; Read aloud works meanwhile.</p>
+        )}
       </div>
       <div className="space-y-2 border-t border-slate-100 p-4">
         <SpeakProgress speaker={speaker} />
@@ -478,7 +508,7 @@ function VoiceChat({ voiceName, ready }) {
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder={status === 'connecting' ? 'Connecting…' : listening ? 'Listening… speak now' : 'Ask a question, or tap the microphone'}
+            placeholder={status === 'connecting' ? 'Connecting…' : status === 'starting' ? 'Starting the chat service…' : listening ? 'Listening… speak now' : 'Ask a question, or tap the microphone'}
             disabled={status === 'connecting' || status === 'error' || !ready}
             className="h-11 flex-1 rounded-full border border-slate-300 px-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
           />
