@@ -2594,7 +2594,7 @@
   to the owner in chat, not stored in git). Deploy note: run deploy scripts from PowerShell (Git Bash tar breaks packaging)
   and set BROWSERSLIST_IGNORE_OLD_DATA=1 (stderr warning aborts deploy-client under Stop).
 
-## 2026-11-21 — Voice Studio: staged lecturer page, simple tester, reminders (c173a6f, NOT deployed)
+## 2026-11-21 — Voice Studio: staged lecturer page, simple tester, reminders (c173a6f, staging deployed; dev pending)
 - "Can't record" root cause: no consent => whole recorder pointer-events-none with the reason only in a notice above.
   Now Start becomes "Accept the consent form to start" (RecordApp.jsx). Verified headless: after consent, recording starts.
 - Lecturer home (StudioApp.jsx): one stage at a time — booking / recording / VoiceJourney stepper (recorded → training →
@@ -2611,3 +2611,8 @@
   Sign-in hero = LKCMedicine campus photo (client/src/assets/lkc-campus.jpg).
 - Tests: lambda studio/voice-profile/live/shared 160 pass (new: book once, reminders). Studio build OK.
   Not run: browser check of the new pages, real GPU read-aloud, real email send.
+- Deployed c173a6f to STAGING ~17:10 SGT 11-21 (Lambda + coordinator + studio client). Dev: Lambda coordinator upload
+  dropped, then both AWS sessions expired — dev Lambda + dev studio client NOT updated. Verified on staging (headless):
+  fixture states render (new=booking, queued=journey "yours is next", qc, ready="awaiting test slot", testslot="test
+  time booked", recording=recorder + consent), no page errors; sign-in campus photo + logo load.
+- Fixture recording sessions are visible only to @voice-studio.test accounts (publicSlots), by design.
