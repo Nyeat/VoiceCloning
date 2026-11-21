@@ -2655,3 +2655,11 @@
 - Verified staging: lecturer queueLength 0 (no real queued/training job), capacity + tts-sentence 403 for a non-slot
   account. Tests: lambda 164 pass (new: hold/bridge, warm estimate, fixture jobs). NOT verified: a real slot warm-up,
   super-user GPU start with a voice that has a profile, ETA accuracy.
+
+## 2026-11-21 — Voice Studio lockout on every GPU route + submitted stage (09a5398, 69e26f1; deployed dev + staging)
+- lambda/shared/studioGpuGuard.js: one rule for /voice-profile/capacity, /live/tts-sentence, /models/select (incl. raw
+  model paths) and /inference(+/generate). Models and inference now sign studio-site requests in (they had no auth).
+  Live chat gateway only makes text; its voice goes through /live/tts-sentence, so chat is covered.
+- Lecturer page: once submitted, the journey replaces the recorder even inside the session; POST submissions 409 for a
+  second set (hasSubmittedVoice). Full-workflow test updated (no second set; QC email to the lecturer asserted).
+- Verified staging as a non-slot account: all five routes 403. Tests: lambda 193+ pass (new studioGpuGuard tests).
