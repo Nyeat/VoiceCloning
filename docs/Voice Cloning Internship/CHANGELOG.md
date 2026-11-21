@@ -2617,7 +2617,7 @@
   time booked", recording=recorder + consent), no page errors; sign-in campus photo + logo load.
 - Fixture recording sessions are visible only to @voice-studio.test accounts (publicSlots), by design.
 
-## 2026-11-21 — Voice Studio: fixture visibility + "Run by" (0ef8c18, NOT deployed — AWS creds expired)
+## 2026-11-21 — Voice Studio: fixture visibility + "Run by" (0ef8c18, deployed dev + staging)
 - Why the owner's Gmail could not see a published session: it was an edited FIXTURE session (edit keeps fixture:true;
   fixtures were visible only to @voice-studio.test accounts).
 - STUDIO_FIXTURE_VIEWERS (lambda/.env.deployment.staging = owner's Gmail): sees and may book fixture sessions; every other
@@ -2625,3 +2625,6 @@
 - Recording sessions: hostName "Run by (staff name)" in the composer, remembered per browser (shared super user login),
   shown on calendar blocks and the booked list.
 - Tests: studio + voice-profile 63 pass (new fixture-visibility test). Studio build OK. Not deployed.
+- Deployed 0ef8c18 (includes c173a6f) ~17:45 SGT 11-21: Lambda + coordinator + studio client, dev AND staging. Staging
+  fixtures reseeded (same password). Verified: staging Lambda has STUDIO_FIXTURE_VIEWERS; fixture login OK and new@ sees 6
+  sessions. Not verified: the Gmail tester's view (no password), a super user console without fixtures (needs NTU sign-in).
