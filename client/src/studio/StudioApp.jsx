@@ -25,7 +25,7 @@ import {
   dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
 } from './slotCalendar.js';
 import {
-  addSlot, addSuperuser, cancelJob, claimSlot, restoreJob, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
+  addSlot, addSuperuser, cancelJob, claimSlot, restoreJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
   googleSignIn, moveSlot, passwordSignIn, publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob,
   runTick, sendFeedback,
 } from './studioApi.js';
@@ -77,6 +77,27 @@ function StatCard({ icon: Icon, label, value, tone = 'slate' }) {
   );
 }
 
+// Sends a test email to the signed-in super user and says what happened.
+function TestEmail() {
+  const [state, setState] = useState(null);
+  async function send() {
+    setState({ busy: true });
+    try {
+      const result = await sendTestEmail();
+      setState(result.status === 'sent' ? { ok: `Sent to ${result.to}. Check the inbox (and spam).` } : { error: `Not sent: ${result.error || result.status}` });
+    } catch (err) {
+      setState({ error: errorText(err) });
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm">
+      <Button variant="outline" size="sm" disabled={state?.busy} onClick={send}>{state?.busy ? <Loader2 size={13} className="animate-spin" /> : null} Send me a test email</Button>
+      {state?.ok && <span className="text-emerald-700">{state.ok}</span>}
+      {state?.error && <span className="text-rose-700">{state.error}</span>}
+    </div>
+  );
+}
+
 function Overview({ overview, onAction }) {
   const navigate = useNavigate();
   const jobs = overview.jobs;
@@ -104,6 +125,7 @@ function Overview({ overview, onAction }) {
       {!overview.emailConfigured && (
         <Notice tone="warn">Email is not configured on the server yet, so nobody is emailed. Everything still shows here — check this page for reviews.</Notice>
       )}
+      {overview.emailConfigured && <TestEmail />}
       {overview.currentSlot && (
         <Notice tone="info">
           Training waits while <b>{overview.currentSlot.assigneeName || overview.currentSlot.assigneeEmail}</b> tests until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT.

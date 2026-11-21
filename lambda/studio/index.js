@@ -814,6 +814,15 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
+        if (route === 'POST admin/test-email') {
+          const result = await service.mailer.send(email, {
+            subject: 'Voice Studio test email',
+            text: 'This is a test from Voice Studio. If you can read it, email is working.',
+            html: '<p>This is a test from Voice Studio. If you can read it, email is working.</p>',
+          });
+          return ok({ to: email, ...result }, {}, event);
+        }
+
         if (route === 'POST admin/jobs/:id/restore') {
           await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);

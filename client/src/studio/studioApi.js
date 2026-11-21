@@ -89,6 +89,7 @@ export const releaseSlot = (id) => api.post(`/studio/slots/${enc(id)}/release`, 
 export const moveSlot = (id) => api.post(`/studio/slots/${enc(id)}/move`, {}).then((res) => res.data);
 export const retryJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/retry`, {}).then((res) => res.data);
 export const cancelJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/cancel`, {}).then((res) => res.data);
+export const sendTestEmail = () => api.post('/studio/admin/test-email', {}).then((res) => res.data);
 export const restoreJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/restore`, {}).then((res) => res.data);
 export const requestRecordings = (jobId, notes) => api.post(`/studio/admin/jobs/${enc(jobId)}/request-recordings`, { notes }).then((res) => res.data);
 export const addSuperuser = (email, name) => api.post('/studio/admin/superusers', { email, name }).then((res) => res.data);

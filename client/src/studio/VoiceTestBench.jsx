@@ -7,7 +7,9 @@
 // to the picked voice at once).
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Loader2, MessageCircle, Play, ScanSearch, Send, Square, Volume2 } from 'lucide-react';
+import {
+  CheckCircle2, Download, Loader2, MessageCircle, Mic, Play, ScanSearch, Send, Square, Volume2,
+} from 'lucide-react';
 import { createLiveChatSocket } from '@/services/liveChatSocket.js';
 import { acquireApiToken, shouldAttachApiToken } from '@/auth/msalClient.js';
 import { ensureVoiceProfile, prepareVoiceCapacity, scanOovWords, synthesizeSentence } from '@/services/api';
@@ -128,6 +130,44 @@ function WarmingCard({ gpu, slotWarm }) {
   );
 }
 
+// Joins the sentence clips into one WAV (all from the same voice, so one PCM
+// format). Returns null if any clip is not a plain PCM WAV.
+async function joinWavBlobs(blobs) {
+  const parts = [];
+  let format = null;
+  for (const blob of blobs) {
+    const view = new DataView(await blob.arrayBuffer());
+    if (view.byteLength < 12 || view.getUint32(0, false) !== 0x52494646 || view.getUint32(8, false) !== 0x57415645) return null;
+    let offset = 12;
+    let fmt = null;
+    let data = null;
+    while (offset + 8 <= view.byteLength) {
+      const id = view.getUint32(offset, false);
+      const size = view.getUint32(offset + 4, true);
+      if (id === 0x666d7420) fmt = new Uint8Array(view.buffer, offset + 8, size); // "fmt "
+      if (id === 0x64617461) { data = new Uint8Array(view.buffer, offset + 8, Math.min(size, view.byteLength - offset - 8)); break; } // "data"
+      offset += 8 + size + (size % 2);
+    }
+    if (!fmt || !data) return null;
+    if (format && format.join(',') !== Array.from(fmt).join(',')) return null;
+    format = format || Array.from(fmt);
+    parts.push(data);
+  }
+  if (!format) return null;
+  const dataBytes = parts.reduce((sum, part) => sum + part.length, 0);
+  const header = new DataView(new ArrayBuffer(12 + 8 + format.length + 8));
+  const writeId = (at, text) => { for (let i = 0; i < 4; i += 1) header.setUint8(at + i, text.charCodeAt(i)); };
+  writeId(0, 'RIFF');
+  header.setUint32(4, 4 + 8 + format.length + 8 + dataBytes, true);
+  writeId(8, 'WAVE');
+  writeId(12, 'fmt ');
+  header.setUint32(16, format.length, true);
+  format.forEach((byte, i) => header.setUint8(20 + i, byte));
+  writeId(20 + format.length, 'data');
+  header.setUint32(24 + format.length, dataBytes, true);
+  return new Blob([header.buffer, ...parts], { type: 'audio/wav' });
+}
+
 // Speaks text in the voice, sentence by sentence (Live Fast), fetching the next
 // sentence while the current one plays. progress: { done, total, phase } where
 // phase is 'generating' (waiting for the first audio of a sentence) or 'playing'.
@@ -135,10 +175,12 @@ function useSpeaker(voiceName) {
   const [speaking, setSpeaking] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, phase: '' });
   const [waiting, setWaiting] = useState(false);
+  const [download, setDownload] = useState(null); // { url, name } of the last complete reading
   const stopRef = useRef(false);
   const audioRef = useRef(null);
 
   useEffect(() => () => { stopRef.current = true; audioRef.current?.pause(); }, []);
+  useEffect(() => () => { if (download?.url) URL.revokeObjectURL(download.url); }, [download]);
 
   function play(blob) {
     return new Promise((resolve) => {
@@ -157,7 +199,9 @@ function useSpeaker(voiceName) {
     if (sentences.length === 0) return;
     stopRef.current = false;
     setSpeaking(true);
+    setDownload(null);
     setProgress({ done: 0, total: sentences.length, phase: 'generating' });
+    const clips = [];
     const voiceProfileId = buildVoiceProfileId(voiceName);
     const fetchClip = (sentence) => runSynthesisWithRetry(
       () => synthesizeSentence({ voiceProfileId, text: sentence, text_lang: 'en' }),
@@ -170,6 +214,7 @@ function useSpeaker(voiceName) {
         const { blob } = await next;
         setWaiting(false);
         if (stopRef.current) break;
+        clips.push(blob);
         next = index + 1 < sentences.length ? fetchClip(sentences[index + 1]) : null;
         next?.catch(() => {});
         setProgress({ done: index, total: sentences.length, phase: 'playing' });
@@ -177,6 +222,11 @@ function useSpeaker(voiceName) {
         if (stopRef.current) break;
       }
       setProgress((current) => ({ ...current, done: current.total, phase: '' }));
+      // The whole reading, once every sentence was made.
+      if (!stopRef.current && clips.length === sentences.length) {
+        const joined = await joinWavBlobs(clips);
+        if (joined) setDownload({ url: URL.createObjectURL(joined), name: `${voiceName}-reading.wav` });
+      }
     } finally {
       setSpeaking(false);
       setWaiting(false);
@@ -189,7 +239,7 @@ function useSpeaker(voiceName) {
     setSpeaking(false);
   }
 
-  return { speak, stop, speaking, progress, waiting };
+  return { speak, stop, speaking, progress, waiting, download };
 }
 
 function SpeakProgress({ speaker }) {
@@ -260,6 +310,11 @@ function ReadAloud({ voiceName, ready, onPickWord }) {
         <Button variant="outline" size="lg" disabled={!text.trim() || scanning} onClick={scanText}>
           {scanning ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} />} Scan text
         </Button>
+        {speaker.download && !speaker.speaking && (
+          <a href={speaker.download.url} download={speaker.download.name} className="inline-flex h-12 items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-base font-semibold text-slate-700 hover:bg-slate-50">
+            <Download size={15} /> Download audio
+          </a>
+        )}
         <span className="ml-auto text-xs text-slate-500">{text.length}/{MAX_TEXT}</span>
       </div>
       {scan && (
@@ -289,6 +344,8 @@ const CHAT_PROMPT = 'You are a friendly assistant helping a lecturer hear how th
   + 'Reply naturally in two or three short, clear sentences. Vary sentence length and include the occasional '
   + 'question so the voice can be heard in different intonations. Always respond only in English.';
 
+const SpeechRecognition = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+
 function VoiceChat({ voiceName, ready }) {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
@@ -300,6 +357,42 @@ function VoiceChat({ voiceName, ready }) {
   const speaker = useSpeaker(voiceName);
   const speakRef = useRef(speaker.speak);
   speakRef.current = speaker.speak;
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
+  const sendTextRef = useRef(null);
+
+  useEffect(() => () => recognitionRef.current?.abort(), []);
+
+  function toggleMic() {
+    if (listening) { recognitionRef.current?.stop(); return; }
+    if (!SpeechRecognition) { setError('This browser cannot listen. Please use Chrome or Edge, or type instead.'); return; }
+    speaker.stop();
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-SG';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    let finalText = '';
+    recognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+        else interim += event.results[i][0].transcript;
+      }
+      setDraft((finalText + interim).trim());
+    };
+    recognition.onerror = (event) => {
+      if (event.error === 'not-allowed') setError('Microphone access was blocked. Allow it in the address bar, then try again.');
+      else if (event.error !== 'no-speech' && event.error !== 'aborted') setError(`Could not hear you: ${event.error}`);
+    };
+    recognition.onend = () => {
+      setListening(false);
+      if (finalText.trim()) sendTextRef.current?.(finalText.trim());
+    };
+    recognitionRef.current = recognition;
+    setError('');
+    setListening(true);
+    recognition.start();
+  }
 
   useEffect(() => {
     let closed = false;
@@ -345,7 +438,10 @@ function VoiceChat({ voiceName, ready }) {
 
   function send(event) {
     event.preventDefault();
-    const text = draft.trim();
+    sendText(draft.trim());
+  }
+
+  function sendText(text) {
     if (!text || status !== 'ready') return;
     speaker.stop();
     replyRef.current = '';
@@ -357,6 +453,7 @@ function VoiceChat({ voiceName, ready }) {
     setDraft('');
     setStatus('thinking');
   }
+  sendTextRef.current = sendText;
 
   return (
     <div className="flex h-full min-h-[520px] flex-col">
@@ -381,10 +478,20 @@ function VoiceChat({ voiceName, ready }) {
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder={status === 'connecting' ? 'Connecting…' : 'Ask a question…'}
+            placeholder={status === 'connecting' ? 'Connecting…' : listening ? 'Listening… speak now' : 'Ask a question, or tap the microphone'}
             disabled={status === 'connecting' || status === 'error' || !ready}
             className="h-11 flex-1 rounded-full border border-slate-300 px-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
           />
+          <button
+            type="button"
+            onClick={toggleMic}
+            disabled={status !== 'ready' || !ready}
+            aria-label={listening ? 'Stop listening' : 'Speak your question'}
+            className={cn('relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border disabled:opacity-40', listening ? 'border-rose-500 bg-rose-500 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}
+          >
+            {listening && <span className="absolute inset-0 animate-ping rounded-full bg-rose-400/40" aria-hidden="true" />}
+            <Mic size={16} />
+          </button>
           {speaker.speaking
             ? <Button variant="danger" onClick={speaker.stop}><Square size={14} /> Stop</Button>
             : <Button type="submit" variant="dark" disabled={!draft.trim() || status !== 'ready' || !ready}><Send size={14} /> Send</Button>}
