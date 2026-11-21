@@ -2628,3 +2628,11 @@
 - Deployed 0ef8c18 (includes c173a6f) ~17:45 SGT 11-21: Lambda + coordinator + studio client, dev AND staging. Staging
   fixtures reseeded (same password). Verified: staging Lambda has STUDIO_FIXTURE_VIEWERS; fixture login OK and new@ sees 6
   sessions. Not verified: the Gmail tester's view (no password), a super user console without fixtures (needs NTU sign-in).
+
+## 2026-11-21 — Voice Studio: microphone robustness (8b135ec, deployed studio client dev + staging)
+- "Could not start the microphone: Device was removed" = Chrome NotReadableError (default mic changed / busy).
+  wavRecorder.openMicrophone retries once with plain constraints; mic picker (devicechange); unplug mid-reading pauses
+  and keeps the take; actionable messages. Verified headless on staging: recording still starts after consent.
+- Upload "failed — check your connection": shared S3 bucket CORS lacks both studio origins (preflight 403 from
+  d271zk8d8curic). Node PUT of 70 MB to the same presigned URL = 200 in 14.5 s. Prepared rule (17 origins) in the session
+  scratchpad; owner applies (shared bucket, earlier CORS edit by Claude was blocked).
