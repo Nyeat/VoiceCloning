@@ -2716,3 +2716,6 @@
   Lambdas already had an OLD EMAIL_PASS (earlier mailbox) — wrong for Gmail until the owner runs
   scripts/set-email-password.ps1 -Env staging|dev with a Gmail app password. "Send me a test email" on the overview.
 - Verified staging Lambda env keys present (values not read). Not verified: mic/download in a browser, a real send.
+- 6cbd550 (studio client, dev + staging): "Live chat connection failed" = the live chat gateway runs on the fixed staging GPU
+  (i-0f0da8be59367f7a8, target group vcs-staging-tg-3002), which idle-stops after 40 min; Live Fast's chat failed too
+  (503). Studio chat now calls /instance/start on a failed connect and retries every 15 s.
