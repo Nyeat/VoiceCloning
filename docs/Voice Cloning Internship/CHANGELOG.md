@@ -2694,3 +2694,8 @@
   Not yet seen live: a profile created by the fixed ensure (reload the test page), slot release, cross-site hold.
 - 474bb46 (deployed dev + staging): a GPU reserved for another owner no longer counts as "a GPU exists" (noGpuYet), so a
   single-GPU site (admin TTS) adds its own while a Voice Studio slot holds the only GPU instead of waiting forever.
+
+## 2026-11-21 — Withdraw confirmation + Restore set (6d0bae6, deployed dev + staging)
+- Owner accidentally withdrew "francisco" (ltyfishes@gmail.com, x-ltyfishes-d450cb_3, trained, in QC) via one-click
+  "Cancel set". Restored in staging state to review (nothing had been deleted). Now "Withdraw set" asks first and
+  explains the effect; withdrawn sets get "Restore set" (job.cancelledFrom; legacy trained -> review).
