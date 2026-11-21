@@ -44,10 +44,7 @@
   tester `VoiceTestBench.jsx`; sign-in `studio/accounts.js`, `googleToken.js`, `shared/studioSession.js`; GPU lockout `shared/studioGpuGuard.js`; email pass `scripts/set-email-password.ps1`.
 ## Lambda REST Backend (`lambda/`)
 
-- `index.js`
-  - Lambda entrypoint.
-- `router.js`
-  - Maps `/api/*` routes to feature handlers.
+- `index.js` — Lambda entrypoint. `router.js` — maps `/api/*` routes to feature handlers.
 - `config/`
   - Frontend runtime/storage mode config.
 - `upload/`
