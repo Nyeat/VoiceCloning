@@ -152,7 +152,7 @@ function Overview({ overview, onAction }) {
                   <span className={cn('h-2.5 w-2.5 rounded-full', live ? 'bg-rose-500' : 'bg-indigo-500')} />
                   <span className="w-48 font-medium text-slate-800">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
                   <span className="min-w-0 flex-1 truncate">{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}</span></span>
-                  <span className="text-xs text-slate-500">{live ? 'recording now' : relativeFromNow(slot.start, now)}{slot.claimedAt ? ' · picked by them' : ' · assigned'}</span>
+                  <span className="text-xs text-slate-500">{live ? 'recording now' : relativeFromNow(slot.start, now)}{slot.claimedAt ? ' · picked by them' : ' · assigned'}{slot.hostName ? ` · run by ${slot.hostName}` : ''}</span>
                 </li>
               );
             })}
@@ -492,6 +492,14 @@ function PersonField({ kind, people, person, onPerson }) {
   );
 }
 
+const HOST_KEY = 'voice-studio-host-name';
+function rememberedHost() {
+  try { return window.localStorage.getItem(HOST_KEY) || ''; } catch { return ''; }
+}
+function rememberHost(name) {
+  try { if (name) window.localStorage.setItem(HOST_KEY, name); } catch { /* private mode */ }
+}
+
 function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCancel }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const person = draft.person || '';
@@ -521,6 +529,17 @@ function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCance
         </div>
       </div>
       <PersonField kind={kind} people={people} person={person} onPerson={(value) => setDraft({ ...draft, person: value })} />
+      {kind === 'recording' && (
+        <label className="block text-xs font-medium text-slate-600">Run by (staff name)
+          <input
+            value={draft.hostName ?? ''}
+            onChange={(event) => setDraft({ ...draft, hostName: event.target.value })}
+            maxLength={80}
+            placeholder="Who runs this session, e.g. Dr Tan"
+            className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+          />
+        </label>
+      )}
       <div className="flex flex-wrap gap-2 pt-1">
         <Button variant="dark" disabled={!canSave} onClick={onSave}>{draft.id ? 'Save changes' : kind === 'recording' ? 'Add session' : 'Add slot'}</Button>
         {draft.id && (confirmDelete
@@ -560,7 +579,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
   const slots = overview.slots.filter((slot) => (slot.kind === 'recording' ? 'recording' : 'test') === kind && Date.parse(slot.end) > nowMs);
   const [day, setDay] = useState(today);
   const [month, setMonth] = useState(monthOf(today));
-  const [draft, setDraft] = useState(() => (prefill ? { day: today, start: 13 * 60, minutes: 60, person: prefill } : null));
+  const [draft, setDraft] = useState(() => (prefill ? { day: today, start: 13 * 60, minutes: 60, person: prefill, hostName: rememberedHost() } : null));
   const people = overview.people || [];
   const drafts = overview.draftCount || 0;
 
@@ -580,7 +599,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     end: slot.end,
     tone: slotTone(slot, nowMs),
     title: slot.assigneeEmail ? (slot.assigneeName || slot.assigneeEmail) : copy.open,
-    subtitle: `${formatSgt(slot.start, { withDate: false })} – ${formatSgt(slot.end, { withDate: false })}${slot.status === 'draft' ? ' · draft' : ''}${slot.assigneeEmail && slot.assigneeName ? ` · ${slot.assigneeEmail}` : ''}`,
+    subtitle: `${formatSgt(slot.start, { withDate: false })} – ${formatSgt(slot.end, { withDate: false })}${slot.status === 'draft' ? ' · draft' : ''}${slot.hostName ? ` · run by ${slot.hostName}` : ''}${slot.assigneeEmail && slot.assigneeName ? ` · ${slot.assigneeEmail}` : ''}`,
   }));
 
   function selectDay(key) {
@@ -596,7 +615,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     setDraft({
       id: original.id, day: key, start: sgtMinutes(original.start),
       minutes: Math.round((Date.parse(original.end) - Date.parse(original.start)) / 60000),
-      person: original.assigneeEmail || '', name: original.assigneeName || '',
+      person: original.assigneeEmail || '', name: original.assigneeName || '', hostName: original.hostName || '',
     });
   }
   async function save() {
@@ -604,11 +623,13 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     const end = new Date(Date.parse(start) + draft.minutes * 60_000).toISOString();
     const email = (draft.person || '').trim();
     const known = people.find((entry) => entry.email === email);
-    const body = { kind, start, end, assigneeEmail: email, assigneeName: (known?.name || (email === draft.person ? draft.name : '') || '').trim() };
+    const hostName = kind === 'recording' ? String(draft.hostName || '').trim() : undefined;
+    if (hostName) rememberHost(hostName);
+    const body = { kind, start, end, assigneeEmail: email, assigneeName: (known?.name || (email === draft.person ? draft.name : '') || '').trim(), ...(hostName !== undefined ? { hostName } : {}) };
     const done = await onAction(() => (draft.id ? editSlot(draft.id, body) : addSlot(body)));
     if (!done) return;
     // Adding a run of sessions: the composer moves on to the next free time.
-    setDraft(draft.id ? null : { day: draft.day, start: Math.min(23 * 60 + 45, draft.start + draft.minutes), minutes: draft.minutes, person: kind === 'test' ? draft.person : '' });
+    setDraft(draft.id ? null : { day: draft.day, start: Math.min(23 * 60 + 45, draft.start + draft.minutes), minutes: draft.minutes, person: kind === 'test' ? draft.person : '', hostName: draft.hostName });
   }
 
   const upcomingDays = [...new Set(slots.map((slot) => sgtDayKey(slot.start)))].sort();
@@ -650,7 +671,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
             <h3 className="font-semibold text-slate-900">{formatDay(day)}</h3>
             <div className="flex gap-2">
               {day !== today && <Button size="sm" variant="ghost" onClick={() => { setDay(today); setMonth(monthOf(today)); }}>Today</Button>}
-              <Button size="sm" variant="outline" onClick={() => setDraft({ day, start: Math.max(hours.start, 9 * 60), minutes: draft?.minutes || 60, person: kind === 'test' ? prefill : '' })}><CalendarClock size={13} /> Add on this day</Button>
+              <Button size="sm" variant="outline" onClick={() => setDraft({ day, start: Math.max(hours.start, 9 * 60), minutes: draft?.minutes || 60, person: kind === 'test' ? prefill : '', hostName: draft?.hostName ?? rememberedHost() })}><CalendarClock size={13} /> Add on this day</Button>
             </div>
           </div>
           <p className="mb-2 text-xs text-slate-500">Click an empty time to add {kind === 'recording' ? 'a session' : 'a slot'} there; click a block to edit it.</p>
@@ -663,7 +684,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
               selectedId={draft?.id}
               pending={draft && !draft.id && draft.day === day ? { start: draft.start, minutes: draft.minutes } : null}
               onSlotClick={edit}
-              onEmptyClick={(minutes) => setDraft({ day, start: minutes, minutes: draft?.minutes || 60, person: draft && !draft.id ? draft.person : (kind === 'test' ? prefill : '') })}
+              onEmptyClick={(minutes) => setDraft({ day, start: minutes, minutes: draft?.minutes || 60, person: draft && !draft.id ? draft.person : (kind === 'test' ? prefill : ''), hostName: draft?.hostName ?? rememberedHost() })}
             />
           </div>
         </Card>

@@ -416,7 +416,7 @@ export function createHandler({
         access: wf.voiceAccess(state, { email, voiceName, now, superuser: false }),
       })),
       // Recording sessions: the table they pick from, and whether recording is open now.
-      sessions: wf.publicSlots(state, email, now),
+      sessions: wf.publicSlots(state, email, now, env),
       recording: wf.recordingAccess(state, { email, now, superuser }),
       // GPU test slot (allocated by a super user after QC).
       mySlot: wf.upcomingSlotFor(state, email, now, 'test'),
@@ -428,7 +428,8 @@ export function createHandler({
     };
   }
 
-  async function adminView(state) {
+  async function adminView(fullState, viewer) {
+    const state = wf.viewFor(fullState, viewer, env);
     const now = clock();
     let worker = null;
     try {
@@ -644,7 +645,7 @@ export function createHandler({
       }
 
       if (route === 'POST slots/:id/move') {
-        const { result } = await updateState(store, (state) => ({ moved: wf.moveSlot(state, parts[1], { email, now }) }));
+        const { result } = await updateState(store, (state) => ({ moved: wf.moveSlot(state, parts[1], { email, now, env }) }));
         const { state } = await store.read();
         await service.mailer.send(email, templates.recordingBooked({ slot: result.moved.to, moved: true, env }));
         await service.mailer.send(wf.listSuperusers(state, env).map((entry) => entry.email), templates.slotPicked({ slot: result.moved.to, email, claiming: true, env }));
@@ -655,7 +656,7 @@ export function createHandler({
         const claiming = route.endsWith('claim');
         const { result } = await updateState(store, (state) => {
           const slot = claiming
-            ? wf.claimSlot(state, parts[1], { email, name: body.name, now })
+            ? wf.claimSlot(state, parts[1], { email, name: body.name, now, env })
             : wf.releaseSlot(state, parts[1], { email, now });
           return { slot: { ...slot } };
         });
@@ -676,13 +677,13 @@ export function createHandler({
         if (route === 'GET admin/overview') {
           await maybeTick();
           const { state } = await store.read();
-          return ok(await adminView(state), {}, event);
+          return ok(await adminView(state, email), {}, event);
         }
 
         if (route === 'POST admin/tick') {
           const result = await service.tick({ force: true });
           const { state } = await store.read();
-          return ok({ tick: result, ...(await adminView(state)) }, {}, event);
+          return ok({ tick: result, ...(await adminView(state, email)) }, {}, event);
         }
 
         if (route === 'POST admin/jobs/:id/review') {
@@ -704,27 +705,27 @@ export function createHandler({
             const slot = wf.upcomingSlotFor(state, job.ownerEmail, clock());
             await service.notify(job.id, 'voiceApproved', job.ownerEmail, templates.voiceApproved({ job, slot, env }));
           }
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'POST admin/slots') {
           await updateState(store, (state) => {
             wf.addSlot(state, {
-              id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, actor: email, now,
+              id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName, actor: email, now,
             });
             return null;
           });
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'PUT admin/slots/:id') {
           await updateState(store, (state) => {
             wf.editSlot(state, parts[2], {
-              start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName,
+              start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName,
             }, now);
             return null;
           });
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'DELETE admin/slots/:id') {
@@ -734,7 +735,7 @@ export function createHandler({
             const template = wf.slotKind(result.removed.slot) === 'recording' ? templates.recordingCancelled : templates.slotCancelled;
             await service.mailer.send(told.assigneeEmail, template({ slot: told, env }));
           }
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'POST admin/slots/publish') {
@@ -744,7 +745,7 @@ export function createHandler({
             const message = templates[item.kind]({ slot: item.slot, moved: item.moved, env });
             sent.push({ email: item.email, kind: item.kind, ...(await service.mailer.send(item.email, message)) });
           }
-          return ok({ ...(await adminView((await store.read()).state)), published: sent }, {}, event);
+          return ok({ ...(await adminView((await store.read()).state, email)), published: sent }, {}, event);
         }
 
         if (route === 'POST admin/jobs/:id/retry') {
@@ -755,7 +756,7 @@ export function createHandler({
             return null;
           });
           await maybeTick();
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'POST admin/jobs/:id/cancel') {
@@ -765,7 +766,7 @@ export function createHandler({
             wf.cancelJob(job);
             return null;
           });
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'POST admin/jobs/:id/request-recordings') {
@@ -780,7 +781,7 @@ export function createHandler({
           const { state } = await store.read();
           const job = wf.findJob(state, result.jobId);
           await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env }));
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'POST admin/superusers') {
@@ -790,7 +791,7 @@ export function createHandler({
           });
           const added = String(body.email || '').trim().toLowerCase();
           await service.mailer.send(added, templates.superuserAdded({ email: added, actor: email, env }));
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'PUT admin/superusers/:id') {
@@ -798,7 +799,7 @@ export function createHandler({
             wf.updateSuperuser(state, parts[2], { name: body.name }, env);
             return null;
           });
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'DELETE admin/superusers/:id') {
@@ -806,7 +807,7 @@ export function createHandler({
             wf.removeSuperuser(state, parts[2], email, env);
             return null;
           });
-          return ok(await adminView((await store.read()).state), {}, event);
+          return ok(await adminView((await store.read()).state, email), {}, event);
         }
       }
 

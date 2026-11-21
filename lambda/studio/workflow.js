@@ -55,6 +55,23 @@ export function isFixtureEmail(email) {
   return normalizeEmail(email).endsWith(`@${FIXTURE_DOMAIN}`);
 }
 
+/**
+ * Who sees fixtures at all: the fixture accounts themselves and the testers in
+ * STUDIO_FIXTURE_VIEWERS. Everyone else — every other super user included —
+ * sees only real work, so the console reflects the real world.
+ */
+export function isFixtureViewer(email, env = process.env) {
+  if (isFixtureEmail(email)) return true;
+  const viewers = String(env.STUDIO_FIXTURE_VIEWERS || '').split(',').map((value) => normalizeEmail(value)).filter(Boolean);
+  return viewers.includes(normalizeEmail(email));
+}
+
+/** The state as this person may see it: fixtures removed unless they view them. */
+export function viewFor(state, email, env = process.env) {
+  if (isFixtureViewer(email, env)) return state;
+  return { ...state, jobs: state.jobs.filter(real), slots: state.slots.filter(real) };
+}
+
 function real(item) {
   return item?.fixture !== true;
 }
@@ -462,7 +479,9 @@ export function findSlot(state, id) {
   return state.slots.find((slot) => slot.id === id && slot.status !== 'cancelled') || null;
 }
 
-export function addSlot(state, { id, kind = 'test', start, end, assigneeEmail = '', assigneeName = '', actor, now }) {
+export function addSlot(state, {
+  id, kind = 'test', start, end, assigneeEmail = '', assigneeName = '', hostName = '', actor, now,
+}) {
   const slotType = kind === 'recording' ? 'recording' : 'test';
   const times = validateTimes(start, end, now);
   if (slotType === 'test' && !normalizeEmail(assigneeEmail)) throw clientError(400, 'Choose who this test slot is for');
@@ -474,6 +493,8 @@ export function addSlot(state, { id, kind = 'test', start, end, assigneeEmail = 
     status: 'draft',
     assigneeEmail: normalizeEmail(assigneeEmail),
     assigneeName: cleanText(assigneeName, 80),
+    // Who runs it (the super user account is shared, so the login does not say).
+    hostName: cleanText(hostName, 80),
     createdBy: normalizeEmail(actor),
     updatedAt: iso(now),
     // What the assignee was last told (person + time), so Publish emails only real changes.
@@ -485,7 +506,7 @@ export function addSlot(state, { id, kind = 'test', start, end, assigneeEmail = 
   return slot;
 }
 
-export function editSlot(state, id, { start, end, assigneeEmail, assigneeName }, now) {
+export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, hostName }, now) {
   const slot = findSlot(state, id);
   if (!slot) throw clientError(404, 'Slot not found');
   const times = validateTimes(start ?? slot.start, end ?? slot.end, now);
@@ -496,6 +517,7 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName },
   Object.assign(slot, times, {
     ...(assigneeEmail !== undefined ? { assigneeEmail: normalizeEmail(assigneeEmail) } : {}),
     ...(assigneeName !== undefined ? { assigneeName: cleanText(assigneeName, 80) } : {}),
+    ...(hostName !== undefined ? { hostName: cleanText(hostName, 80) } : {}),
     updatedAt: iso(now),
     preloadedAt: null,
     reminderSentAt: null,
@@ -539,9 +561,9 @@ export function publishSlots(state, now) {
 }
 
 /** A lecturer picks an open published recording session (one upcoming each). */
-export function claimSlot(state, id, { email, name = '', now }) {
+export function claimSlot(state, id, { email, name = '', now, env = process.env }) {
   const slot = findSlot(state, id);
-  if (!slot || slot.status !== 'published' || slotKind(slot) !== 'recording' || (!real(slot) && !isFixtureEmail(email))) {
+  if (!slot || slot.status !== 'published' || slotKind(slot) !== 'recording' || (!real(slot) && !isFixtureViewer(email, env))) {
     throw clientError(404, 'That session is not available');
   }
   if (slot.assigneeEmail) throw clientError(409, 'Someone has just taken that session — pick another');
@@ -564,14 +586,14 @@ export function claimSlot(state, id, { email, name = '', now }) {
  * one step, so they never hold two and never end up with none. Only before
  * their current session starts.
  */
-export function moveSlot(state, toId, { email, now }) {
+export function moveSlot(state, toId, { email, now, env = process.env }) {
   const current = liveSlots(state).find((item) => slotKind(item) === 'recording' && item.status === 'published'
     && sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
   if (!current) throw clientError(404, 'You have no booked session to change');
   if (current.id === toId) throw clientError(409, 'That is already your session');
   if (ms(current.start) <= now) throw clientError(409, 'Your session has already started and cannot be changed');
   const target = findSlot(state, toId);
-  if (!target || target.status !== 'published' || slotKind(target) !== 'recording' || (!real(target) && !isFixtureEmail(email))) {
+  if (!target || target.status !== 'published' || slotKind(target) !== 'recording' || (!real(target) && !isFixtureViewer(email, env))) {
     throw clientError(404, 'That session is not available');
   }
   if (target.assigneeEmail) throw clientError(409, 'Someone has just taken that session — pick another');
@@ -754,8 +776,8 @@ export function gpuDemand(state, now) {
 }
 
 /** What a lecturer sees in the session table: published upcoming recording sessions. */
-export function publicSlots(state, email, now) {
-  const fixtureViewer = isFixtureEmail(email);
+export function publicSlots(state, email, now, env = process.env) {
+  const fixtureViewer = isFixtureViewer(email, env);
   return liveSlots(state)
     .filter((slot) => slotKind(slot) === 'recording' && slot.status === 'published' && ms(slot.end) > now)
     .filter((slot) => real(slot) || fixtureViewer)

@@ -225,3 +225,22 @@ test('session reminders: recording day-before + soon, test slot on the day, each
   wf.findSlot(state, 'rec').start = iso(start + 24 * 60 * MIN);
   assert.deepEqual(due(start + 60 * MIN), ['rec:day'], '23 h before the new time');
 });
+
+test('fixtures: only fixture accounts and listed testers see them; other super users see real work only', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  wf.addSlot(state, { id: 'real', kind: 'recording', start: at(60), end: at(120), hostName: 'Dr Tan', now: T0 });
+  wf.addSlot(state, { id: 'fake', kind: 'recording', start: at(60), end: at(120), now: T0 });
+  wf.findSlot(state, 'fake').fixture = true;
+  job(state, 'f1', 'queued@voice-studio.test', 0).fixture = true;
+  wf.publishSlots(state, T0);
+  const env = { STUDIO_FIXTURE_VIEWERS: 'Tester@Gmail.com' };
+  assert.equal(wf.findSlot(state, 'real').hostName, 'Dr Tan');
+  assert.deepEqual(wf.publicSlots(state, 'someone@gmail.com', T0, env).map((slot) => slot.id), ['real']);
+  assert.deepEqual(wf.publicSlots(state, 'tester@gmail.com', T0, env).map((slot) => slot.id).sort(), ['fake', 'real']);
+  assert.throws(() => wf.claimSlot(state, 'fake', { email: 'someone@gmail.com', name: 'S', now: T0, env }), /not available/u);
+  wf.claimSlot(state, 'fake', { email: 'tester@gmail.com', name: 'T', now: T0, env });
+  const boss = wf.viewFor(state, 'boss@ntu.edu.sg', env);
+  assert.deepEqual([boss.jobs.length, boss.slots.map((slot) => slot.id)], [0, ['real']]);
+  assert.equal(wf.viewFor(state, 'tester@gmail.com', env).slots.length, 2);
+});
