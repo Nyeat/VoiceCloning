@@ -1323,10 +1323,11 @@ function LecturerHome({ me: initialMe, refresh }) {
         )}
       </>
     );
+  } else if (submitted.length > 0) {
+    // Submitted (even while their session is still open): only what comes next.
+    content = submitted.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />);
   } else if (recordingOpen) {
     content = <RecordWorkspace embedded sessionEnd={recording.slot?.end} onSubmitted={(view) => setMe(view)} />;
-  } else if (submitted.length > 0) {
-    content = submitted.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />);
   } else {
     content = (
       <>

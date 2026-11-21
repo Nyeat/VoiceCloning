@@ -109,11 +109,12 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   assert.ok(h.sent.some((m) => m.to.includes(alice) && /received your recordings/u.test(m.subject)), 'receipt with ETA');
   assert.equal((await h.call(bob, 'POST', 'submissions', { label: 'x' })).status, 400, 'consent is required');
   const b1 = await submit(h, bob, 'Bob');
-  const a2 = await submit(h, alice, 'Second');
+  // One submission per person: Alice cannot send a second set while hers is in.
+  const second = await h.call(alice, 'POST', 'submissions', { label: 'Second', consent: { accepted: true, version: 'test-1' } });
+  assert.equal(second.status, 409);
 
-  // Alice's second set runs before Bob even though Bob queued first.
   const overview = await h.call(boss, 'GET', 'admin/overview');
-  assert.deepEqual(overview.body.queue, [a2, b1]);
+  assert.deepEqual(overview.body.queue, [b1]);
   const me = await h.call(bob, 'GET', 'me');
   assert.equal(me.body.role, 'lecturer');
   assert.equal(me.body.jobs.length, 1, 'bob sees only his own job');
@@ -130,7 +131,8 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   const job1 = tick.body.jobs.find((j) => j.id === a1);
   assert.equal(job1.status, 'review');
   assert.ok(h.sent.some((m) => m.to.includes(boss) && /ready for review/u.test(m.subject)));
-  assert.equal(h.started.at(-1).expName, 'alice_2', 'alice\'s second set next');
+  assert.equal(h.started.at(-1).email, bob, 'bob\'s set next');
+  assert.ok(h.sent.some((m) => m.to.includes(alice) && /quality control/u.test(m.subject)), 'lecturer told it is in QC');
 
   // Reject -> new voice name trained from the same recordings, queued at the back.
   const rejected = await h.call(boss, 'POST', `admin/jobs/${a1}/review`, { decision: 'reject', reasons: ['not-their-voice'] });

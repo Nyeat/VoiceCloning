@@ -531,6 +531,10 @@ export function createHandler({
           }
           const access = wf.recordingAccess(state, { email, now, superuser });
           if (!access.allowed) throw wf.clientError(403, 'Recording opens during your booked recording session');
+          // One submission per person (same rule as booking): once it is in, what comes next is training.
+          if (!superuser && wf.hasSubmittedVoice(state, email)) {
+            throw wf.clientError(409, 'Your recordings are already submitted. We email you as your voice moves along.');
+          }
           const open = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && ['uploading', 'queued'].includes(job.status));
           if (open.length >= 5) throw wf.clientError(429, 'You already have 5 recording sets waiting. Please wait for them to train.');
           const expName = nextVoiceName(email, await service.takenVoiceNames(state), STUDIO_IDENTITY);
