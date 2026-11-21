@@ -532,7 +532,13 @@ export function createHandler({
           );
         }
 
-        await persistProfile({ ...draft, ...selection }, selection);
+        // force: the persister otherwise writes only when the selection differs
+        // from what the profile holds, and this new record already carries it —
+        // so nothing was ever saved and the voice never got ready (2026-11-21).
+        const written = await persistProfile({ ...draft, ...selection }, selection, { force: true });
+        if (written === false) {
+          return err(500, `Could not save the voice record for ${voiceName}. Please try again.`, event);
+        }
         return ok({ voiceProfileId, displayName: voiceName, created: true }, {}, event);
       }
 

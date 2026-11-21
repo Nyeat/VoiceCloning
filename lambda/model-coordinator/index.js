@@ -523,12 +523,21 @@ async function recordGpuOwner(instanceId, ownerKey, modelKey, now = Date.now()) 
   })).catch((error) => console.error('[model-coordinator][owner]', error?.message || error));
 }
 
+// Owner keys may carry a kind prefix ("reserved:studio", "held:studio"); the
+// part after it is the owner. Keys of one owner are the same owner for "your
+// own GPU" (a Voice Studio slot takes the super users' studio GPU at once).
+function ownerFamily(ownerKey) {
+  const key = String(ownerKey || '');
+  const index = key.indexOf(':');
+  return index >= 0 ? key.slice(index + 1) : key;
+}
+
 // Training site: GPUs another account loaded that still hold that account's
 // voice. Not someone else's to take straight after they warm up.
 function foreignOwnedWorkerIds(items, workers, ownerKey) {
   if (!ownerKey) return [];
   const owners = new Map(items
-    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey && item.ownerKey !== ownerKey)
+    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey && ownerFamily(item.ownerKey) !== ownerFamily(ownerKey))
     .map((item) => [item.instanceId, item.modelKey]));
   return workers
     .filter((worker) => owners.has(worker.instanceId) && owners.get(worker.instanceId) === worker.modelKey)
@@ -540,26 +549,38 @@ function foreignOwnedWorkerIds(items, workers, ownerKey) {
 // while it holds the reserved voice and the owner used it within
 // RESERVED_OWNER_FRESH_MS (its keep-alive refreshes that). It still routes
 // anyone asking for the same voice, and scale-in still removes it once idle.
+// (Voice Studio test slots: the studio releases it when the slot ends.)
+// "held:" is a soft hold (Voice Studio super users): others may switch it only
+// after 10 min unused (decision.HELD_IDLE_MS).
 const RESERVED_OWNER_PREFIX = 'reserved:';
+const HELD_OWNER_PREFIX = 'held:';
 const RESERVED_OWNER_FRESH_MS = 35 * 60_000;
 function isReservedOwner(ownerKey) {
   return String(ownerKey || '').startsWith(RESERVED_OWNER_PREFIX);
 }
+function isHeldOwner(ownerKey) {
+  return String(ownerKey || '').startsWith(HELD_OWNER_PREFIX);
+}
+function otherOwnersRecords(items, workers, ownerKey, test) {
+  const records = items.filter((item) => item.entity === 'OWNER' && itemInScope(item) && test(item.ownerKey)
+    && (!ownerKey || ownerFamily(item.ownerKey) !== ownerFamily(ownerKey)));
+  return records.filter((item) => workers.some((worker) => worker.instanceId === item.instanceId && worker.modelKey === item.modelKey));
+}
 function reservedWorkerIds(items, workers, ownerKey = '', now = Date.now()) {
-  const reservations = new Map(items
-    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && isReservedOwner(item.ownerKey)
-      && item.ownerKey !== ownerKey && now - Number(item.at || 0) < RESERVED_OWNER_FRESH_MS)
-    .map((item) => [item.instanceId, item.modelKey]));
-  return workers
-    .filter((worker) => reservations.has(worker.instanceId) && reservations.get(worker.instanceId) === worker.modelKey)
-    .map((worker) => worker.instanceId);
+  return otherOwnersRecords(items, workers, ownerKey, isReservedOwner)
+    .filter((item) => now - Number(item.at || 0) < RESERVED_OWNER_FRESH_MS)
+    .map((item) => item.instanceId);
+}
+function heldSinceByWorker(items, workers, ownerKey = '') {
+  return Object.fromEntries(otherOwnersRecords(items, workers, ownerKey, isHeldOwner)
+    .map((item) => [item.instanceId, Number(item.at || 0)]));
 }
 
 // GPUs this account loaded that still hold the voice it loaded on them.
 function ownedWorkerIds(items, workers, ownerKey) {
   if (!ownerKey) return [];
   const owners = new Map(items
-    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey === ownerKey)
+    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && ownerFamily(item.ownerKey) === ownerFamily(ownerKey))
     .map((item) => [item.instanceId, item.modelKey]));
   return workers
     .filter((worker) => owners.has(worker.instanceId) && owners.get(worker.instanceId) === worker.modelKey)
@@ -631,6 +652,7 @@ async function runReassignment(id, now = Date.now()) {
       ownedWorkerIds: ownedWorkerIds(existing, workers, clean(pending.ownerKey)),
       foreignOwnedWorkerIds: foreignOwnedWorkerIds(existing, workers, clean(pending.ownerKey)),
       reservedWorkerIds: reservedWorkerIds(existing, workers, clean(pending.ownerKey)),
+      heldSinceByWorker: heldSinceByWorker(existing, workers, clean(pending.ownerKey)),
     };
     // Re-evaluate immediately before the destructive model switch. New work or
     // renewed demand for the resident voice invalidates the old decision. The
@@ -1129,7 +1151,8 @@ async function prepareCapacity(event) {
       .filter((worker) => !existing.some((item) => (
         item.entity === 'OWNER' && itemInScope(item) && item.instanceId === worker.instanceId
         && item.ownerKey === ownerKey && item.modelKey === modelKey
-        && (!isReservedOwner(ownerKey) || now - Number(item.at || 0) < 5 * 60_000)
+        // Reservations and holds are timed from last use: refresh them while used.
+        && (!(isReservedOwner(ownerKey) || isHeldOwner(ownerKey)) || now - Number(item.at || 0) < 60_000)
       )))
       .map((worker) => recordGpuOwner(worker.instanceId, ownerKey, modelKey, now)));
   }
@@ -1265,6 +1288,7 @@ async function prepareCapacity(event) {
     ownedWorkerIds: ownedWorkerIds(existing, workers, ownerKey),
     foreignOwnedWorkerIds: foreignOwnedWorkerIds(existing, workers, ownerKey),
     reservedWorkerIds: reservedWorkerIds(existing, workers, ownerKey, now),
+    heldSinceByWorker: heldSinceByWorker(existing, workers, ownerKey),
   };
   // A GPU used within the grace belongs to whoever used it: autoscaled staging
   // adds a GPU (2026-11-19 feedback: switching a voice someone just used is
@@ -1566,6 +1590,7 @@ async function synthesize(event) {
         reassignIdleMs,
         reassigningWorkerIds: promisedWorkerIds(currentItems),
         reservedWorkerIds: reservedWorkerIds(currentItems, workers),
+        heldSinceByWorker: heldSinceByWorker(currentItems, workers),
         maxQueuedPerWorker,
       });
       if (action.type === 'direct') {
@@ -1729,8 +1754,9 @@ async function synthesize(event) {
 // Throttled to one sweep per minute across all coordinator invocations. Runs
 // under the admission lease so no request can be routed to a GPU while it is
 // being removed. Never fails the caller's request.
-async function sweepIdleWorkers(now = Date.now()) {
+async function sweepIdleWorkers(now = Date.now(), { releasedWorkerIds = [] } = {}) {
   if (routingOnly()) return null;
+  const releasing = releasedWorkerIds.length > 0;
   try {
     await document.send(new PutCommand({
       TableName: tableName,
@@ -1738,8 +1764,10 @@ async function sweepIdleWorkers(now = Date.now()) {
         entity: 'SWEEP', id: coordinationKey('SWEEP', 'scale-in'), coordinatorScope,
         sweptAt: now, expiresAt: Math.floor((now + 3_600_000) / 1_000),
       },
-      ConditionExpression: 'attribute_not_exists(id) OR sweptAt < :since',
-      ExpressionAttributeValues: { ':since': now - scaleInSweepMs },
+      ...(releasing ? {} : {
+        ConditionExpression: 'attribute_not_exists(id) OR sweptAt < :since',
+        ExpressionAttributeValues: { ':since': now - scaleInSweepMs },
+      }),
     }));
   } catch (error) {
     if (error.name === 'ConditionalCheckFailedException') return null;
@@ -1754,6 +1782,7 @@ async function sweepIdleWorkers(now = Date.now()) {
       workers,
       now,
       idleMs: scaleInIdleMs,
+      releasedWorkerIds,
       minSize: Number(group?.MinSize || 0),
       desired: Number(group?.DesiredCapacity || 0),
       lastDemandByModel: demandMap(items),
@@ -1808,6 +1837,28 @@ async function sweepIdleWorkers(now = Date.now()) {
   }
 }
 
+// An owner gives its GPUs back (a Voice Studio test slot ended with no slot
+// soon after): its ownership records go, and each of its GPUs is removed as
+// soon as nothing runs on it, instead of waiting out the idle timer.
+async function releaseOwner(ownerKey, now = Date.now()) {
+  if (!ownerKey) return { statusCode: 400, error: 'ownerKey is required' };
+  const items = await scanState();
+  const records = items.filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey === ownerKey);
+  await Promise.all(records.map((item) => document.send(new DeleteCommand({ TableName: tableName, Key: { id: item.id } })).catch(() => {})));
+  const releasedWorkerIds = records.map((item) => item.instanceId).filter(Boolean);
+  const removed = [];
+  // One removal per sweep: repeat for each released GPU that is idle.
+  for (let index = 0; index < releasedWorkerIds.length; index += 1) {
+    const instanceId = await sweepIdleWorkers(now, { releasedWorkerIds: releasedWorkerIds.filter((id) => !removed.includes(id)) })
+      .catch((error) => { console.error('[model-coordinator][release]', error?.message || error); return null; });
+    if (!instanceId) break;
+    removed.push(instanceId);
+    if (!releasedWorkerIds.includes(instanceId)) break;
+  }
+  console.log('[model-coordinator][decision]', JSON.stringify({ request: 'release', ownerKey, released: releasedWorkerIds, removed }));
+  return { statusCode: 200, released: releasedWorkerIds, removed };
+}
+
 async function withSweep(result) {
   try {
     await sweepIdleWorkers();
@@ -1840,6 +1891,7 @@ export async function handler(event = {}) {
     }
     if (event.action === 'synthesize') return withSweep(await synthesize(event));
     if (event.action === 'sweep') return { statusCode: 200, removed: await sweepIdleWorkers() };
+    if (event.action === 'release') return releaseOwner(clean(event.ownerKey));
     return { statusCode: 400, error: 'Unknown coordinator action' };
   } catch (error) {
     console.error('[model-coordinator]', error);

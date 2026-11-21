@@ -708,3 +708,24 @@ test('a reserved GPU (Voice Studio) is never switched by another caller, however
   assert.equal(chooseCapacityAction({ ...base, reservedWorkerIds: ['i-studio'] }).type, 'scale', 'reserved: another site gets its own GPU');
   assert.equal(chooseCapacityAction({ ...base, requestedModelKey: 'studio-voice', reservedWorkerIds: ['i-studio'] }).type, 'route', 'its own voice still routes');
 });
+
+test('a soft-held GPU (Voice Studio super users) is someone else\'s only after 10 min unused', () => {
+  const now = 10 * 3600_000;
+  const gpu = { instanceId: 'i-su', state: 'READY', reachable: true, modelKey: 'su-voice', active: 0, queued: 0, maxSlots: 2, lastActivityAt: now - 4 * 60_000, firstSeenAt: 1 };
+  const ask = (lastUse) => chooseCapacityAction({
+    workers: [{ ...gpu, lastActivityAt: lastUse }], requestedModelKey: 'other-site', now, reassignIdleMs: 0,
+    heldSinceByWorker: { 'i-su': lastUse },
+  }).type;
+  assert.equal(ask(now - 4 * 60_000), 'scale', 'used 4 min ago: held');
+  assert.equal(ask(now - 11 * 60_000), 'reassign', 'unused 11 min: may switch');
+});
+
+test('a released GPU (slot over) scales in as soon as it is idle', async () => {
+  const { scaleInCandidates } = await import('./decision.js');
+  const now = 10 * 3600_000;
+  const worker = { instanceId: 'i-slot', state: 'READY', reachable: true, modelKey: 'lect', active: 0, queued: 0, lastActivityAt: now - 60_000, firstSeenAt: 1 };
+  const base = { workers: [worker], now, idleMs: 30 * 60_000, minSize: 0, desired: 1 };
+  assert.equal(scaleInCandidates(base).length, 0, 'used a minute ago: kept');
+  assert.equal(scaleInCandidates({ ...base, releasedWorkerIds: ['i-slot'] })[0]?.instanceId, 'i-slot');
+  assert.equal(scaleInCandidates({ ...base, releasedWorkerIds: ['i-slot'], workers: [{ ...worker, active: 1 }] }).length, 0, 'never while speaking');
+});

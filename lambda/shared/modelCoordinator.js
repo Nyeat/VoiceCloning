@@ -194,11 +194,21 @@ export function ttsSiteOption(event, env = process.env) {
   return origin && allowed.includes(origin) ? { singleGpu: true } : {};
 }
 
-// Voice Studio owns its GPU outright: one owner for the whole site (super users'
-// testing and lecturers' test slots), so a slot warm-up switches the studio's
-// own GPU at once, and no other site ever switches it (a "reserved:" owner —
-// see the coordinator's reservedWorkerIds).
-export const STUDIO_GPU_OWNER = 'reserved:studio';
+// Voice Studio's GPU, one owner ("studio") in two kinds (see the coordinator):
+//  - super users testing: a soft hold — another site may switch it only after
+//    10 min unused; it scales in after the usual idle time;
+//  - a lecturer's test slot: a hard reservation — nobody else switches it, it
+//    never idles out during the slot, and the studio releases it after.
+// Same owner, so a slot warm-up takes the super users' GPU at once.
+export const STUDIO_GPU_OWNER = 'held:studio';
+export const STUDIO_SLOT_OWNER = 'reserved:studio';
+
+/** Gives an owner's GPUs back; each is removed as soon as nothing runs on it. */
+export async function releaseCoordinatedOwner(ownerKey) {
+  const result = await invokeCoordinator({ action: 'release', ownerKey });
+  if (result && Number(result.statusCode) >= 400) throwCoordinatorError(result);
+  return result;
+}
 function isStudioOrigin(origin, env = process.env) {
   const studio = String(env.STUDIO_SITE_ORIGINS || '').split(',')
     .map((value) => value.trim().replace(/\/+$/u, '')).filter(Boolean);

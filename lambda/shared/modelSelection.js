@@ -465,10 +465,13 @@ async function resolveReferenceWarmState({
   };
 }
 
+// force: write even when the profile already carries this selection (creating a
+// new profile record, whose draft is built with the selection in it).
 export async function persistSavedProfileReferenceSelection(profile, selection, {
   readObject = getObject,
   writeObject = uploadBuffer,
   now = () => new Date().toISOString(),
+  force = false,
 } = {}) {
   const normalizedProfile = normalizeSavedProfile(profile);
   const normalizedSelection = normalizeReferenceWarmPayload(selection);
@@ -479,7 +482,7 @@ export async function persistSavedProfileReferenceSelection(profile, selection, 
   }
 
   const existingSelection = normalizeReferenceWarmPayload(normalizedProfile);
-  if (sameReferenceWarmPayload(existingSelection, normalizedSelection) && hasAuxiliaryReferenceSelection(normalizedProfile)) {
+  if (!force && sameReferenceWarmPayload(existingSelection, normalizedSelection) && hasAuxiliaryReferenceSelection(normalizedProfile)) {
     return false;
   }
 

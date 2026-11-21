@@ -843,6 +843,24 @@ test('ensure builds a saved profile for a trained voice that has none', async ()
   assert.equal(profile.ref_audio_path, SELECTION.ref_audio_path);
 });
 
+test('ensure really writes the profile with the real persister (selection not pre-merged)', async () => {
+  const { persistSavedProfileReferenceSelection } = await import('../shared/modelSelection.js');
+  const stored = new Map();
+  const handler = ensureHandler(NAT, {
+    persistProfile: (profile, selection, options) => persistSavedProfileReferenceSelection(profile, selection, {
+      ...options,
+      readObject: async () => null,
+      writeObject: async (key, body) => { stored.set(key, JSON.parse(String(body))); },
+    }),
+  });
+  const response = await handler(ensureEvent({ voiceName: 'cs-nathanael-ng' }));
+  assert.equal(response.statusCode, 200, response.body);
+  const saved = [...stored.values()].find((value) => value.voiceProfileId === 'cs-nathanael-ng-v1');
+  assert.ok(saved, 'the profile was written');
+  assert.equal(saved.ref_audio_path, SELECTION.ref_audio_path);
+  assert.deepEqual(saved.aux_ref_audio_paths, SELECTION.aux_ref_audio_paths);
+});
+
 test('ensure is idempotent — an existing profile is returned, not rebuilt', async () => {
   let persisted = 0;
   const handler = ensureHandler(NAT, {

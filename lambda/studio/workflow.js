@@ -810,6 +810,11 @@ export function nextWarmState(previous, capacity, now) {
   };
 }
 
+/** Ended test slots whose GPU warm-up ran and has not been released yet. */
+export function slotsToRelease(state, now) {
+  return state.slots.filter((slot) => slotHoldsGpu(slot) && slot.warm && !slot.gpuReleasedAt && ms(slot.end) <= now);
+}
+
 /** The GPU must stay on (and be started) while any of this is true. */
 export function gpuDemand(state, now) {
   if (state.jobs.some((job) => real(job) && (job.status === 'training' || job.status === 'queued'))) return 'training';

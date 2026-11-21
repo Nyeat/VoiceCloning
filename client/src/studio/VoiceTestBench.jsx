@@ -34,15 +34,17 @@ function useVoiceReady(voiceName) {
     let cancelled = false;
     let timer = null;
     const voiceProfileId = buildVoiceProfileId(voiceName);
-    async function check(first) {
+    let ensured = false;
+    async function check() {
       try {
-        if (first) {
+        if (!ensured) {
           // A trained voice needs its saved record before it can be prepared.
           try {
             await ensureVoiceProfile(voiceName);
           } catch (err) {
             if (err?.response?.status !== 409 || !/exist/iu.test(err?.response?.data?.error || '')) throw err;
           }
+          ensured = true; // retried on every poll until the voice record exists
         }
         const { data } = await prepareVoiceCapacity(voiceProfileId);
         if (cancelled) return;
@@ -62,10 +64,10 @@ function useVoiceReady(voiceName) {
         }
         setState((current) => ({ ...current, status: current.status === 'ready' ? 'ready' : 'starting', error: message }));
       }
-      timer = window.setTimeout(() => check(false), 10_000);
+      timer = window.setTimeout(check, 10_000);
     }
     setState({ status: 'checking', capacity: null, error: '' });
-    check(true);
+    check();
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [voiceName]);
   return state;
@@ -286,6 +288,7 @@ export default function VoiceTestBench({
       </Card>
       {audience === 'superuser' && <GpuWaitDialog wait={waitFor(voice, gpu)} />}
       {gpu.status === 'error' && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{gpu.error}</p>}
+      {gpu.status !== 'error' && gpu.error && audience === 'superuser' && <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">Still trying: {gpu.error}</p>}
       {audience === 'lecturer' && !ready ? <WarmingCard gpu={gpu} slotWarm={slotWarm} /> : (
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <Card className="min-h-[560px] overflow-hidden">

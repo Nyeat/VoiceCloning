@@ -55,13 +55,20 @@ async function defaultStartGpu() {
 // is being removed). No other site can switch it meanwhile.
 // Returns the coordinator's answer (state, canStartConversation, …).
 async function defaultPreloadVoice(voiceName) {
-  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel, STUDIO_GPU_OWNER }, { buildVoiceProfileId }] = await Promise.all([
+  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel, STUDIO_SLOT_OWNER }, { buildVoiceProfileId }] = await Promise.all([
     import('../shared/voiceProfileRuntime.js'),
     import('../shared/modelCoordinator.js'),
     import('../shared/voiceIdentity.js'),
   ]);
   const body = await createVoiceProfileResolver()({ voiceProfileId: buildVoiceProfileId(voiceName), text: 'Voice Studio slot warm-up.' });
-  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey: STUDIO_GPU_OWNER });
+  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey: STUDIO_SLOT_OWNER });
+}
+
+// The slot's GPU after its last slot (no other slot within the hour): released
+// so it shuts down now rather than after the idle timer.
+async function defaultReleaseSlotGpu() {
+  const { releaseCoordinatedOwner, STUDIO_SLOT_OWNER } = await import('../shared/modelCoordinator.js');
+  return releaseCoordinatedOwner(STUDIO_SLOT_OWNER);
 }
 
 async function readJsonObject(key) {
@@ -87,6 +94,7 @@ export function createStudioService({
   writeJson = (key, value) => uploadBuffer(key, Buffer.from(JSON.stringify(value, null, 2)), 'application/json'),
   applyPronunciation = (voiceName) => inferencePost('/inference/start', { pronunciationVoice: voiceName }),
   preloadVoice = defaultPreloadVoice,
+  releaseSlotGpu = defaultReleaseSlotGpu,
 } = {}) {
   async function takenVoiceNames(state) {
     const trained = await listVoices();
@@ -262,6 +270,23 @@ export function createStudioService({
         if (current.warm.state === 'READY' && !current.preloadedAt) current.preloadedAt = new Date(now).toISOString();
         return null;
       });
+    }
+
+    // Slot over and no slot soon after: give its GPU back (shuts down now).
+    const finished = wf.slotsToRelease(state, now);
+    if (!hold && finished.length > 0) {
+      try {
+        await releaseSlotGpu();
+        await updateState(store, (draft) => {
+          for (const slot of finished) {
+            const current = wf.findSlot(draft, slot.id);
+            if (current) current.gpuReleasedAt = new Date(now).toISOString();
+          }
+          return null;
+        });
+      } catch (error) {
+        console.warn(`[studio] slot GPU release failed (retried next tick): ${error.message}`);
+      }
     }
 
     const demand = wf.gpuDemand(state, now);

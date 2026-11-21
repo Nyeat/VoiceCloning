@@ -8,6 +8,7 @@ export function chooseCapacityAction({
   ownedWorkerIds = [],
   foreignOwnedWorkerIds = [],
   reservedWorkerIds = [],
+  heldSinceByWorker = {},
 } = {}) {
   const available = workers.filter((worker) => (
     ['READY', 'UNASSIGNED'].includes(worker.state) && worker.reachable !== false
@@ -32,7 +33,7 @@ export function chooseCapacityAction({
 
   const reassignable = reassignCandidates({
     workers, requestedModelKey, lastDemandByModel, now, reassignIdleMs, reassigningWorkerIds, ownedWorkerIds,
-    foreignOwnedWorkerIds, reservedWorkerIds,
+    foreignOwnedWorkerIds, reservedWorkerIds, heldSinceByWorker,
   });
   if (reassignable.length > 0) return { type: 'reassign', worker: reassignable[0] };
 
@@ -47,6 +48,8 @@ export function chooseCapacityAction({
 // activity (2026-11-19 staging, same rule as scale-in).
 // Page polls run every 15 s while someone waits for a booting GPU.
 export const BOOT_WAITER_GRACE_MS = 60_000;
+// A soft-held GPU is someone else's to switch only after this long unused.
+export const HELD_IDLE_MS = 10 * 60_000;
 
 // A freshly booted GPU's warm-up sentences run before it registers its voice,
 // so "registered after its last activity" means nobody has spoken through it
@@ -74,6 +77,9 @@ export function reassignCandidates({
   // Hard reservations (e.g. Voice Studio's GPU): never switched by anyone else,
   // however long idle, while the reservation is fresh.
   reservedWorkerIds = [],
+  // Soft holds (e.g. Voice Studio super users' GPU): another caller may switch
+  // it only after HELD_IDLE_MS without use. instanceId -> last owner use (ms).
+  heldSinceByWorker = {},
 } = {}) {
   const reserved = new Set(reservedWorkerIds.filter(Boolean));
   // A worker already promised to another model is not spare capacity. Without
@@ -104,6 +110,8 @@ export function reassignCandidates({
       if (worker.residencyLocked === true) return false;
       if (promised.has(worker.instanceId)) return false;
       if (reserved.has(worker.instanceId)) return false;
+      const heldSince = Number(heldSinceByWorker[worker.instanceId] || 0);
+      if (heldSince && now - Math.max(heldSince, Number(worker.lastActivityAt || 0)) < HELD_IDLE_MS) return false;
       if (worker.active !== 0 || worker.queued !== 0) return false;
       if (ownSwitchable(worker)) return true;
       const spareCopy = (holders.get(worker.modelKey) || 0) > 1;
@@ -371,6 +379,7 @@ export function scaleInCandidates({
   workers = [],
   now = Date.now(),
   idleMs = 15 * 60_000,
+  releasedWorkerIds = [],
   minSize = 0,
   desired = 0,
   lastDemandByModel = {},
@@ -382,6 +391,7 @@ export function scaleInCandidates({
       holders.set(worker.modelKey, (holders.get(worker.modelKey) || 0) + 1);
     }
   }
+  const released = new Set(releasedWorkerIds.filter(Boolean));
   // Demand for a voice keeps its LAST GPU warm, not every copy of it. Routing
   // packs requests onto the oldest matching GPU, so a spare overflow copy goes
   // idle by its own activity; counting the voice's demand against it meant it
@@ -398,8 +408,9 @@ export function scaleInCandidates({
       && worker.residencyLocked !== true
       && Number(worker.active || 0) === 0
       && Number(worker.queued || 0) === 0
-      && now - idleSince(worker) >= idleMs
+      && (released.has(worker.instanceId) || now - idleSince(worker) >= idleMs)
     ))
-    .sort((a, b) => idleSince(a) - idleSince(b)
+    .sort((a, b) => Number(released.has(b.instanceId)) - Number(released.has(a.instanceId))
+      || idleSince(a) - idleSince(b)
       || Number(b.firstSeenAt || 0) - Number(a.firstSeenAt || 0));
 }
