@@ -7,8 +7,8 @@ const enc = encodeURIComponent;
 export const getMe = () => api.get('/studio/me').then((res) => res.data);
 
 // consent: the record the lecturer accepted (super users send none).
-export async function createSubmission({ label, name, consent = null }) {
-  return (await api.post('/studio/submissions', { label, name, ...(consent ? { consent } : {}) })).data;
+export async function createSubmission({ label, name, consent = null, trainingConfig = null }) {
+  return (await api.post('/studio/submissions', { label, name, ...(consent ? { consent } : {}), ...(trainingConfig ? { trainingConfig } : {}) })).data;
 }
 
 /** Email + password sign-in. mode: 'login' | 'register'. No token is needed (or sent if absent). */

@@ -23,6 +23,7 @@ import {
 } from './StudioChrome.jsx';
 import { ConsentDialog, FaqList, FaqPage, readStudioConsent } from './ConsentAndFaq.jsx';
 import { CONSENT_VERSION } from './faqContent.js';
+import { TrainingSettings, trainingSettingsPayload } from './TrainingSettings.jsx';
 
 const AUDIO_ACCEPT = '.wav,.mp3,.m4a,.flac,.ogg,audio/wav,audio/mpeg,audio/mp4,audio/flac,audio/ogg';
 const AUDIO_EXT = /\.(wav|mp3|m4a|flac|ogg)$/iu;
@@ -341,8 +342,9 @@ function TakeRow({ take, onRemove }) {
   );
 }
 
-function FilesPanel({ takes, setTakes, onSubmit, submitting, progress }) {
+function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser = false }) {
   const inputRef = useRef(null);
+  const [settings, setSettings] = useState({ skipDenoise: true });
   const [dragging, setDragging] = useState(false);
   const [label, setLabel] = useState('My teaching voice');
   const [rejected, setRejected] = useState('');
@@ -413,13 +415,19 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress }) {
           className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
         {minutes > 0 && minutes < 5 && <p className="text-xs text-amber-700">Under 5 minutes usually gives a weak voice. You can still submit.</p>}
+        {superuser && (
+          <details className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-600">Training settings (super users)</summary>
+            <div className="mt-3"><TrainingSettings value={settings} onChange={setSettings} disabled={submitting} /></div>
+          </details>
+        )}
         {submitting ? (
           <div>
             <div className="mb-1 flex justify-between text-xs text-slate-600"><span>Uploading…</span><span>{Math.round(progress * 100)}%</span></div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-primary transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
           </div>
         ) : (
-          <Button variant="primary" size="lg" className="w-full" disabled={takes.length === 0} onClick={() => onSubmit(label)}>
+          <Button variant="primary" size="lg" className="w-full" disabled={takes.length === 0} onClick={() => onSubmit(label, superuser ? trainingSettingsPayload(settings) : null)}>
             Submit for training
           </Button>
         )}
@@ -435,6 +443,13 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress }) {
 // ── Status of earlier submissions ────────────────────────────────────────
 
 function lecturerStatusLine(job, now) {
+  const retrain = job.attempt > 1;
+  if (job.status === 'queued' && retrain) {
+    return job.estimate ? `Retraining to improve it (try ${job.attempt}) — should finish around ${formatSgt(job.estimate.finishAt)} SGT. Then it goes back to quality check.` : `Queued for retraining (try ${job.attempt}). Then it goes back to quality check.`;
+  }
+  if (job.status === 'training' && retrain) {
+    return job.estimate ? `Retraining now (try ${job.attempt}) — should finish around ${formatSgt(job.estimate.finishAt)} SGT. Then it goes back to quality check.` : `Retraining now (try ${job.attempt}). Then it goes back to quality check.`;
+  }
   if (job.status === 'queued') {
     return job.estimate ? `Queued (#${job.estimate.position}) — training should finish around ${formatSgt(job.estimate.finishAt)} SGT (${relativeFromNow(job.estimate.finishAt, now)}).` : 'Queued for training.';
   }
@@ -560,13 +575,13 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
     return () => window.removeEventListener('beforeunload', warn);
   }, [takes.length, submitted]);
 
-  async function submit(label) {
+  async function submit(label, trainingConfig = null) {
     setSubmitting(true);
     setError('');
     setProgress(0);
     try {
       if (consentMissing) { setConsentOpen(true); throw new Error('Please accept the consent form first.'); }
-      const { jobId } = await createSubmission({ label, name: auth.user?.name || '', consent: needsConsent ? consent : null });
+      const { jobId } = await createSubmission({ label, name: auth.user?.name || '', consent: needsConsent ? consent : null, trainingConfig });
       const view = await uploadAndSubmit(jobId, takes, { onProgress: setProgress });
       setMe(view);
       setSubmitted(view.jobs.find((job) => job.id === jobId) || { id: jobId });
@@ -633,7 +648,7 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
             disabled={submitting || consentMissing || !me}
             onNeedConsent={consentMissing ? () => setConsentOpen(true) : null}
           />
-          <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} />
+          <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} superuser={me?.role === 'superuser'} />
         </div>
 
         {!embedded && <MySubmissions me={me} onWithdraw={withdraw} />}

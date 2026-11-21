@@ -181,7 +181,21 @@ export function removeSuperuser(state, email, actor, env = process.env) {
 
 // ── Jobs ─────────────────────────────────────────────────────────────────
 
-export function createJob(state, { id, ownerEmail, ownerName = '', expName, label = '', consent = null, now }) {
+// The recipe fields a super user may set (record page, retrain form). Anything
+// else, or out of range, is dropped so a bad value never reaches the GPU.
+export function sanitizeTrainingConfig(input) {
+  const out = {};
+  if (!input || typeof input !== 'object') return out;
+  if (typeof input.skipDenoise === 'boolean') out.skipDenoise = input.skipDenoise;
+  for (const [key, min, max] of [['sovitsEpochs', 1, 30], ['gptEpochs', 1, 50], ['batchSize', 1, 4]]) {
+    if (input[key] === '' || input[key] == null) continue;
+    const value = Number(input[key]);
+    if (Number.isInteger(value) && value >= min && value <= max) out[key] = value;
+  }
+  return out;
+}
+
+export function createJob(state, { id, ownerEmail, ownerName = '', expName, label = '', consent = null, trainingConfig = null, now }) {
   const job = {
     id,
     ownerEmail: normalizeEmail(ownerEmail),
@@ -199,7 +213,7 @@ export function createJob(state, { id, ownerEmail, ownerName = '', expName, labe
     attempts: [],
     files: [],
     totalBytes: 0,
-    trainingConfig: { ...BASE_TRAINING_CONFIG },
+    trainingConfig: { ...BASE_TRAINING_CONFIG, ...sanitizeTrainingConfig(trainingConfig) },
     createdAt: iso(now),
     queuedAt: null,
     startedAt: null,
@@ -345,8 +359,8 @@ export function markTrainingFinished(state, job, { ok: succeeded, error = '', no
 /**
  * The retrain is changed by what was wrong, not repeated: GPT-SoVITS' SoVITS
  * stage owns timbre (sounds like the speaker), its GPT stage owns words and
- * rhythm, and noise is a data problem (force denoising, and stop before the
- * model memorises the hiss). Explicit epoch overrides from the reviewer win.
+ * rhythm, and noise is a data problem (denoise only then, and stop before the
+ * model memorises the hiss). Explicit settings from the reviewer win.
  */
 export function retrainConfig(previous, reasons = [], overrides = {}) {
   const config = { ...BASE_TRAINING_CONFIG, ...previous };
@@ -363,10 +377,8 @@ export function retrainConfig(previous, reasons = [], overrides = {}) {
     config.sovitsEpochs = Math.min(16, config.sovitsEpochs + 2);
     config.gptEpochs = Math.min(30, config.gptEpochs + 5);
   }
-  const sovits = Number(overrides.sovitsEpochs);
-  const gpt = Number(overrides.gptEpochs);
-  if (Number.isInteger(sovits) && sovits >= 1 && sovits <= 30) config.sovitsEpochs = sovits;
-  if (Number.isInteger(gpt) && gpt >= 1 && gpt <= 50) config.gptEpochs = gpt;
+  // The reviewer's explicit settings (epochs, batch size, noise removal) win.
+  Object.assign(config, sanitizeTrainingConfig(overrides));
   return config;
 }
 
@@ -893,8 +905,8 @@ export function lecturerJob(job, estimate) {
   };
 }
 
-// "Retraining after review" is shown to the lecturer as plain "queued": the
-// quality check is internal, and the email promise covers both.
+// A retrain after review is "queued"/"training" again with attempt > 1; the
+// lecturer page labels that stage "Retraining". The review itself is internal.
 function lecturerStatus(status) {
   if (status === 'approved' || status === 'scheduled') return 'ready';
   if (status === 'review') return 'quality-check';

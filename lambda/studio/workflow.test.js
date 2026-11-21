@@ -315,3 +315,18 @@ test('fixed GPU demand: super users testing keeps it on for 30 min after their l
   assert.equal(wf.gpuDemand(state, T0 + 29 * MIN), 'testing');
   assert.equal(wf.gpuDemand(state, T0 + 31 * MIN), '');
 });
+
+test('super-user training settings are sanitized and honoured', () => {
+  assert.deepEqual(wf.sanitizeTrainingConfig({ skipDenoise: false, sovitsEpochs: '12', gptEpochs: 99, batchSize: 3, evil: 1 }),
+    { skipDenoise: false, sovitsEpochs: 12, batchSize: 3 });
+  assert.deepEqual(wf.sanitizeTrainingConfig({ sovitsEpochs: '', gptEpochs: null }), {});
+  const state = wf.emptyState();
+  const made = wf.createJob(state, { id: 's1', ownerEmail: 'su@ntu.edu.sg', expName: 'su-v', trainingConfig: { skipDenoise: false, gptEpochs: 20 }, now: Date.now() });
+  assert.equal(made.trainingConfig.skipDenoise, false);
+  assert.equal(made.trainingConfig.gptEpochs, 20);
+  assert.equal(made.trainingConfig.sovitsEpochs, wf.BASE_TRAINING_CONFIG.sovitsEpochs);
+  // An explicit reviewer choice beats the "noisy" recipe, both ways.
+  assert.equal(wf.retrainConfig({}, ['noisy'], { skipDenoise: true }).skipDenoise, true);
+  assert.equal(wf.retrainConfig({}, [], { skipDenoise: false, batchSize: 1 }).skipDenoise, false);
+  assert.equal(wf.retrainConfig({}, [], { batchSize: 1 }).batchSize, 1);
+});

@@ -2735,3 +2735,8 @@
   says "noisy" (no inheriting old `false`). With denoise off, `denoised/` holds the 32 kHz slices, so refs are fixed too.
 - Tests: lambda studio+training 49/49, gpu-worker 27/27, client 561/561. Not deployed; already-queued Studio jobs keep
   their stored `skipDenoise:false`. Existing models must be RETRAINED to benefit (references included).
+- Voice Studio training settings (not deployed): super users get "Training settings" on the record page (skip noise
+  removal default on, SoVITS/GPT epochs, batch size) -> `trainingConfig` on POST submissions (super users only,
+  `wf.sanitizeTrainingConfig`). Retrain form shows the same settings (noise removal follows "Noisy" until changed).
+  Lecturer page labels a retrain "Retraining" (try n) -> quality check -> test. New `client/src/studio/TrainingSettings.jsx`.
+  Tests: lambda studio 32/32, client 561/561, studio build OK. Not clicked through in a browser.

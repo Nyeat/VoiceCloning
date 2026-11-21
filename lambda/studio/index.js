@@ -566,7 +566,7 @@ export function createHandler({
           if (open.length >= 5) throw wf.clientError(429, 'You already have 5 recording sets waiting. Please wait for them to train.');
           const expName = nextVoiceName(email, await service.takenVoiceNames(state), STUDIO_IDENTITY);
           if (!expName) throw wf.clientError(409, 'You have too many voices; ask a super user to remove one');
-          const job = wf.createJob(state, { id: newId(), ownerEmail: email, ownerName: body.name, expName, label: body.label, consent: superuser ? null : body.consent, now });
+          const job = wf.createJob(state, { id: newId(), ownerEmail: email, ownerName: body.name, expName, label: body.label, consent: superuser ? null : body.consent, trainingConfig: superuser ? body.trainingConfig : null, now });
           job.recordingSlotId = access.slot?.id || '';
           return { job };
         });

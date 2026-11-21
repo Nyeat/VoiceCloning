@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { getMyVoiceProfiles } from '@/services/api';
 import VoiceTestBench from './VoiceTestBench.jsx';
 import { RecordWorkspace } from './RecordApp.jsx';
+import { TrainingSettings, trainingSettingsPayload } from './TrainingSettings.jsx';
 import { FaqList, FaqPage } from './ConsentAndFaq.jsx';
 import { saveStudioSession } from '@/auth/studioSession.js';
 import { DayTimeline, Legend, MonthCalendar, TONES } from './SlotCalendar.jsx';
@@ -305,8 +306,9 @@ function ReviewForm({ job, reasons, maxAttempts, onAction }) {
   const [mode, setMode] = useState('');
   const [picked, setPicked] = useState([]);
   const [notes, setNotes] = useState('');
-  const [sovits, setSovits] = useState('');
-  const [gpt, setGpt] = useState('');
+  // Noise removal follows the recipe ("Noisy" turns it on) until the reviewer sets it.
+  const [settings, setSettings] = useState({});
+  const effective = { ...settings, skipDenoise: settings.skipDenoise ?? !picked.includes('noisy') };
   const atLimit = job.attempt >= maxAttempts;
 
   if (job.status !== 'review') return null;
@@ -334,15 +336,17 @@ function ReviewForm({ job, reasons, maxAttempts, onAction }) {
           <ul className="text-xs leading-5 text-slate-600">
             <li>• Not like the speaker → more SoVITS (timbre) training.</li>
             <li>• Mispronounces / robotic → more GPT (words and rhythm) training.</li>
-            <li>• Noisy → forces denoising and trains a little less, so noise is not learned.</li>
+            <li>• Noisy → turns noise removal on and trains a little less, so noise is not learned. Otherwise noise removal stays off.</li>
             <li>• The retrain is a new voice version; this one is kept for comparison.</li>
           </ul>
-          <details className="text-sm">
-            <summary className="cursor-pointer text-xs font-medium text-slate-600">Advanced: set epochs yourself (now SoVITS {job.trainingConfig?.sovitsEpochs}, GPT {job.trainingConfig?.gptEpochs})</summary>
-            <div className="mt-2 flex gap-2">
-              <input value={sovits} onChange={(event) => setSovits(event.target.value)} placeholder="SoVITS epochs" inputMode="numeric" className="h-9 w-36 rounded-lg border border-slate-300 px-2 text-sm" />
-              <input value={gpt} onChange={(event) => setGpt(event.target.value)} placeholder="GPT epochs" inputMode="numeric" className="h-9 w-36 rounded-lg border border-slate-300 px-2 text-sm" />
-            </div>
+          <details className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" open>
+            <summary className="cursor-pointer text-xs font-semibold text-slate-600">Retrain settings (last run: SoVITS {job.trainingConfig?.sovitsEpochs}, GPT {job.trainingConfig?.gptEpochs}, batch {job.trainingConfig?.batchSize ?? 'default'}, noise removal {job.trainingConfig?.skipDenoise ? 'off' : 'on'})</summary>
+            <p className="mt-1 text-xs text-slate-500">Blank numbers follow the recipe above.</p>
+            <div className="mt-2"><TrainingSettings
+              value={effective}
+              current={job.trainingConfig}
+              onChange={(next) => setSettings((prev) => ({ ...prev, ...next, skipDenoise: next.skipDenoise === effective.skipDenoise ? prev.skipDenoise : next.skipDenoise }))}
+            /></div>
           </details>
           {atLimit && <Notice tone="warn" className="text-xs">This is attempt {job.attempt} of {maxAttempts}. Another retrain rarely helps — consider asking for new recordings. You can still force it.</Notice>}
           <Button
@@ -351,7 +355,7 @@ function ReviewForm({ job, reasons, maxAttempts, onAction }) {
               decision: 'reject',
               reasons: picked,
               notes,
-              overrides: { ...(sovits ? { sovitsEpochs: Number(sovits) } : {}), ...(gpt ? { gptEpochs: Number(gpt) } : {}), ...(atLimit ? { force: true } : {}) },
+              overrides: { ...trainingSettingsPayload(effective), ...(atLimit ? { force: true } : {}) },
             }))}
           >
             Send back for retraining
@@ -1125,10 +1129,11 @@ function journeyStep(status) {
   return 0;
 }
 
-function JourneySteps({ step }) {
+function JourneySteps({ step, retrain = false }) {
   return (
     <ol className="flex items-center">
-      {JOURNEY.map(([key, label], index) => {
+      {JOURNEY.map(([key, baseLabel], index) => {
+        const label = retrain && key === 'training' ? 'Retraining' : baseLabel;
         const done = index < step;
         const current = index === step;
         return (
@@ -1154,11 +1159,14 @@ function JourneySteps({ step }) {
 function VoiceJourney({ job, now, testSlot }) {
   const step = journeyStep(job.status);
   const estimate = job.estimate;
+  // A retrain after quality check goes round again: retraining → quality check → test.
+  const retrain = job.attempt > 1 && (job.status === 'queued' || job.status === 'training');
   let title = '';
   let body = null;
   if (job.status === 'queued') {
     const ahead = Math.max(0, (estimate?.position || 1) - 1);
-    title = ahead > 0 ? `Waiting to train — ${ahead} voice${ahead === 1 ? '' : 's'} ahead of yours` : 'Waiting to train — yours is next';
+    const verb = retrain ? 'retrain' : 'train';
+    title = ahead > 0 ? `Waiting to ${verb} — ${ahead} voice${ahead === 1 ? '' : 's'} ahead of yours` : `Waiting to ${verb} — yours is next`;
     body = estimate
       ? <p>Training should start {formatSgt(estimate.startAt)} and finish around <b>{formatSgt(estimate.finishAt)}</b> ({relativeFromNow(estimate.finishAt, now)}).</p>
       : <p>Your voice starts training as soon as the GPU is free.</p>;
@@ -1166,7 +1174,7 @@ function VoiceJourney({ job, now, testSlot }) {
     const start = Date.parse(estimate?.startAt || job.queuedAt || '') || now;
     const finish = Date.parse(estimate?.finishAt || '') || 0;
     const pct = finish > start ? Math.max(4, Math.min(96, Math.round(((now - start) / (finish - start)) * 100))) : 50;
-    title = 'Training your voice now';
+    title = retrain ? 'Retraining your voice now' : 'Training your voice now';
     body = (
       <>
         <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
@@ -1189,12 +1197,13 @@ function VoiceJourney({ job, now, testSlot }) {
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{job.label}</p>
         {job.attempt > 1 && job.status !== 'ready' && <span className="text-xs text-slate-400">improving it (try {job.attempt})</span>}
       </div>
-      <div className="mt-5"><JourneySteps step={step} /></div>
+      <div className="mt-5"><JourneySteps step={step} retrain={retrain} /></div>
       <div className="mt-6 rounded-2xl bg-slate-50 px-5 py-4">
         <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
         <div className="mt-1 space-y-1 text-sm leading-6 text-slate-600">
+          {retrain && <p>Our quality check found your voice could sound better, so we are training it again from the same recordings (try {job.attempt}). You do not need to do anything.</p>}
           {body}
-          {(job.status === 'queued' || job.status === 'training') && <p className="text-slate-500">After training comes quality control, which usually takes longer than training.</p>}
+          {(job.status === 'queued' || job.status === 'training') && <p className="text-slate-500">{retrain ? 'After retraining it goes back to quality control, then you can test it.' : 'After training comes quality control, which usually takes longer than training.'}</p>}
         </div>
       </div>
     </Card>
