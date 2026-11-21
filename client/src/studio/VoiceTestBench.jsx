@@ -11,6 +11,8 @@ import { CheckCircle2, Loader2, MessageCircle, Play, ScanSearch, Square, Volume2
 import LivePage from '@/pages/LivePage.jsx';
 import { ensureVoiceProfile, prepareVoiceCapacity, scanOovWords, synthesizeSentence } from '@/services/api';
 import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
+import { voiceCapacityNotice } from '@/lib/voiceCapacity';
+import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
 import { buildVoiceProfileId } from '@/lib/voiceIdentity';
 import { cn } from '@/lib/utils';
 import PronunciationPanel from './PronunciationPanel.jsx';
@@ -23,8 +25,10 @@ function splitSentences(text) {
 }
 
 // Gets the GPU ready with this voice; polls until it can speak.
+// status: 'checking' | 'starting' | 'ready' | 'error'. capacity: the
+// coordinator's answer (state, startedAt, message). error: why it cannot.
 function useVoiceReady(voiceName) {
-  const [state, setState] = useState({ status: 'idle', message: '' });
+  const [state, setState] = useState({ status: 'checking', capacity: null, error: '' });
   useEffect(() => {
     if (!voiceName) return undefined;
     let cancelled = false;
@@ -32,25 +36,93 @@ function useVoiceReady(voiceName) {
     const voiceProfileId = buildVoiceProfileId(voiceName);
     async function check(first) {
       try {
-        if (first) await ensureVoiceProfile(voiceName).catch(() => {});
+        if (first) {
+          // A trained voice needs its saved record before it can be prepared.
+          try {
+            await ensureVoiceProfile(voiceName);
+          } catch (err) {
+            if (err?.response?.status !== 409 || !/exist/iu.test(err?.response?.data?.error || '')) throw err;
+          }
+        }
         const { data } = await prepareVoiceCapacity(voiceProfileId);
         if (cancelled) return;
         if (data?.canStartConversation) {
-          setState({ status: 'ready', message: '' });
+          setState({ status: 'ready', capacity: data, error: '' });
           return;
         }
-        setState({ status: 'starting', message: data?.message || '' });
+        setState({ status: 'starting', capacity: data, error: '' });
       } catch (err) {
         if (cancelled) return;
-        setState({ status: 'starting', message: err?.response?.data?.error || '' });
+        const status = err?.response?.status;
+        const message = err?.response?.data?.error || err?.message || 'Could not get this voice ready';
+        // 4xx: this voice cannot be prepared (no reference audio, not allowed now…) — say so, stop polling.
+        if (status && status < 500) {
+          setState({ status: 'error', capacity: null, error: message });
+          return;
+        }
+        setState((current) => ({ ...current, status: current.status === 'ready' ? 'ready' : 'starting', error: message }));
       }
       timer = window.setTimeout(() => check(false), 10_000);
     }
-    setState({ status: 'starting', message: '' });
+    setState({ status: 'checking', capacity: null, error: '' });
     check(true);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [voiceName]);
   return state;
+}
+
+const BOOT_MINUTES = 15;
+const SWITCH_MINUTES = 2;
+
+// The same popup the training site shows while a GPU starts or switches.
+function waitFor(voiceName, gpu) {
+  const capacity = gpu.capacity;
+  if (gpu.status !== 'starting' || !capacity) return null;
+  const booting = capacity.state === 'STARTING';
+  return {
+    key: `studio-${voiceName}-${capacity.state}-${capacity.startedAt || ''}`,
+    title: booting ? 'Starting a GPU with this voice' : 'Switching the GPU to this voice',
+    message: voiceCapacityNotice(capacity) || capacity.message || 'Getting this voice ready…',
+    estimateSeconds: (booting ? BOOT_MINUTES : SWITCH_MINUTES) * 60,
+    maxSeconds: (booting ? 20 : 3) * 60,
+    startedAt: Number(capacity.startedAt) || Date.now(),
+  };
+}
+
+// Lecturer: no GPU detail, just when to come back.
+function readyEstimate(gpu, slotWarm) {
+  const fromSlot = slotWarm?.estimatedReadyAt ? Date.parse(slotWarm.estimatedReadyAt) : 0;
+  const capacity = gpu.capacity;
+  const started = Number(capacity?.startedAt) || 0;
+  const fromCapacity = started ? started + (capacity?.state === 'STARTING' ? BOOT_MINUTES : SWITCH_MINUTES) * 60_000 : 0;
+  return Math.max(fromSlot, fromCapacity) || 0;
+}
+
+function WarmingCard({ gpu, slotWarm }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const eta = readyEstimate(gpu, slotWarm);
+  const late = eta && now > eta;
+  const time = eta ? new Intl.DateTimeFormat('en-SG', { timeZone: 'Asia/Singapore', hour: 'numeric', minute: '2-digit' }).format(new Date(eta)) : '';
+  return (
+    <Card className="p-8 text-center sm:p-12">
+      <span className="relative mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <Loader2 size={26} className="animate-spin" />
+      </span>
+      <h2 className="mt-5 text-xl font-semibold text-slate-900">Your voice is getting ready</h2>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+        {late
+          ? 'It is taking a little longer than usual. Please check back in a few minutes — this page opens your voice by itself when it is ready.'
+          : time
+            ? <>It should be ready at about <b>{time}</b>{eta - now > 60_000 ? ` (in about ${Math.ceil((eta - now) / 60_000)} min)` : ''}. You can leave this page open — it opens your voice by itself — or come back then.</>
+            : 'This usually takes a few minutes. You can leave this page open — it opens your voice by itself when it is ready.'}
+      </p>
+      {gpu.error && gpu.status === 'error' && <p className="mx-auto mt-4 max-w-md rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{gpu.error}</p>}
+    </Card>
+  );
 }
 
 function ReadAloud({ voiceName, ready, onPickWord }) {
@@ -170,7 +242,11 @@ function ReadAloud({ voiceName, ready, onPickWord }) {
   );
 }
 
-export default function VoiceTestBench({ voiceNames, canApply = true, voiceLabels = {}, header = null }) {
+// audience: 'superuser' (GPU popup, details) or 'lecturer' (tester hidden until
+// the voice is ready; slotWarm = the slot's warm-up state for the estimate).
+export default function VoiceTestBench({
+  voiceNames, canApply = true, voiceLabels = {}, header = null, audience = 'superuser', slotWarm = null,
+}) {
   const [params, setParams] = useSearchParams();
   const requested = params.get('voice') || '';
   const voice = voiceNames.includes(requested) ? requested : voiceNames[0] || '';
@@ -195,9 +271,9 @@ export default function VoiceTestBench({ voiceNames, canApply = true, voiceLabel
             {voiceNames.map((name) => <option key={name} value={name}>{voiceLabels[name] ? `${voiceLabels[name]} (${name})` : name}</option>)}
           </select>
         </label>
-        <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold', ready ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800')}>
-          {ready ? <CheckCircle2 size={13} /> : <Loader2 size={13} className="animate-spin" />}
-          {ready ? 'Ready' : 'Getting the GPU ready with this voice — a cold start takes a few minutes'}
+        <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold', ready ? 'bg-emerald-50 text-emerald-700' : gpu.status === 'error' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800')}>
+          {ready ? <CheckCircle2 size={13} /> : gpu.status === 'error' ? null : <Loader2 size={13} className="animate-spin" />}
+          {ready ? 'Ready' : gpu.status === 'error' ? 'This voice cannot be used' : audience === 'lecturer' ? 'Getting your voice ready' : (gpu.capacity?.state === 'STARTING' ? 'Starting a GPU with this voice' : 'Getting this voice ready')}
         </span>
         <div className="ml-auto flex gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label="How to test">
           {[['read', 'Read aloud', Volume2], ['chat', 'Chat', MessageCircle]].map(([value, label, Icon]) => (
@@ -208,6 +284,9 @@ export default function VoiceTestBench({ voiceNames, canApply = true, voiceLabel
           ))}
         </div>
       </Card>
+      {audience === 'superuser' && <GpuWaitDialog wait={waitFor(voice, gpu)} />}
+      {gpu.status === 'error' && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{gpu.error}</p>}
+      {audience === 'lecturer' && !ready ? <WarmingCard gpu={gpu} slotWarm={slotWarm} /> : (
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <Card className="min-h-[560px] overflow-hidden">
           {tab === 'read'
@@ -216,6 +295,7 @@ export default function VoiceTestBench({ voiceNames, canApply = true, voiceLabel
         </Card>
         <div>{voice ? <PronunciationPanel voiceName={voice} canApply={canApply} prefill={pick} /> : null}</div>
       </div>
+      )}
     </div>
   );
 }

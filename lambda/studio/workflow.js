@@ -32,7 +32,9 @@ export const GPU_BOOT_MINUTES = 5;
 export const MIN_SLOT_MINUTES = 15;
 export const MAX_SLOT_MINUTES = 8 * 60;
 // The GPU is started this long before a slot so the voice is ready at the start.
-export const SLOT_WARMUP_MINUTES = 15;
+export const SLOT_WARMUP_MINUTES = 20;
+// Back-to-back test slots: a gap shorter than this keeps the GPU on between them.
+export const SLOT_BRIDGE_MINUTES = 60;
 
 const MINUTE = 60_000;
 
@@ -175,6 +177,7 @@ export function createJob(state, { id, ownerEmail, ownerName = '', expName, labe
     ownerEmail: normalizeEmail(ownerEmail),
     ownerName: cleanText(ownerName, 80),
     label: cleanText(label, 80) || 'My voice',
+    ...(isFixtureEmail(ownerEmail) ? { fixture: true } : {}),
     expName,
     // What the lecturer agreed to on the recording portal, kept with the set.
     consent: consent ? { version: cleanText(consent.version, 40), acceptedAt: iso(now) } : null,
@@ -733,7 +736,10 @@ export function voiceAccess(state, { email, voiceName, now, superuser }) {
     return { allowed: true, reason: 'in-slot', slot: active };
   }
   if (superuser) {
-    if (active) return { allowed: false, reason: 'slot-in-use', slot: active };
+    // Locked from the slot's warm-up to its end (and across a short gap to the
+    // next slot), so super users never take the GPU a lecturer is about to use.
+    const hold = gpuHold(state, now);
+    if (hold) return { allowed: false, reason: 'slot-in-use', slot: hold.slot };
     return { allowed: true, reason: 'superuser', slot: null };
   }
   if (!ownApproved) return { allowed: false, reason: 'not-approved' };
@@ -758,21 +764,56 @@ export function preloadVoiceFor(state, slot) {
   return approved[0]?.approvedExpName || '';
 }
 
-/** Published, assigned slots inside the warm-up window (or running) whose voice is not loaded yet. */
-export function slotsToPreload(state, now) {
-  return state.slots.filter((slot) => slotHoldsGpu(slot)
-    && !slot.preloadedAt
-    && ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now
-    && now < ms(slot.end));
+/**
+ * Whether a test slot holds the inference GPU now, and for whom: from
+ * SLOT_WARMUP_MINUTES before it starts to its end, and across a gap shorter
+ * than SLOT_BRIDGE_MINUTES to the next slot (the GPU then loads the next
+ * person's voice instead of stopping and starting again). phase: 'warmup' |
+ * 'slot' | 'bridge'.
+ */
+export function gpuHold(state, now) {
+  const slots = state.slots.filter(slotHoldsGpu).sort((a, b) => ms(a.start) - ms(b.start));
+  for (let index = 0; index < slots.length; index += 1) {
+    const slot = slots[index];
+    const from = ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE;
+    if (from <= now && now < ms(slot.end)) return { slot, phase: now < ms(slot.start) ? 'warmup' : 'slot' };
+    const next = slots[index + 1];
+    if (next && ms(slot.end) <= now && now < ms(next.start) - SLOT_WARMUP_MINUTES * MINUTE
+      && ms(next.start) - ms(slot.end) < SLOT_BRIDGE_MINUTES * MINUTE) {
+      return { slot: next, phase: 'bridge' };
+    }
+  }
+  return null;
+}
+
+/**
+ * What a slot's GPU warm-up looks like, from the coordinator's answer: when it
+ * started, whether the voice can speak, and when it should be ready. Kept on
+ * the slot so the lecturer and super users see the same, real estimate.
+ */
+export const GPU_BOOT_ESTIMATE_MINUTES = 15;
+export const GPU_SWITCH_ESTIMATE_MINUTES = 2;
+export function nextWarmState(previous, capacity, now) {
+  const ready = Boolean(capacity?.canStartConversation);
+  const state = String(capacity?.state || (ready ? 'READY' : 'CHECKING'));
+  if (ready) return { state: 'READY', readyAt: previous?.readyAt || iso(now), startedAt: previous?.startedAt || iso(now), checkedAt: iso(now) };
+  // A new phase (e.g. switching after a boot) restarts the clock it is measured by.
+  const samePhase = previous && previous.state === state && previous.state !== 'READY';
+  const startedAt = samePhase ? previous.startedAt : iso(Number(capacity?.startedAt) || now);
+  const minutes = state === 'STARTING' ? GPU_BOOT_ESTIMATE_MINUTES : GPU_SWITCH_ESTIMATE_MINUTES;
+  return {
+    state,
+    startedAt,
+    estimatedReadyAt: iso(ms(startedAt) + minutes * MINUTE),
+    message: cleanText(capacity?.message, 300),
+    checkedAt: iso(now),
+  };
 }
 
 /** The GPU must stay on (and be started) while any of this is true. */
 export function gpuDemand(state, now) {
   if (state.jobs.some((job) => real(job) && (job.status === 'training' || job.status === 'queued'))) return 'training';
-  const soon = state.slots.find((slot) => slotHoldsGpu(slot)
-    && ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now
-    && now < ms(slot.end));
-  return soon ? 'slot' : '';
+  return gpuHold(state, now) ? 'slot' : '';
 }
 
 /** What a lecturer sees in the session table: published upcoming recording sessions. */

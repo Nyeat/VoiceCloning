@@ -743,7 +743,7 @@ function SuperTest({ overview }) {
       .catch((err) => setError(errorText(err, 'Could not load the voices')));
   }, [locked]);
   if (locked) {
-    return <Notice tone="warn">Locked: {overview.currentSlot.assigneeName || overview.currentSlot.assigneeEmail} is using the GPU until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT. Testing opens again after that.</Notice>;
+    return <Notice tone="warn">Locked: the GPU is reserved for {overview.currentSlot.assigneeName || overview.currentSlot.assigneeEmail}'s test slot until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT (from 20 minutes before it starts). Testing opens again after that.</Notice>;
   }
   if (error) return <Notice tone="error">{error}</Notice>;
   if (!voices) return <div className="flex justify-center py-16"><Loader2 className="animate-spin text-slate-400" /></div>;
@@ -844,6 +844,38 @@ function Superusers({ overview, onAction }) {
   );
 }
 
+// The GPU is held for a lecturer's test slot: who, when, and how the warm-up
+// is going — flagged when it runs past its estimate.
+function SlotHoldBanner({ slot, now }) {
+  const who = slot.assigneeName || slot.assigneeEmail;
+  const warm = slot.warm || null;
+  const ready = warm?.state === 'READY';
+  const late = warm && !ready && warm.estimatedReadyAt && now > Date.parse(warm.estimatedReadyAt);
+  const until = formatSgt(slot.end, { withDate: false });
+  let line;
+  if (slot.phase === 'slot') line = <><b>{who}</b> is testing their voice until {until} SGT.</>;
+  else if (slot.phase === 'bridge') line = <>The GPU stays on for <b>{who}</b>'s test at {formatSgt(slot.start, { withDate: false })} SGT (less than an hour after the last one).</>;
+  else line = <>The GPU is warming up for <b>{who}</b>'s test at {formatSgt(slot.start, { withDate: false })} SGT.</>;
+  return (
+    <div className="space-y-2">
+      <Notice tone="warn" className="flex items-center gap-2">
+        <ShieldCheck size={16} className="shrink-0" />
+        <span>
+          {line} Voice testing is locked for super users until {until} SGT; reviews, scheduling and admin still work.
+          {warm && !ready && !late && warm.estimatedReadyAt && <> Their voice should be ready at about {formatSgt(warm.estimatedReadyAt, { withDate: false })}.</>}
+          {ready && <> Their voice is loaded.</>}
+        </span>
+      </Notice>
+      {late && (
+        <Notice tone="error">
+          Warm-up is taking longer than expected: estimated ready at {formatSgt(warm.estimatedReadyAt, { withDate: false })}, still {String(warm.state || '').toLowerCase()} (last checked {formatSgt(warm.checkedAt, { withDate: false })}).
+          {warm.message ? ` ${warm.message}` : ''} {who} sees a "come back shortly" message meanwhile.
+        </Notice>
+      )}
+    </div>
+  );
+}
+
 // ── Super user shell ─────────────────────────────────────────────────────
 
 const SUPER_NAV = [
@@ -908,12 +940,7 @@ function SuperuserConsole() {
         <main className="mx-auto max-w-7xl space-y-4 px-4 py-6 sm:px-6">
           {busy && <div className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs text-white shadow"><Loader2 size={13} className="animate-spin" /> Working…</div>}
           {error && <Notice tone="error">{error}</Notice>}
-          {data?.currentSlot && (
-            <Notice tone="warn" className="flex items-center gap-2">
-              <ShieldCheck size={16} className="shrink-0" />
-              <span><b>{data.currentSlot.assigneeName || data.currentSlot.assigneeEmail}</b> is testing their voice until {formatSgt(data.currentSlot.end, { withDate: false })} SGT. The GPU is theirs, so voice testing is locked for super users until then. Reviews, scheduling and admin still work.</span>
-            </Notice>
-          )}
+          {data?.currentSlot && <SlotHoldBanner slot={data.currentSlot} now={Date.parse(data.now) || Date.now()} />}
           {!data ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-slate-400" /></div> : (
             <Routes>
               <Route path="/" element={<Overview overview={data} onAction={onAction} />} />
@@ -1283,7 +1310,7 @@ function LecturerHome({ me: initialMe, refresh }) {
         </div>
         {voiceNames.length === 0
           ? <Notice tone="warn">None of your voices has passed the quality check yet, so there is nothing to test in this slot.</Notice>
-          : <TestBench voiceNames={voiceNames} canApply />}
+          : <TestBench voiceNames={voiceNames} canApply audience="lecturer" slotWarm={testing.warm || null} />}
         {feedbackTarget && (
           <div className="space-y-2">
             {ready.length > 1 && (

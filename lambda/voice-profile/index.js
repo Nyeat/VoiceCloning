@@ -577,10 +577,11 @@ export function createHandler({
       if (method === 'POST' && CAPACITY_PROFILE_PATH.test(routePath)) {
         // An origin allowed to synthesise unsigned (Live MC) may also ask
         // whether its voice is ready: synthesis would start the same GPU.
+        let capacityIdentity = null;
         if (!isAuthExemptOrigin(event)) {
           if (!authGuard) return err(503, 'Voice capacity authentication is not configured', event);
           try {
-            await authGuard.authorize(event);
+            capacityIdentity = await authGuard.authorize(event);
           } catch {
             return err(401, 'Sign in to prepare the lesson voice', event);
           }
@@ -594,6 +595,23 @@ export function createHandler({
         const voiceProfileId = String(body.voiceProfileId || '').trim();
         if (!voiceProfileId || !isSafePathSegment(voiceProfileId)) {
           return err(400, 'voiceProfileId must be a safe path segment', event);
+        }
+        // Voice Studio: only a voice this person may use right now. A lecturer's
+        // test slot holds the GPU from its warm-up to its end, so nobody else
+        // (super users included) starts or switches it then.
+        if (capacityIdentity?.studio && body.peek !== true) {
+          let scope;
+          try {
+            scope = await studioScope(capacityIdentity.email, { passwordAccount: capacityIdentity.passwordAccount === true });
+          } catch (error) {
+            return err(503, `Voice Studio is unavailable: ${error.message}`, event);
+          }
+          const mayUse = scope.allVoices || scope.voiceNames.some((name) => buildVoiceProfileId(name) === voiceProfileId);
+          if (!mayUse) {
+            return err(403, scope.superuser
+              ? "The GPU is reserved for a lecturer's test slot right now. Testing opens again after it."
+              : 'This voice can be tested only during your test slot.', event);
+          }
         }
         const resolvedBody = await resolveCapacityBody({
           voiceProfileId,

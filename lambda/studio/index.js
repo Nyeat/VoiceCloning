@@ -47,8 +47,11 @@ async function defaultStartGpu() {
   return startGpuInstance();
 }
 
-// Loads a voice onto the GPU the way selecting it in the studio does: the
-// coordinator switches the GPU to it at once (singleGpu, no 10 min protection).
+// Gets a lecturer's voice ready for their test slot, and keeps asking for it
+// through the slot (each ask counts as use, so the GPU is never idled out under
+// them). The coordinator switches a GPU nobody used for 10 min (the super users
+// are locked out from the warm-up on) or adds one — never one that is being
+// removed. Returns the coordinator's answer (state, canStartConversation, …).
 async function defaultPreloadVoice(voiceName) {
   const [{ createVoiceProfileResolver }, { prepareCoordinatedModel }, { buildVoiceProfileId }] = await Promise.all([
     import('../shared/voiceProfileRuntime.js'),
@@ -56,7 +59,7 @@ async function defaultPreloadVoice(voiceName) {
     import('../shared/voiceIdentity.js'),
   ]);
   const body = await createVoiceProfileResolver()({ voiceProfileId: buildVoiceProfileId(voiceName), text: 'Voice Studio slot warm-up.' });
-  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', singleGpu: true });
+  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select' });
 }
 
 async function readJsonObject(key) {
@@ -235,22 +238,28 @@ export function createStudioService({
       await mailer.send(slot.assigneeEmail, message);
     }
 
-    // Load the person's voice before their slot starts, once the GPU is up.
+    // A test slot holds the GPU from 20 min before it to its end (and across a
+    // short gap to the next): ask for the person's voice on every tick, and
+    // keep the warm-up state on the slot for the lecturer and super users.
     const preloaded = [];
-    for (const slot of wf.slotsToPreload(state, now)) {
-      const voiceName = wf.preloadVoiceFor(state, slot);
-      if (!voiceName) continue;
+    const hold = wf.gpuHold(state, now);
+    const voiceName = hold ? wf.preloadVoiceFor(state, hold.slot) : '';
+    if (voiceName) {
+      let capacity = null;
       try {
-        await preloadVoice(voiceName);
+        capacity = await preloadVoice(voiceName);
         preloaded.push(voiceName);
-        await updateState(store, (draft) => {
-          const current = wf.findSlot(draft, slot.id);
-          if (current) current.preloadedAt = new Date(now).toISOString();
-          return null;
-        });
       } catch (error) {
-        console.warn(`[studio] slot preload of ${voiceName} failed (retried next tick): ${error.message}`);
+        capacity = { state: 'ERROR', message: error.message };
+        console.warn(`[studio] slot warm-up of ${voiceName} failed (retried next tick): ${error.message}`);
       }
+      await updateState(store, (draft) => {
+        const current = wf.findSlot(draft, hold.slot.id);
+        if (!current) return { skipWrite: true };
+        current.warm = wf.nextWarmState(current.warm, capacity, now);
+        if (current.warm.state === 'READY' && !current.preloadedAt) current.preloadedAt = new Date(now).toISOString();
+        return null;
+      });
     }
 
     const demand = wf.gpuDemand(state, now);
@@ -265,7 +274,7 @@ export function createStudioService({
     return { skipped: false, demand, dispatched, preloaded, workerReachable: Boolean(worker), gpuStart };
   }
 
-  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer };
+  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices };
 }
 
 // ── HTTP ─────────────────────────────────────────────────────────────────
@@ -409,7 +418,7 @@ export function createHandler({
       role: superuser ? 'superuser' : 'lecturer',
       account: passwordAccount ? 'password' : 'microsoft',
       jobs,
-      queueLength: wf.orderQueue(state.jobs).length + (state.jobs.some((job) => job.status === 'training') ? 1 : 0),
+      queueLength: wf.orderQueue(state.jobs.filter((job) => !job.fixture)).length + (state.jobs.some((job) => job.status === 'training' && !job.fixture) ? 1 : 0),
       trainingMinutes: wf.trainingMinutes(state, env),
       voices: wf.visibleVoices(state, { email, superuser: false }).map((voiceName) => ({
         voiceName,
@@ -453,7 +462,10 @@ export function createHandler({
         name: job.ownerName,
         approvedVoices: state.jobs.filter((other) => other.ownerEmail === job.ownerEmail && ['approved', 'scheduled'].includes(other.status)).map((other) => other.approvedExpName),
       }])).values()],
-      currentSlot: wf.currentSlot(state, now),
+      currentSlot: (() => {
+        const hold = wf.gpuHold(state, now);
+        return hold ? { ...hold.slot, phase: hold.phase } : null;
+      })(),
       superusers: wf.listSuperusers(state, env),
       trainingMinutes: wf.trainingMinutes(state, env),
       maxAttempts: wf.MAX_TRAINING_ATTEMPTS,
@@ -472,7 +484,9 @@ export function createHandler({
     const { state } = await store.read();
     const superuser = superuserOf(state, email, passwordAccount);
     const visible = wf.visibleVoices(state, { email, superuser });
-    if (!visible.includes(voiceName)) throw wf.clientError(404, 'Voice not found');
+    if (!visible.includes(voiceName) && !(superuser && (await service.listVoices()).includes(voiceName))) {
+      throw wf.clientError(404, 'Voice not found');
+    }
     return { state, superuser, access: wf.voiceAccess(state, { email, voiceName, now: clock(), superuser }) };
   }
 
@@ -857,7 +871,7 @@ export async function studioVoiceScope(email, {
   const voiceNames = [...new Set(names)];
   // Super users may test any trained voice of any user (studio or training
   // site), except while a lecturer's test slot holds the GPU.
-  const allVoices = superuser && !wf.currentSlot(state, now);
+  const allVoices = superuser && !wf.gpuHold(state, now);
   return {
     superuser, allVoices, voiceNames, owners: Object.fromEntries(voiceNames.map((name) => [name, owners[name] || ''])), studioOwners: owners,
   };

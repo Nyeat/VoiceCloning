@@ -147,9 +147,10 @@ test('in their slot a lecturer uses all their approved voices; super users are l
   assert.equal(wf.voiceAccess(state, { email: 'b@ntu.edu.sg', voiceName: 'a', now: T0 + 61 * MIN, superuser: false }).allowed, false);
   assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 61 * MIN, superuser: true }).reason, 'slot-in-use');
   assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0, superuser: true }).allowed, true);
-  assert.equal(wf.gpuDemand(state, T0 + 50 * MIN), 'slot', 'GPU is wanted 15 min early');
-  assert.equal(wf.gpuDemand(state, T0 + 40 * MIN), '');
-  assert.deepEqual(wf.slotsToPreload(state, T0 + 50 * MIN).map((s) => s.id), ['s1']);
+  assert.equal(wf.gpuDemand(state, T0 + 41 * MIN), 'slot', 'GPU is wanted 20 min early');
+  assert.equal(wf.gpuDemand(state, T0 + 39 * MIN), '');
+  assert.equal(wf.gpuHold(state, T0 + 41 * MIN).slot.id, 's1');
+  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 41 * MIN, superuser: true }).reason, 'slot-in-use', 'super users locked from the warm-up');
   assert.equal(wf.preloadVoiceFor(state, state.slots[0]), 'a_2', 'most recently approved voice is preloaded');
 });
 
@@ -185,7 +186,7 @@ test('test fixtures show up but never reach the GPU or real lecturers', () => {
   assert.equal(wf.gpuDemand(state, T0), '', 'a queued fixture does not start the GPU');
   state.slots.push({ id: 'ts', kind: 'test', fixture: true, status: 'published', assigneeEmail: 'ready@voice-studio.test', start: new Date(T0).toISOString(), end: new Date(T0 + 60 * MIN).toISOString() });
   assert.equal(wf.currentSlot(state, T0 + MIN), null, 'a fixture test slot never locks the GPU');
-  assert.equal(wf.slotsToPreload(state, T0).length, 0);
+  assert.equal(wf.gpuHold(state, T0), null);
   state.slots.push({ id: 'rs', kind: 'recording', fixture: true, status: 'published', assigneeEmail: '', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 120 * MIN).toISOString() });
   assert.equal(wf.publicSlots(state, 'real@ntu.edu.sg', T0).length, 0, 'real lecturers do not see fixture sessions');
   assert.equal(wf.publicSlots(state, 'new@voice-studio.test', T0).length, 1);
@@ -243,4 +244,41 @@ test('fixtures: only fixture accounts and listed testers see them; other super u
   const boss = wf.viewFor(state, 'boss@ntu.edu.sg', env);
   assert.deepEqual([boss.jobs.length, boss.slots.map((slot) => slot.id)], [0, ['real']]);
   assert.equal(wf.viewFor(state, 'tester@gmail.com', env).slots.length, 2);
+});
+
+test('GPU hold: 20 min warm-up, whole slot, bridged across a gap under an hour', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  const add = (id, start, end, who) => wf.addSlot(state, { id, start: at(start), end: at(end), assigneeEmail: who, now: T0 });
+  add('a', 60, 120, 'a@ntu.edu.sg');
+  add('b', 150, 210, 'b@ntu.edu.sg'); // 30 min gap: bridged
+  add('c', 330, 390, 'c@ntu.edu.sg'); // 2 h gap: GPU may stop
+  wf.publishSlots(state, T0);
+  const hold = (min) => { const h = wf.gpuHold(state, T0 + min * MIN); return h ? `${h.slot.id}:${h.phase}` : null; };
+  assert.equal(hold(39), null);
+  assert.equal(hold(41), 'a:warmup');
+  assert.equal(hold(90), 'a:slot');
+  assert.equal(hold(125), 'b:bridge');
+  assert.equal(hold(135), 'b:warmup');
+  assert.equal(hold(215), null, 'long gap: released');
+  assert.equal(hold(315), 'c:warmup');
+});
+
+test('slot warm-up state: estimate from the coordinator answer, READY once it speaks', () => {
+  const t = T0;
+  const boot = wf.nextWarmState(null, { state: 'STARTING', canStartConversation: false, startedAt: t }, t + MIN);
+  assert.equal(boot.state, 'STARTING');
+  assert.equal(boot.estimatedReadyAt, new Date(t + 15 * MIN).toISOString());
+  const still = wf.nextWarmState(boot, { state: 'STARTING', canStartConversation: false }, t + 6 * MIN);
+  assert.equal(still.startedAt, boot.startedAt, 'same phase keeps its clock');
+  const ready = wf.nextWarmState(still, { state: 'READY', canStartConversation: true }, t + 14 * MIN);
+  assert.equal(ready.state, 'READY');
+  assert.equal(wf.nextWarmState(ready, { canStartConversation: true }, t + 30 * MIN).readyAt, ready.readyAt);
+});
+
+test('jobs from fixture accounts are fixtures', () => {
+  const state = wf.emptyState();
+  const created = wf.createJob(state, { id: 'p', ownerEmail: 'recording@voice-studio.test', expName: 'x', now: T0 });
+  assert.equal(created.fixture, true);
+  assert.equal(wf.createJob(state, { id: 'r', ownerEmail: 'a@ntu.edu.sg', expName: 'y', now: T0 }).fixture, undefined);
 });
