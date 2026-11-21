@@ -2719,3 +2719,10 @@
 - 6cbd550 (studio client, dev + staging): "Live chat connection failed" = the live chat gateway runs on the fixed staging GPU
   (i-0f0da8be59367f7a8, target group vcs-staging-tg-3002), which idle-stops after 40 min; Live Fast's chat failed too
   (503). Studio chat now calls /instance/start on a failed connect and retries every 15 s.
+
+## 2026-11-21 — Fixed GPU for super-user testing; evening calendar (07b0494, 4227e31; deployed dev + staging)
+- Fixed GPU (live chat service + training): studio gpuDemand 'testing' while lastSuperuserTestAt < 30 min (tester
+  reports use: open/chat/read/mic, <=1/min, POST admin/test-activity which also ticks -> starts it when off). Slot
+  hold (20 min before, whole slot, <1 h bridge) and training already keep it on; idle-check honours any studio demand.
+- Slot warm-up on the super users' studio GPU switches it to the lecturer's voice (same owner family, at once).
+- Schedule timeline for today reaches 3 h past now (8 am-8 pm window hid tonight; at 8:15 pm nothing was clickable).
