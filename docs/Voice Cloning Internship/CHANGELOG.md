@@ -2578,7 +2578,7 @@
   Not live-tested with two accounts. Other clients (live-fast/chatbot/mc) not redeployed (label change only matters
   on Test your voice).
 
-## 2026-11-21 — Voice Studio sign-in: auto sign-up, Google, calmer page (not deployed)
+## 2026-11-21 — Voice Studio sign-in: auto sign-up, Google, calmer page (55a67fd, deployed)
 - `auth/login` now signs up an unknown address on the spot (name from the address, 8+ char password); wrong
   password on an existing account -> "Wrong password for this email". New `POST /studio/auth/google`
   (`lambda/studio/googleToken.js`, RS256 vs Google JWKS, aud = STUDIO_GOOGLE_CLIENT_ID, email_verified; NTU -> Microsoft)
@@ -2588,3 +2588,8 @@
 - Tests: `node --test studio/index.test.js studio/workflow.test.js` 22 pass (auto sign-up + Google stub). Studio build OK.
   Not run: browser look (extension offline), real Google token (no client ID yet). Fixture password unknown; reseed blocked
   in-session.
+- Deployed 55a67fd ~16:30 SGT 11-21: main Lambda + coordinator (dev + staging), studio client (dev + staging). Lambda env
+  key sets unchanged (57 staging / 46 dev). Verified on staging: fixture login 200, wrong password 401, live App chunk has
+  the new FAQ button + GIS loader. Google button stays hidden (no client ID). Fixtures reseeded on staging (password given
+  to the owner in chat, not stored in git). Deploy note: run deploy scripts from PowerShell (Git Bash tar breaks packaging)
+  and set BROWSERSLIST_IGNORE_OLD_DATA=1 (stderr warning aborts deploy-client under Stop).
