@@ -305,3 +305,11 @@ test('a password account is a super user only when listed in STUDIO_PASSWORD_SUP
   assert.equal(wf.passwordSuperuserAllowed('someone@gmail.com', env), false);
   assert.equal(wf.passwordSuperuserAllowed('owner@gmail.com', {}), false);
 });
+
+test('fixed GPU demand: super users testing keeps it on for 30 min after their last use', () => {
+  const state = wf.emptyState();
+  assert.equal(wf.gpuDemand(state, T0), '');
+  state.lastSuperuserTestAt = new Date(T0).toISOString();
+  assert.equal(wf.gpuDemand(state, T0 + 29 * MIN), 'testing');
+  assert.equal(wf.gpuDemand(state, T0 + 31 * MIN), '');
+});

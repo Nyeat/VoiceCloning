@@ -814,6 +814,19 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
+        // The tester is in use (a chat message, a reading, the page opening):
+        // keeps the chat service on for 30 min after, and starts it if it is off.
+        if (route === 'POST admin/test-activity') {
+          const at = new Date(now).toISOString();
+          await updateState(store, (state) => {
+            if (now - Date.parse(state.lastSuperuserTestAt || 0) < 60_000) return { skipWrite: true };
+            state.lastSuperuserTestAt = at;
+            return null;
+          });
+          const result = await service.tick({ force: true }).catch((error) => ({ error: error.message }));
+          return ok({ recorded: true, demand: result?.demand || '', gpuStart: result?.gpuStart || null }, {}, event);
+        }
+
         if (route === 'POST admin/test-email') {
           const result = await service.mailer.send(email, {
             subject: 'Voice Studio test email',

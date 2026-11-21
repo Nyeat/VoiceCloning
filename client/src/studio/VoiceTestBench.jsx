@@ -19,11 +19,22 @@ import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
 import { voiceCapacityNotice } from '@/lib/voiceCapacity';
 import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
 import { buildVoiceProfileId } from '@/lib/voiceIdentity';
+import { recordTestActivity } from './studioApi.js';
 import { cn } from '@/lib/utils';
 import PronunciationPanel from './PronunciationPanel.jsx';
 import { Button, Card } from './StudioChrome.jsx';
 
 const MAX_TEXT = 3000;
+
+// Super users' testing keeps the chat service (fixed GPU) on until 30 min after
+// their last use, and starts it when it is off. Reported at most once a minute.
+let reportActivity = false;
+let lastReportedAt = 0;
+function noteTestActivity() {
+  if (!reportActivity || Date.now() - lastReportedAt < 60_000) return;
+  lastReportedAt = Date.now();
+  recordTestActivity().catch(() => {});
+}
 
 function splitSentences(text) {
   return (text.match(/[^.!?。\n]+[.!?。]*/gu) || []).map((part) => part.trim()).filter(Boolean);
@@ -199,6 +210,7 @@ function useSpeaker(voiceName) {
   async function speak(text) {
     const sentences = splitSentences(text);
     if (sentences.length === 0) return;
+    noteTestActivity();
     stopRef.current = false;
     setSpeaking(true);
     setDownload(null);
@@ -373,6 +385,7 @@ function VoiceChat({ voiceName, ready }) {
     if (listening) { recognitionRef.current?.stop(); return; }
     if (!SpeechRecognition) { setError('This browser cannot listen. Please use Chrome or Edge, or type instead.'); return; }
     speaker.stop();
+    noteTestActivity();
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-SG';
     recognition.interimResults = true;
@@ -470,6 +483,7 @@ function VoiceChat({ voiceName, ready }) {
 
   function sendText(text) {
     if (!text || status !== 'ready') return;
+    noteTestActivity();
     speaker.stop();
     replyRef.current = '';
     if (!socketRef.current?.send({ type: 'user.text', text })) {
@@ -544,6 +558,11 @@ export default function VoiceTestBench({
   const [pick, setPick] = useState(null);
   const gpu = useVoiceReady(voice);
   const ready = gpu.status === 'ready';
+  useEffect(() => {
+    reportActivity = audience === 'superuser';
+    noteTestActivity();
+    return () => { reportActivity = false; };
+  }, [audience]);
 
   function chooseVoice(name) {
     const next = new URLSearchParams(params);

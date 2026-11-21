@@ -840,10 +840,16 @@ export function slotsToRelease(state, now) {
   return state.slots.filter((slot) => slotHoldsGpu(slot) && slot.warm && !slot.gpuReleasedAt && ms(slot.end) <= now);
 }
 
-/** The GPU must stay on (and be started) while any of this is true. */
+// Super users testing keeps the fixed GPU (the live chat service) on until this
+// long after their last use; a test slot keeps it on regardless (gpuHold).
+export const SUPERUSER_TEST_IDLE_MINUTES = 30;
+
+/** The fixed GPU must stay on (and be started) while any of this is true. */
 export function gpuDemand(state, now) {
   if (state.jobs.some((job) => real(job) && (job.status === 'training' || job.status === 'queued'))) return 'training';
-  return gpuHold(state, now) ? 'slot' : '';
+  if (gpuHold(state, now)) return 'slot';
+  if (now - ms(state.lastSuperuserTestAt) < SUPERUSER_TEST_IDLE_MINUTES * MINUTE) return 'testing';
+  return '';
 }
 
 /** What a lecturer sees in the session table: published upcoming recording sessions. */
