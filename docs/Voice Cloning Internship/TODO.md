@@ -3,7 +3,10 @@
 - [ ] Email: owner creates a Gmail app password for liutengyufish@gmail.com and runs scripts/set-email-password.ps1 -Env staging (and dev); then "Send me a test email" on the Voice Studio overview. Later switch to the lkcmedicine mailbox.
 
 
-- [ ] After e55bbc0: reload Voice Studio /test as a super user -> profile x-ltyfishes-d450cb_3-v1 appears and the voice gets ready; then a real slot: warm-up takes the studio GPU, no idle-off during the slot, GPU removed right after (coordinator log "release").
+- [ ] Live test 7d1b06f: book a test slot ~25 min ahead; super user tests at the same time on a separate GPU (no lock,
+  instant voice switch); slot GPU warms 20 min early, wait timer survives reload; "I'm done testing" -> tested page
+  and slot GPU released (coordinator log "release" for reserved:studio-slot).
+- [ ] Retrain Francisco (x-ltyfishes-d450cb) with noise removal off and A/B the same sentence in Live Fast vs the old voice.
 
 
 - [ ] Live-test 8277664 on staging: super user tests a voice WITH a profile (ASG 0->1, GPU popup); book a real test slot ~25 min ahead and watch warm-up (slot.warm, lecturer ETA card, console banner), keep-alive through the slot, release after; back-to-back < 1 h keeps the GPU.
@@ -267,7 +270,6 @@
 - [ ] Deploy the ARPAbet-only/global-uniqueness change to Lambda and the inference worker, build/deploy the frontend, then save or import one entry to rewrite all category files without readable-only legacy records.
 - [ ] Run one full `v2ProPlus` training pass and verify the new 9-step SSE flow, especially `Extract Speaker Verification`.
 - [ ] Verify `training/runs/<expName>/metadata.json` is uploaded to S3 after a real training run.
-- [ ] Compare `Skip denoise` enabled vs disabled on clean recordings and record when it actually improves cloned timbre.
 - [ ] Validate strict frontend reference filtering and visible scores against `gpu-worker/scripts/score_clips.py` on real clips.
 - [ ] Browser-test Live Fast saved config list/load/update/delete/sample generation on a real trained model; confirm the sentence limit defaults to 1, Max chunk words defaults to Auto/280 characters, saved 10–100-word values override the character heuristic and restore, sub-eight-word chunks absorb at most one neighbour within the hard limit, and both normal phoneme-rejected takes re-seed before best-effort output; catastrophic babble may add at most two more takes.
 - [ ] Browser-test Live Full metadata-only defaulting, save/load/update/delete/sample, and Full Inference generation using Live Fast rank #1 refs on a real trained model.

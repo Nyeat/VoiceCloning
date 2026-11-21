@@ -1,5 +1,10 @@
 # Bugs
 
+- Fixed 2026-11-21 (0ebdad4, f95c8d6 deployed): echoey/robotic cloned voices — training denoise (FRCRN) wrote every
+  clip and reference at 16 kHz (nothing above 8 kHz, measured). Denoise now off by default; old voices need a retrain.
+- Fixed 2026-11-21 (7d1b06f deployed): Voice Studio GPU wait timer restarted at 0 on each poll/reload — it read a
+  nonexistent capacity.startedAt (coordinator sends waitStartedAt); slot warm-up estimate had the same bug.
+- Open 2026-11-21: withdrawing an approved Voice Studio voice does not cancel its booked test slot.
 - Fixed 2026-11-20 (64d34f7, deployed): naming a voice never showed — router.js did not route /api/voice-profile/label (404).
 - Fixed 2026-11-20 (64d34f7, deployed): fixed training GPU idle-stopped under someone using Test your voice (its speech runs
   on ASG GPUs, so the training GPU saw no work); page activity now counts. Also: entering the training site plus
