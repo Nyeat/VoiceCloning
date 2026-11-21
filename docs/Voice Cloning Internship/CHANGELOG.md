@@ -2593,3 +2593,21 @@
   the new FAQ button + GIS loader. Google button stays hidden (no client ID). Fixtures reseeded on staging (password given
   to the owner in chat, not stored in git). Deploy note: run deploy scripts from PowerShell (Git Bash tar breaks packaging)
   and set BROWSERSLIST_IGNORE_OLD_DATA=1 (stderr warning aborts deploy-client under Stop).
+
+## 2026-11-21 — Voice Studio: staged lecturer page, simple tester, reminders (c173a6f, NOT deployed)
+- "Can't record" root cause: no consent => whole recorder pointer-events-none with the reason only in a notice above.
+  Now Start becomes "Accept the consent form to start" (RecordApp.jsx). Verified headless: after consent, recording starts.
+- Lecturer home (StudioApp.jsx): one stage at a time — booking / recording / VoiceJourney stepper (recorded → training →
+  QC → test; "awaiting test slot", "test booked") / tester + feedback only during the slot.
+- Book once: claimSlot refuses once a person has a submitted (not uploading/cancelled) set (workflow.hasSubmittedVoice).
+- Emails: workflow.sessionRemindersDue + tick — recording 24 h-2 h before and 1 h before; test slot from 07:00 SGT on the day;
+  keyed by assignee|start (moves re-arm). inQualityCheck to the lecturer once per job; queue email says QC is slower.
+  Fixtures never emailed.
+- Tester (new VoiceTestBench.jsx): one voice picker; Read aloud = paste text -> /live/tts-sentence per sentence; Chat =
+  LivePage; Scan text chips prefill the single PronunciationPanel. Super users list every trained voice
+  (studioVoiceScope.allVoices; voice-profile ensure keeps the real owner or none). Capacity preflight now applies
+  ttsSiteOption (one GPU, switch at once) on studio/TTS origins.
+- Overview: "Voices by stage" collapsible groups (waiting to train highlighted); "Add & publish sessions" button.
+  Sign-in hero = LKCMedicine campus photo (client/src/assets/lkc-campus.jpg).
+- Tests: lambda studio/voice-profile/live/shared 160 pass (new: book once, reminders). Studio build OK.
+  Not run: browser check of the new pages, real GPU read-aloud, real email send.
