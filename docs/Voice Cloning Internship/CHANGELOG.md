@@ -2700,7 +2700,7 @@
   "Cancel set". Restored in staging state to review (nothing had been deleted). Now "Withdraw set" asks first and
   explains the effect; withdrawn sets get "Restore set" (job.cancelledFrom; legacy trained -> review).
 
-## 2026-11-21 — Tester Chat + progress; owner Gmail super user (a5789dc, NOT deployed — AWS creds expired)
+## 2026-11-21 — Tester Chat + progress; owner Gmail super user (a5789dc, deployed dev + staging with 4eb8535)
 - Chat tab (now first) no longer embeds LivePage, which waited forever on the fixed-GPU status and showed its own
   voice picker. New VoiceChat over the live chat gateway (typed only, no mic yet); replies spoken via Live Fast.
 - useSpeaker shared by Chat/Read aloud with a progress bar per sentence.
@@ -2708,3 +2708,11 @@
   super user; as a fixture viewer it sees the dummy accounts. Account already exists (owner signed in earlier).
 - Emails: still none sent — EMAIL_* not set on the Lambdas (lkcmedicine mailbox credentials pending; see BUGS).
 - Tests: lambda 282 pass; studio build OK. Not run in a browser.
+
+## 2026-11-21 — Mic in Chat, download after Read aloud, Gmail email (4eb8535, deployed dev + staging)
+- Chat mic: browser SpeechRecognition (en-SG), fills the box and sends on stop. Read aloud: "Download audio" = the
+  sentence WAVs joined into one (joinWavBlobs; checked: header + data length correct).
+- Email via Gmail SMTP as liutengyufish@gmail.com (EMAIL_HOST/PORT 465/USER/FROM in both .env.deployment*). Both
+  Lambdas already had an OLD EMAIL_PASS (earlier mailbox) — wrong for Gmail until the owner runs
+  scripts/set-email-password.ps1 -Env staging|dev with a Gmail app password. "Send me a test email" on the overview.
+- Verified staging Lambda env keys present (values not read). Not verified: mic/download in a browser, a real send.

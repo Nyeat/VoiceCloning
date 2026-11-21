@@ -56,3 +56,8 @@ Historical only:
 - `CLOUD_FRONTEND_FLOW_README(Outdated).md`
 - `docs/complete_ai_handoff(Outdated).md`
 - `docs/gpu-ec2-from-scratch-setup(Outdated).md`
+
+## Voice Studio email (2026-11-21)
+- Gmail SMTP: EMAIL_HOST=smtp.gmail.com, EMAIL_PORT=465, EMAIL_USER/EMAIL_FROM in lambda/.env.deployment*.
+- EMAIL_PASS = Gmail app password (https://myaccount.google.com/apppasswords, needs 2-Step Verification), set only on
+  the live Lambda: `.scriptsset-email-password.ps1 -Env staging` (hidden prompt, merges env). Test: overview button.
