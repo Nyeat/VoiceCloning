@@ -12,7 +12,9 @@ import { PostLoginRedirectHandler, ProtectedRoute } from '@/auth/AppAuthGate';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { RECORDING_SCRIPT, RECORDING_SCRIPT_MINUTES, SCRIPT_TIPS } from './recordingScript.js';
-import { createContinuousRecorder, microphoneSupported } from './wavRecorder.js';
+import {
+  createContinuousRecorder, listMicrophones, microphoneErrorText, microphoneSupported,
+} from './wavRecorder.js';
 import {
   createSubmission, errorText, formatSgt, getMe, relativeFromNow, uploadAndSubmit, withdrawSubmission,
 } from './studioApi.js';
@@ -69,6 +71,14 @@ function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
   const [parts, setParts] = useState(0);
   const recorderRef = useRef(null);
   const touchRef = useRef(null);
+  const [mics, setMics] = useState([]);
+  const [micId, setMicId] = useState('');
+  const refreshMics = useCallback(() => { listMicrophones().then(setMics).catch(() => setMics([])); }, []);
+  useEffect(() => {
+    refreshMics();
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshMics);
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', refreshMics);
+  }, [refreshMics]);
   const section = RECORDING_SCRIPT[index];
   const live = phase === 'recording' || phase === 'paused';
   const last = RECORDING_SCRIPT.length - 1;
@@ -112,16 +122,23 @@ function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
   async function start() {
     setError('');
     try {
-      recorderRef.current = createContinuousRecorder({ onLevel: setLevel });
+      recorderRef.current = createContinuousRecorder({
+        onLevel: setLevel,
+        deviceId: micId,
+        onDeviceLost: () => {
+          setPhase('paused');
+          setError('The microphone was disconnected. Your recording so far is kept — reconnect it and press Finish, then Start again for the rest.');
+        },
+      });
       await recorderRef.current.start();
+      refreshMics(); // labels appear once permission is given
       setElapsed(0);
       setVisited(new Set());
       setPhase('recording');
     } catch (err) {
       recorderRef.current = null;
-      setError(err?.name === 'NotAllowedError'
-        ? 'Microphone access was blocked. Allow the microphone in your browser\'s address bar, then try again.'
-        : `Could not start the microphone: ${err.message}`);
+      setError(microphoneErrorText(err));
+      refreshMics();
     }
   }
 
@@ -229,6 +246,15 @@ function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
 
       <div className={cn('border-t px-5 py-4', phase === 'recording' ? 'border-rose-200 bg-rose-50' : phase === 'paused' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50')}>
         {error && <Notice tone="warn" className="mb-3">{error}</Notice>}
+        {phase === 'idle' && mics.length > 1 && (
+          <label className="mb-3 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-600">
+            <Mic size={13} aria-hidden="true" /> Microphone
+            <select value={micId} onChange={(event) => setMicId(event.target.value)} className="h-8 min-w-[220px] max-w-full rounded-lg border border-slate-300 bg-white px-2 text-xs">
+              <option value="">Default microphone</option>
+              {mics.filter((mic) => mic.deviceId !== 'default').map((mic, i) => <option key={mic.deviceId} value={mic.deviceId}>{mic.label || `Microphone ${i + 1}`}</option>)}
+            </select>
+          </label>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="outline" size="md" disabled={index === 0} onClick={() => go(index - 1)} aria-label="Previous section">
             <ChevronLeft size={16} />

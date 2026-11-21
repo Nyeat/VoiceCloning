@@ -69,6 +69,41 @@ async function decodeToMono(blob) {
   }
 }
 
+// Raw capture first (no browser processing, mono). Some devices or drivers
+// reject those constraints, and Chrome reports a default microphone that has
+// just changed (headset unplugged, Bluetooth switching) as "Device was
+// removed" — so on those errors it asks once more, plainly.
+const RETRYABLE_MIC_ERRORS = new Set(['NotReadableError', 'OverconstrainedError', 'AbortError', 'NotFoundError']);
+
+export async function openMicrophone(deviceId = '') {
+  const device = deviceId ? { deviceId: { exact: deviceId } } : {};
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: { ...device, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+    });
+  } catch (error) {
+    if (!RETRYABLE_MIC_ERRORS.has(error?.name)) throw error;
+    return navigator.mediaDevices.getUserMedia({ audio: deviceId ? device : true });
+  }
+}
+
+/** Microphones the browser can see (labels only once permission was given). */
+export async function listMicrophones() {
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.filter((device) => device.kind === 'audioinput' && device.deviceId);
+}
+
+/** A sentence a lecturer can act on, for a microphone that would not start. */
+export function microphoneErrorText(error) {
+  if (error?.name === 'NotAllowedError') return 'Microphone access was blocked. Allow the microphone in your browser\'s address bar, then try again.';
+  if (error?.name === 'NotFoundError') return 'No microphone was found. Plug one in (or pick another below), then press Start again.';
+  if (error?.name === 'NotReadableError' || error?.name === 'AbortError' || /removed/iu.test(error?.message || '')) {
+    return 'The microphone was disconnected or another app (Teams, Zoom…) is using it. Check it is plugged in, close other apps using it or pick another microphone below, then press Start again.';
+  }
+  return `Could not start the microphone: ${error?.message || 'unknown error'}`;
+}
+
 export function microphoneSupported() {
   return typeof window !== 'undefined'
     && Boolean(navigator.mediaDevices?.getUserMedia)
@@ -209,7 +244,7 @@ registerProcessor('vs-capture', VsCapture);
  * onLevel(0..1) is called with the live peak (also while paused, so the meter
  * still shows the microphone works).
  */
-export function createContinuousRecorder({ onLevel } = {}) {
+export function createContinuousRecorder({ onLevel, deviceId = '', onDeviceLost } = {}) {
   let stream = null;
   let context = null;
   let node = null;
@@ -255,8 +290,11 @@ export function createContinuousRecorder({ onLevel } = {}) {
 
   return {
     async start() {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      stream = await openMicrophone(deviceId);
+      // A microphone unplugged mid-reading: stop taking audio (what was
+      // recorded is kept) and let the page say so.
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => { paused = true; onDeviceLost?.(); };
       });
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       context = new AudioCtx();
