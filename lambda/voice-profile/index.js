@@ -6,6 +6,7 @@ import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
 import {
   peekCoordinatedModel, prepareCoordinatedModel, trainingOwnerOption, ttsSiteOption,
 } from '../shared/modelCoordinator.js';
+import { studioGpuRefusal } from '../shared/studioGpuGuard.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import { buildVoiceProfileId, isNtuEmail, normalizeEmail, ownsVoiceName } from '../shared/voiceIdentity.js';
 import { bestModelsForVoice, listTrainedVoiceNames } from '../shared/trainedVoices.js';
@@ -600,18 +601,8 @@ export function createHandler({
         // test slot holds the GPU from its warm-up to its end, so nobody else
         // (super users included) starts or switches it then.
         if (capacityIdentity?.studio && body.peek !== true) {
-          let scope;
-          try {
-            scope = await studioScope(capacityIdentity.email, { passwordAccount: capacityIdentity.passwordAccount === true });
-          } catch (error) {
-            return err(503, `Voice Studio is unavailable: ${error.message}`, event);
-          }
-          const mayUse = scope.allVoices || scope.voiceNames.some((name) => buildVoiceProfileId(name) === voiceProfileId);
-          if (!mayUse) {
-            return err(403, scope.superuser
-              ? "The GPU is reserved for a lecturer's test slot right now. Testing opens again after it."
-              : 'This voice can be tested only during your test slot.', event);
-          }
+          const refusal = await studioGpuRefusal({ identity: capacityIdentity, voiceProfileId, studioScope });
+          if (refusal) return err(refusal.status, refusal.message, event);
         }
         const resolvedBody = await resolveCapacityBody({
           voiceProfileId,

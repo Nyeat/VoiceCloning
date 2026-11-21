@@ -5,6 +5,8 @@ import { useGpuWorkerArtifacts } from '../shared/artifacts.js';
 import { corsHeaders, ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 import { createVoiceProfileResolver, VoiceProfileResolutionError } from '../shared/voiceProfileRuntime.js';
 import { demoHeaders } from '../shared/demoOrigin.js';
+import { createLiveAuthGuard } from '../shared/liveAuth.js';
+import { studioRequestRefusal } from '../shared/studioGpuGuard.js';
 
 function isWorkerUnavailableError(error) {
   const message = error?.message || '';
@@ -48,6 +50,8 @@ export function createHandler({
   shouldUseGpuWorkerArtifacts = useGpuWorkerArtifacts,
   buildInferencePublicUrl = inferencePublicUrl,
   buildPresignedGetUrl = generatePresignedGetUrl,
+  authGuard = createLiveAuthGuard(),
+  studioRefusal = studioRequestRefusal,
 } = {}) {
   const initialFullPostJson = postCoordinatedJson
     || (postJson === inferencePost ? coordinatedInferencePost : postJson);
@@ -71,6 +75,12 @@ export function createHandler({
     }
 
     try {
+      // Voice Studio: a lecturer's test slot holds the GPU; nobody else speaks a voice then.
+      if (method === 'POST' && (routePath.endsWith('/inference') || routePath.endsWith('/inference/generate'))) {
+        const refusal = await studioRefusal(event, { authGuard, voiceProfileId: body.voiceProfileId });
+        if (refusal) return err(refusal.status, refusal.message, event);
+      }
+
       if (method === 'POST' && routePath.endsWith('/inference')) {
         if (!body.text) return err(400, 'text is required');
         const resolvedBody = await resolveSynthesisBody(body);

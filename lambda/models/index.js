@@ -4,6 +4,7 @@ import { inferencePost, inferenceGet } from '../shared/gpuWorker.js';
 import { loadModelPair, useGpuWorkerModels } from '../shared/modelSelection.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import { prepareCoordinatedModel, trainingOwnerOption, ttsSiteOption } from '../shared/modelCoordinator.js';
+import { studioRequestRefusal } from '../shared/studioGpuGuard.js';
 import { createLiveAuthGuard } from '../shared/liveAuth.js';
 import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 
@@ -36,6 +37,7 @@ export function createHandler({
   resolveSynthesisBody = createVoiceProfileResolver(),
   prepareModel = prepareCoordinatedModel,
   authGuard = createLiveAuthGuard(),
+  studioRefusal = studioRequestRefusal,
 } = {}) {
   return async function handler(event) {
     if (event.requestContext?.http?.method === 'OPTIONS') {
@@ -82,6 +84,9 @@ export function createHandler({
           return err(400, 'Invalid JSON body');
         }
         const voiceProfileId = String(body.voiceProfileId || '').trim();
+        // Voice Studio: a lecturer's test slot holds the GPU; nobody else loads a voice then.
+        const refusal = await studioRefusal(event, { authGuard, voiceProfileId });
+        if (refusal) return err(refusal.status, refusal.message, event);
         if (voiceProfileId && String(process.env.MODEL_COORDINATOR_FUNCTION_NAME || '').trim()) {
           const synthesisBody = await resolveSynthesisBody({
             voiceProfileId,

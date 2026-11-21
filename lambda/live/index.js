@@ -5,7 +5,7 @@ import { isElevenLabsRequest, synthesizeElevenLabsSpeech } from '../shared/eleve
 import { demoHeaders, isDemoEvent } from '../shared/demoOrigin.js';
 import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
 import { randomUUID } from 'node:crypto';
-import { buildVoiceProfileId } from '../shared/voiceIdentity.js';
+import { studioGpuRefusal } from '../shared/studioGpuGuard.js';
 
 const REPLY_TOKEN_HEADER = 'X-VCS-Reply-Token';
 
@@ -70,19 +70,9 @@ export function createHandler({
 
     // Voice Studio: speak only a voice this person may use right now (a
     // lecturer's test slot holds the GPU from its warm-up to its end).
-    const studioVoiceId = String(body?.voiceProfileId || '').trim();
-    if (identity?.studio && studioVoiceId && !isCancelPath(event)) {
-      let scope;
-      try {
-        scope = await studioScope(identity.email, { passwordAccount: identity.passwordAccount === true });
-      } catch (error) {
-        return err(503, `Voice Studio is unavailable: ${error.message}`, event);
-      }
-      if (!scope.allVoices && !scope.voiceNames.some((name) => buildVoiceProfileId(name) === studioVoiceId)) {
-        return err(403, scope.superuser
-          ? "The GPU is reserved for a lecturer's test slot right now. Testing opens again after it."
-          : 'This voice can be tested only during your test slot.', event);
-      }
+    if (identity?.studio && !isCancelPath(event)) {
+      const refusal = await studioGpuRefusal({ identity, voiceProfileId: body?.voiceProfileId, studioScope });
+      if (refusal) return err(refusal.status, refusal.message, event);
     }
 
     // Barge-in cancel. Deliberately does no voice-profile resolution: it must be
