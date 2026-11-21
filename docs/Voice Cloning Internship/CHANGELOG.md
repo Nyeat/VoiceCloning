@@ -2664,7 +2664,7 @@
   second set (hasSubmittedVoice). Full-workflow test updated (no second set; QC email to the lecturer asserted).
 - Verified staging as a non-slot account: all five routes 403. Tests: lambda 193+ pass (new studioGpuGuard tests).
 
-## 2026-11-21 — Voice Studio: studio-only voices + reserved studio GPU (cb34f93, 817f89b; NOT deployed — AWS creds expired)
+## 2026-11-21 — Voice Studio: studio-only voices + reserved studio GPU (cb34f93, 817f89b; deployed dev + staging)
 - cb34f93: super users list/test only voices trained through Voice Studio (no training-site/admin voices); picker label
   "<voice label> · <lecturer> (try n)" (studioVoiceScope.labels -> voice.studioLabel). Guard: a named voice must be in
   the studio's list; raw model loads only when no slot holds the GPU.
@@ -2677,3 +2677,6 @@
   switches it at once (own-GPU rule), adds one only if none usable. ttsSiteOption no longer applies to the studio origin.
 - Tests: lambda 277 pass (new reservation decision test). Deploy needs fresh AWS creds (Lambda + coordinator +
   studio client, dev + staging).
+- Deployed cb34f93 + 817f89b with fresh creds: Lambda + coordinator + studio client, dev and staging (staging
+  coordinator LastModified 10:44Z). Re-verified staging lockout (5 routes 403 for a non-slot account). Reservation not
+  yet seen live (needs a studio GPU up while another site asks).
