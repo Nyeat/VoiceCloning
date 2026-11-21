@@ -2692,3 +2692,5 @@
 - Tester retries ensure until it succeeds and shows "Still trying: <error>" to super users.
 - Tests: lambda 280+ pass (new: soft hold, release scale-in, real ensure write). Staging lockout re-verified.
   Not yet seen live: a profile created by the fixed ensure (reload the test page), slot release, cross-site hold.
+- 474bb46 (deployed dev + staging): a GPU reserved for another owner no longer counts as "a GPU exists" (noGpuYet), so a
+  single-GPU site (admin TTS) adds its own while a Voice Studio slot holds the only GPU instead of waiting forever.
