@@ -187,20 +187,20 @@ function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
 
   return (
     <Card className="flex min-h-0 flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
-        <div>
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5">
+        <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Reading script · section {index + 1} of {RECORDING_SCRIPT.length} · about {RECORDING_SCRIPT_MINUTES} min in total
+            <span className="hidden sm:inline">Reading script · </span>Section {index + 1} of {RECORDING_SCRIPT.length}<span className="hidden sm:inline"> · about {RECORDING_SCRIPT_MINUTES} min in total</span>
           </p>
-          <h2 className="text-lg font-semibold text-slate-900">{section.title}</h2>
+          <h2 className="text-base font-semibold text-slate-900 sm:text-lg">{section.title}</h2>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <Button variant="ghost" size="sm" onClick={() => setFontSize((size) => Math.max(16, size - 2))} aria-label="Smaller text">A−</Button>
           <Button variant="ghost" size="sm" onClick={() => setFontSize((size) => Math.min(30, size + 2))} aria-label="Larger text">A+</Button>
         </div>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-100 px-5 py-2" role="tablist" aria-label="Script sections">
+      <div className="flex gap-1 overflow-x-auto overscroll-x-contain border-b border-slate-100 px-4 py-2 [scrollbar-width:none] sm:px-5 [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Script sections">
         {RECORDING_SCRIPT.map((item, itemIndex) => (
           <button
             key={item.id}
@@ -210,7 +210,7 @@ function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
             onClick={() => go(itemIndex)}
             title={`${item.title} (${item.mood})`}
             className={cn(
-              'flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md px-2 text-xs font-semibold',
+              'flex h-8 min-w-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-semibold sm:h-7 sm:min-w-7',
               itemIndex === index ? 'bg-slate-900 text-white' : visited.has(item.id) ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
             )}
           >
@@ -219,9 +219,9 @@ function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
         ))}
       </div>
 
-      <div className="mx-5 mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-gradient-to-r from-violet-50 to-blue-50 px-4 py-3">
-        <span className="rounded-full bg-violet-600 px-2.5 py-0.5 text-xs font-semibold text-white">{section.mood}</span>
-        <p className="text-sm text-slate-700">{section.cue}</p>
+      <div className="mx-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-gradient-to-r from-violet-50 to-blue-50 px-3 py-2.5 sm:mx-5 sm:px-4 sm:py-3">
+        <span className="shrink-0 rounded-full bg-violet-600 px-2.5 py-0.5 text-xs font-semibold text-white">{section.mood}</span>
+        <p className="min-w-0 text-sm text-slate-700">{section.cue}</p>
         <span className="ml-auto text-xs text-slate-500">≈ {section.minutes} min</span>
       </div>
 
@@ -230,7 +230,7 @@ function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
           <ChevronLeft size={26} />
         </button>
         <div
-          className="min-w-0 flex-1 touch-pan-y overflow-y-auto px-5 py-5 sm:px-4"
+          className="min-w-0 flex-1 touch-pan-y overflow-y-auto px-4 py-4 sm:py-5"
           style={{ fontSize: `${fontSize}px` }}
           onTouchStart={onTouchStart}
           onTouchEnd={onTouchEnd}
@@ -245,46 +245,50 @@ function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
         </button>
       </div>
 
-      <div className={cn('border-t px-5 py-4', phase === 'recording' ? 'border-rose-200 bg-rose-50' : phase === 'paused' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50')}>
+      <div className={cn('border-t px-4 py-3 sm:px-5 sm:py-4', phase === 'recording' ? 'border-rose-200 bg-rose-50' : phase === 'paused' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50')}>
         {error && <Notice tone="warn" className="mb-3">{error}</Notice>}
         {phase === 'idle' && mics.length > 1 && (
           <label className="mb-3 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-600">
             <Mic size={13} aria-hidden="true" /> Microphone
-            <select value={micId} onChange={(event) => setMicId(event.target.value)} className="h-8 min-w-[220px] max-w-full rounded-lg border border-slate-300 bg-white px-2 text-xs">
+            <select value={micId} onChange={(event) => setMicId(event.target.value)} className="h-9 w-full min-w-0 max-w-full truncate rounded-lg border border-slate-300 bg-white px-2 text-xs sm:h-8 sm:w-auto sm:min-w-[220px]">
               <option value="">Default microphone</option>
               {mics.filter((mic) => mic.deviceId !== 'default').map((mic, i) => <option key={mic.deviceId} value={mic.deviceId}>{mic.label || `Microphone ${i + 1}`}</option>)}
             </select>
           </label>
         )}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="outline" size="md" disabled={index === 0} onClick={() => go(index - 1)} aria-label="Previous section">
+        {/* Phones: ‹ status › on one row, the big buttons full width underneath
+            (within thumb reach). Wider screens: ‹ buttons › status in one row. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <Button variant="outline" size="md" disabled={index === 0} onClick={() => go(index - 1)} aria-label="Previous section" className="order-1 shrink-0 px-3">
             <ChevronLeft size={16} />
           </Button>
-          {phase === 'idle' && onNeedConsent && (
-            <Button variant="primary" size="lg" onClick={onNeedConsent} className="min-w-[190px]">
-              <ShieldCheck size={16} aria-hidden="true" /> Accept the consent form to start
-            </Button>
-          )}
-          {phase === 'idle' && !onNeedConsent && (
-            <Button variant="dark" size="lg" onClick={start} disabled={disabled || !microphoneSupported()} className="min-w-[190px]">
-              <Mic size={16} aria-hidden="true" /> {parts ? 'Record another part' : 'Start reading'}
-            </Button>
-          )}
-          {live && (
-            <>
-              <Button variant={phase === 'paused' ? 'success' : 'outline'} size="lg" onClick={togglePause} className="min-w-[130px]">
-                {phase === 'paused' ? <><Play size={16} /> Resume</> : <><Pause size={16} /> Pause</>}
+          <div className="order-4 flex w-full gap-2 sm:order-2 sm:w-auto sm:gap-3">
+            {phase === 'idle' && onNeedConsent && (
+              <Button variant="primary" size="lg" onClick={onNeedConsent} className="flex-1 sm:min-w-[190px] sm:flex-none">
+                <ShieldCheck size={16} className="shrink-0" aria-hidden="true" /> Accept the consent form to start
               </Button>
-              <Button variant="danger" size="lg" onClick={finish} className="min-w-[150px]">
-                <Square size={16} aria-hidden="true" /> Finish · {formatDuration(elapsed)}
+            )}
+            {phase === 'idle' && !onNeedConsent && (
+              <Button variant="dark" size="lg" onClick={start} disabled={disabled || !microphoneSupported()} className="flex-1 sm:min-w-[190px] sm:flex-none">
+                <Mic size={16} aria-hidden="true" /> {parts ? 'Record another part' : 'Start reading'}
               </Button>
-            </>
-          )}
-          {phase === 'saving' && <Button variant="dark" size="lg" disabled className="min-w-[190px]"><Loader2 size={16} className="animate-spin" /> Saving…</Button>}
-          <Button variant="outline" size="md" disabled={index === last} onClick={() => go(index + 1)} aria-label="Next section">
+            )}
+            {live && (
+              <>
+                <Button variant={phase === 'paused' ? 'success' : 'outline'} size="lg" onClick={togglePause} className="flex-1 sm:min-w-[130px] sm:flex-none">
+                  {phase === 'paused' ? <><Play size={16} /> Resume</> : <><Pause size={16} /> Pause</>}
+                </Button>
+                <Button variant="danger" size="lg" onClick={finish} className="flex-1 tabular-nums sm:min-w-[150px] sm:flex-none">
+                  <Square size={16} aria-hidden="true" /> Finish · {formatDuration(elapsed)}
+                </Button>
+              </>
+            )}
+            {phase === 'saving' && <Button variant="dark" size="lg" disabled className="flex-1 sm:min-w-[190px] sm:flex-none"><Loader2 size={16} className="animate-spin" /> Saving…</Button>}
+          </div>
+          <Button variant="outline" size="md" disabled={index === last} onClick={() => go(index + 1)} aria-label="Next section" className="order-3 shrink-0 px-3 sm:order-3">
             <ChevronRight size={16} />
           </Button>
-          <div className="min-w-[160px] flex-1">
+          <div className="order-2 min-w-0 flex-1 sm:order-4 sm:min-w-[160px]">
             {live ? (
               <div>
                 <p className={cn('mb-1 flex items-center gap-1.5 text-xs font-semibold', phase === 'paused' ? 'text-amber-800' : 'text-rose-700')}>
@@ -321,21 +325,21 @@ function TakeRow({ take, onRemove }) {
           if (!audio) return;
           if (audio.paused) { audio.play(); setPlaying(true); } else { audio.pause(); setPlaying(false); }
         }}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200"
         aria-label={playing ? 'Pause' : 'Play'}
       >
         {playing ? <Pause size={14} /> : <Play size={14} />}
       </button>
       <audio ref={audioRef} src={take.url} onEnded={() => setPlaying(false)} preload="none" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-800">{take.label || take.file.name}</p>
+        <p className="truncate text-sm font-medium text-slate-800" title={take.label || take.file.name}>{take.label || take.file.name}</p>
         <p className="text-xs text-slate-500">
           {take.source === 'recorded' ? 'Recorded' : 'Uploaded'} · {formatDuration(take.duration)} · {formatBytes(take.file.size)}
           {take.levels?.tooQuiet && <span className="ml-1 text-amber-700">· very quiet</span>}
           {take.levels?.tooLoud && <span className="ml-1 text-amber-700">· clipped</span>}
         </p>
       </div>
-      <button type="button" onClick={onRemove} className="rounded p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${take.label || take.file.name}`}>
+      <button type="button" onClick={onRemove} className="shrink-0 rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${take.label || take.file.name}`}>
         <Trash2 size={15} />
       </button>
     </li>
@@ -376,7 +380,7 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser
         className={cn('m-4 flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition', dragging ? 'border-primary bg-primary/5' : 'border-slate-300 bg-slate-50')}
       >
         <Upload size={22} className="text-slate-400" aria-hidden="true" />
-        <p className="mt-2 text-sm font-medium text-slate-700">Drop audio files here</p>
+        <p className="mt-2 text-sm font-medium text-slate-700"><span className="sm:hidden">Add audio files</span><span className="hidden sm:inline">Drop audio files here</span></p>
         <p className="text-xs text-slate-500">WAV, MP3, M4A, FLAC or OGG · several files at once is fine</p>
         <Button variant="outline" size="sm" className="mt-3" onClick={() => inputRef.current?.click()} disabled={submitting}>
           <FileAudio size={14} /> Choose files
@@ -412,7 +416,7 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser
           value={label}
           maxLength={80}
           onChange={(event) => setLabel(event.target.value)}
-          className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:h-10"
         />
         {minutes > 0 && minutes < 5 && <p className="text-xs text-amber-700">Under 5 minutes usually gives a weak voice. You can still submit.</p>}
         {superuser && (
@@ -468,16 +472,16 @@ function MySubmissions({ me, onWithdraw }) {
   const studioUrl = String(import.meta.env.VITE_STUDIO_APP_URL || '').replace(/\/+$/u, '');
   return (
     <Card>
-      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-b border-slate-200 px-4 py-3 sm:px-5">
         <h2 className="text-base font-semibold text-slate-900">Your submissions</h2>
         <span className="text-xs text-slate-500">Training takes about {me.trainingMinutes} min per voice</span>
       </div>
       <ul className="divide-y divide-slate-100">
         {jobs.map((job) => (
-          <li key={job.id} className="flex flex-wrap items-start gap-3 px-5 py-3">
-            <div className="min-w-0 flex-1">
+          <li key={job.id} className="flex flex-wrap items-start gap-3 px-4 py-3 sm:px-5">
+            <div className="min-w-0 flex-1 basis-56">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="font-medium text-slate-900">{job.label}</p>
+                <p className="min-w-0 font-medium text-slate-900 [overflow-wrap:anywhere]">{job.label}</p>
                 <StatusPill status={job.status} />
               </div>
               <p className="mt-1 text-sm text-slate-600">{lecturerStatusLine(job, now)}</p>
@@ -496,11 +500,11 @@ function MySubmissions({ me, onWithdraw }) {
 
 function SubmittedDialog({ job, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-labelledby="submitted-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+    <div className="vs-root fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 backdrop-blur-sm sm:items-center sm:p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="submitted-title" className="max-h-[92dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl sm:p-6">
         <div className="flex items-start justify-between">
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><CheckCircle2 size={22} /></span>
-          <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="Close"><X size={18} /></button>
+          <button type="button" onClick={onClose} className="-m-1 rounded-lg p-2 text-slate-400 hover:bg-slate-100" aria-label="Close"><X size={18} /></button>
         </div>
         <h2 id="submitted-title" className="mt-4 text-xl font-semibold text-slate-900">Submitted — you are in the queue</h2>
         {job?.estimate && (
@@ -527,9 +531,9 @@ function SubmittedDialog({ job, onClose }) {
 
 function PageShell({ children }) {
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="vs-root min-h-screen bg-slate-50">
       <Header product="Record your voice" />
-      <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">{children}</main>
+      <main className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:space-y-5 sm:px-6 sm:py-6">{children}</main>
     </div>
   );
 }
@@ -612,16 +616,16 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
   return (
     <>
       <Shell>
-        <section className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Record your teaching voice</h1>
+        <section className="flex flex-wrap items-end justify-between gap-3 sm:gap-4">
+          <div className="min-w-0 flex-1 basis-72">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Record your teaching voice</h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-600">
               Read the whole script in one go (pause whenever you need a break), upload recordings you already have, or both. About 30 minutes of clear speech gives the best voice.
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            {sessionEnd && <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white">Your recording session is open until {formatSgt(sessionEnd, { withDate: false })} SGT</span>}
-            {queueText && <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">{queueText}</span>}
+          <div className="flex flex-wrap gap-1.5 sm:flex-col sm:items-end sm:gap-1">
+            {sessionEnd && <span className="rounded-xl bg-emerald-600 px-3 py-1 text-xs font-semibold text-white sm:rounded-full">Your recording session is open until {formatSgt(sessionEnd, { withDate: false })} SGT</span>}
+            {queueText && <span className="rounded-xl bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 sm:rounded-full">{queueText}</span>}
           </div>
         </section>
 
@@ -630,7 +634,7 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
             <ul className="grid gap-1 sm:grid-cols-2">
               {SCRIPT_TIPS.map((tip) => <li key={tip}>• {tip}</li>)}
             </ul>
-            <button type="button" onClick={() => setTipsOpen(false)} className="absolute right-3 top-3 rounded p-1 text-blue-700 hover:bg-blue-100" aria-label="Hide tips"><X size={16} /></button>
+            <button type="button" onClick={() => setTipsOpen(false)} className="absolute right-1.5 top-1.5 rounded-lg p-2 text-blue-700 hover:bg-blue-100" aria-label="Hide tips"><X size={16} /></button>
           </Notice>
         )}
         {error && <Notice tone="error">{error}</Notice>}
@@ -642,7 +646,7 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
         )}
 
         {/* Without consent the reader stays readable; its Start button opens the consent form instead. */}
-        <div className={cn('grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]', !me && 'pointer-events-none opacity-50')} aria-disabled={!me}>
+        <div className={cn('grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_380px]', !me && 'pointer-events-none opacity-50')} aria-disabled={!me}>
           <ScriptReader
             onTake={(take) => setTakes((current) => [...current, take])}
             disabled={submitting || consentMissing || !me}

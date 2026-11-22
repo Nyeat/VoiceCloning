@@ -306,27 +306,27 @@ function ReadAloud({ voiceName, ready, onPickWord }) {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 p-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:p-4">
       <textarea
         value={text}
         onChange={(event) => setText(event.target.value.slice(0, MAX_TEXT))}
         placeholder="Paste or type anything — a lecture paragraph works well."
-        className="min-h-[260px] flex-1 resize-none rounded-xl border border-slate-200 p-4 text-[15px] leading-7 text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+        className="min-h-[180px] flex-1 resize-none rounded-xl border border-slate-200 p-4 text-[15px] leading-7 text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
       />
       <SpeakProgress speaker={speaker} />
       <div className="flex flex-wrap items-center gap-2">
         {speaker.speaking
-          ? <Button variant="danger" size="lg" onClick={speaker.stop}><Square size={15} /> Stop</Button>
-          : <Button variant="dark" size="lg" disabled={!text.trim() || !ready} onClick={readAloud}><Play size={15} /> Read aloud</Button>}
-        <Button variant="outline" size="lg" disabled={!text.trim() || scanning} onClick={scanText}>
+          ? <Button variant="danger" size="lg" className="flex-1 sm:flex-none" onClick={speaker.stop}><Square size={15} /> Stop</Button>
+          : <Button variant="dark" size="lg" className="flex-1 sm:flex-none" disabled={!text.trim() || !ready} onClick={readAloud}><Play size={15} /> Read aloud</Button>}
+        <Button variant="outline" size="lg" className="flex-1 sm:flex-none" disabled={!text.trim() || scanning} onClick={scanText}>
           {scanning ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} />} Scan text
         </Button>
         {speaker.download && !speaker.speaking && (
-          <a href={speaker.download.url} download={speaker.download.name} className="inline-flex h-12 items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-base font-semibold text-slate-700 hover:bg-slate-50">
+          <a href={speaker.download.url} download={speaker.download.name} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:w-auto sm:px-5 sm:text-base">
             <Download size={15} /> Download audio
           </a>
         )}
-        <span className="ml-auto text-xs text-slate-500">{text.length}/{MAX_TEXT}</span>
+        <span className="order-first w-full text-right text-xs tabular-nums text-slate-500 sm:order-none sm:ml-auto sm:w-auto">{text.length}/{MAX_TEXT}</span>
       </div>
       {scan && (
         <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm">
@@ -334,10 +334,10 @@ function ReadAloud({ voiceName, ready, onPickWord }) {
             ? <p className="flex items-center gap-2 text-emerald-700"><CheckCircle2 size={15} /> Every word is in the dictionary.</p>
             : (
               <>
-                <p className="text-slate-600">These words may be said wrongly. Tap one to fix it on the right.</p>
+                <p className="text-slate-600">These words may be said wrongly. Tap one to fix it in the Pronunciation panel.</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {scan.map((word) => (
-                    <button key={word} type="button" onClick={() => onPickWord(word)} className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-200">{word}</button>
+                    <button key={word} type="button" onClick={() => onPickWord(word)} className="max-w-full rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 [overflow-wrap:anywhere] hover:bg-amber-200">{word}</button>
                   ))}
                 </div>
               </>
@@ -494,8 +494,8 @@ function VoiceChat({ voiceName, ready }) {
   sendTextRef.current = sendText;
 
   return (
-    <div className="flex h-full min-h-[520px] flex-col">
-      <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto p-4">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3 sm:p-4">
         {messages.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center py-16 text-center">
             <MessageCircle size={28} className="text-slate-300" />
@@ -505,7 +505,7 @@ function VoiceChat({ voiceName, ready }) {
         )}
         {messages.map((message, index) => (
           <div key={index} className={cn('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}>
-            <p className={cn('max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-6', message.role === 'user' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-800')}>{message.text}</p>
+            <p className={cn('max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-6 [overflow-wrap:anywhere] sm:max-w-[80%]', message.role === 'user' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-800')}>{message.text}</p>
           </div>
         ))}
         {status === 'thinking' && <p className="flex items-center gap-1.5 text-xs text-slate-500"><Loader2 size={12} className="animate-spin" /> Thinking…</p>}
@@ -513,15 +513,16 @@ function VoiceChat({ voiceName, ready }) {
           <p className="flex items-center justify-center gap-1.5 text-xs text-amber-700"><Loader2 size={12} className="animate-spin" /> Starting the chat service — this usually takes 3–5 minutes. It connects by itself; Read aloud works meanwhile.</p>
         )}
       </div>
-      <div className="space-y-2 border-t border-slate-100 p-4">
+      <div className="space-y-2 border-t border-slate-100 p-3 sm:p-4">
         <SpeakProgress speaker={speaker} />
         <form onSubmit={send} className="flex gap-2">
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder={status === 'connecting' ? 'Connecting…' : status === 'starting' ? 'Starting the chat service…' : listening ? 'Listening… speak now' : 'Ask a question, or tap the microphone'}
+            placeholder={status === 'connecting' ? 'Connecting…' : status === 'starting' ? 'Starting the chat service…' : listening ? 'Listening… speak now' : 'Ask a question, or tap the mic'}
             disabled={status === 'connecting' || status === 'error' || !ready}
-            className="h-11 flex-1 rounded-full border border-slate-300 px-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+            enterKeyHint="send"
+            className="h-11 min-w-0 flex-1 rounded-full border border-slate-300 px-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
           />
           <button
             type="button"
@@ -534,8 +535,8 @@ function VoiceChat({ voiceName, ready }) {
             <Mic size={16} />
           </button>
           {speaker.speaking
-            ? <Button variant="danger" onClick={speaker.stop}><Square size={14} /> Stop</Button>
-            : <Button type="submit" variant="dark" disabled={!draft.trim() || status !== 'ready' || !ready}><Send size={14} /> Send</Button>}
+            ? <Button variant="danger" className="h-11 shrink-0 rounded-full px-3 sm:px-4" onClick={speaker.stop} aria-label="Stop"><Square size={14} /> <span className="hidden sm:inline">Stop</span></Button>
+            : <Button type="submit" variant="dark" className="h-11 shrink-0 rounded-full px-3 sm:px-4" disabled={!draft.trim() || status !== 'ready' || !ready} aria-label="Send"><Send size={14} /> <span className="hidden sm:inline">Send</span></Button>}
         </form>
         {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
       </div>
@@ -571,21 +572,25 @@ export default function VoiceTestBench({
   return (
     <div className="space-y-4">
       {header}
-      <Card className="flex flex-wrap items-center gap-3 px-4 py-3">
-        <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+      <Card className="flex flex-wrap items-center gap-3 px-3 py-3 sm:px-4">
+        <label className="flex w-full min-w-0 items-center gap-2 text-sm font-medium text-slate-700 sm:w-auto">
           Voice
-          <select value={voice} onChange={(event) => chooseVoice(event.target.value)} className="h-9 min-w-[220px] rounded-lg border border-slate-300 px-2 text-sm">
-            {voiceNames.map((name) => <option key={name} value={name}>{voiceLabels[name] ? `${voiceLabels[name]} (${name})` : name}</option>)}
-          </select>
+          {voiceNames.length > 1 ? (
+            <select value={voice} onChange={(event) => chooseVoice(event.target.value)} className="h-10 min-w-0 flex-1 truncate rounded-lg border border-slate-300 bg-white px-2 text-sm sm:h-9 sm:w-auto sm:min-w-[220px] sm:max-w-md sm:flex-none">
+              {voiceNames.map((name) => <option key={name} value={name}>{voiceLabels[name] ? `${voiceLabels[name]} (${name})` : name}</option>)}
+            </select>
+          ) : (
+            <span className="min-w-0 truncate font-semibold text-slate-900" title={voice}>{voiceLabels[voice] || voice}</span>
+          )}
         </label>
-        <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold', ready ? 'bg-emerald-50 text-emerald-700' : gpu.status === 'error' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800')}>
+        <span className={cn('inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold', ready ? 'bg-emerald-50 text-emerald-700' : gpu.status === 'error' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800')}>
           {ready ? <CheckCircle2 size={13} /> : gpu.status === 'error' ? null : <Loader2 size={13} className="animate-spin" />}
           {ready ? 'Ready' : gpu.status === 'error' ? 'This voice cannot be used' : audience === 'lecturer' ? 'Getting your voice ready' : (gpu.capacity?.state === 'STARTING' ? 'Starting a GPU with this voice' : 'Getting this voice ready')}
         </span>
-        <div className="ml-auto flex gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label="How to test">
+        <div className="flex w-full gap-1 rounded-lg bg-slate-100 p-1 sm:ml-auto sm:w-auto" role="tablist" aria-label="How to test">
           {[['chat', 'Chat', MessageCircle], ['read', 'Read aloud', Volume2]].map(([value, label, Icon]) => (
             <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
-              className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold', tab === value ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-800')}>
+              className={cn('inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold sm:flex-none sm:py-1.5', tab === value ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-800')}>
               <Icon size={14} /> {label}
             </button>
           ))}
@@ -595,8 +600,9 @@ export default function VoiceTestBench({
       {gpu.status === 'error' && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{gpu.error}</p>}
       {gpu.status !== 'error' && gpu.error && audience === 'superuser' && <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">Still trying: {gpu.error}</p>}
       {audience === 'lecturer' && !ready ? <WarmingCard gpu={gpu} slotWarm={slotWarm} /> : (
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="min-h-[560px] overflow-hidden">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        {/* A bounded height so the chat scrolls inside and its input stays on screen. */}
+        <Card className="flex h-[72dvh] min-h-[440px] max-h-[760px] min-w-0 flex-col overflow-hidden xl:h-[680px]">
           {tab === 'read'
             ? <ReadAloud key={voice} voiceName={voice} ready={ready} onPickWord={(word) => setPick({ word, at: Date.now() })} />
             : <VoiceChat key={voice} voiceName={voice} ready={ready} />}

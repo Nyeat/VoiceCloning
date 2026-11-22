@@ -10,12 +10,12 @@ import { cn } from '@/lib/utils';
 
 export function Brand({ product, tone = 'light' }) {
   return (
-    <div className="flex items-center gap-3">
-      <img src={ntuLogo} alt="Nanyang Technological University" className="h-8 w-auto" />
-      <span className={cn('h-7 w-px', tone === 'dark' ? 'bg-white/30' : 'bg-slate-300')} aria-hidden="true" />
-      <div className="leading-tight">
+    <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+      <img src={ntuLogo} alt="Nanyang Technological University" className="h-7 w-auto shrink-0 sm:h-8" />
+      <span className={cn('h-7 w-px shrink-0', tone === 'dark' ? 'bg-white/30' : 'bg-slate-300')} aria-hidden="true" />
+      <div className="min-w-0 leading-tight">
         <p className={cn('text-[11px] font-semibold uppercase tracking-[0.16em]', tone === 'dark' ? 'text-white/70' : 'text-slate-500')}>LKCMedicine</p>
-        <p className={cn('text-sm font-semibold', tone === 'dark' ? 'text-white' : 'text-slate-900')}>{product}</p>
+        <p className={cn('truncate text-sm font-semibold', tone === 'dark' ? 'text-white' : 'text-slate-900')}>{product}</p>
       </div>
     </div>
   );
@@ -26,21 +26,23 @@ export function Header({ product, badge, children }) {
   const email = auth.user?.email || '';
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-3">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-2.5 sm:px-6 sm:py-3">
+        <div className="flex min-w-0 items-center gap-3">
           <Brand product={product} />
           {badge}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           {children}
-          <a href="/faq" target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-slate-600 hover:bg-slate-50"><HelpCircle size={14} aria-hidden="true" /> FAQ</a>
-          {email && <span className="hidden text-xs text-slate-500 md:inline">{email}</span>}
+          <a href="/faq" target="_blank" rel="noreferrer" aria-label="FAQ" className="inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:h-9"><HelpCircle size={16} aria-hidden="true" /> <span className="hidden sm:inline">FAQ</span></a>
+          {email && <span className="hidden max-w-[16rem] truncate text-xs text-slate-500 md:inline" title={email}>{email}</span>}
           <button
             type="button"
             onClick={() => auth.signOut()}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            aria-label="Sign out"
+            title={email ? `Signed in as ${email}` : undefined}
+            className="inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:h-9 sm:px-3"
           >
-            <LogOut size={14} aria-hidden="true" /> Sign out
+            <LogOut size={15} aria-hidden="true" /> <span className="hidden sm:inline">Sign out</span>
           </button>
         </div>
       </div>
@@ -69,16 +71,16 @@ function FaqDialog({ onClose, children }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby="faq-title" className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h2 id="faq-title" className="text-lg font-semibold text-slate-900">Questions &amp; answers</h2>
-          <div className="flex items-center gap-3">
+    <div className="vs-root fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="faq-title" className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-full sm:rounded-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5 sm:py-4">
+          <h2 id="faq-title" className="min-w-0 text-lg font-semibold text-slate-900">Questions &amp; answers</h2>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <a href="/faq" target="_blank" rel="noreferrer" className="text-xs font-semibold text-primary hover:underline">Open as a page</a>
-            <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="Close"><X size={18} /></button>
+            <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" aria-label="Close"><X size={18} /></button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">{children}</div>
       </div>
     </div>
   );
@@ -250,7 +252,7 @@ export function SignInScreen({
   const google = Boolean(onGoogleSignIn && GOOGLE_CLIENT_ID);
 
   return (
-    <div className="grid min-h-screen bg-white lg:grid-cols-[minmax(0,1.2fr)_minmax(440px,1fr)]">
+    <div className="vs-root grid min-h-screen bg-white lg:grid-cols-[minmax(0,1.2fr)_minmax(440px,1fr)]">
       <style>{HALO_CSS}</style>
       <section className={cn('relative hidden overflow-hidden bg-gradient-to-br lg:block', accent)}>
         <img src={campusPhoto} alt="Lee Kong Chian School of Medicine, Novena campus" className="absolute inset-0 h-full w-full object-cover" />
@@ -271,10 +273,10 @@ export function SignInScreen({
           </ol>
         </div>
       </section>
-      <section className="flex flex-col justify-center px-4 py-10 sm:px-12">
+      <section className="flex flex-col justify-center px-5 py-8 sm:px-12 sm:py-10">
         <div className="mx-auto w-full max-w-sm">
           <Brand product={product} />
-          <h2 className="mt-10 text-2xl font-semibold tracking-tight text-slate-900">Welcome</h2>
+          <h2 className="mt-8 text-2xl sm:mt-10 font-semibold tracking-tight text-slate-900">Welcome</h2>
           <p className="mt-1 text-sm text-slate-500">Sign in, or create an account in one step.</p>
           <div className="mt-6 space-y-2.5">
             {google && <GoogleSignIn onSignIn={onGoogleSignIn} />}
@@ -318,7 +320,7 @@ const STATUS_STYLES = {
 
 export function StatusPill({ status }) {
   const [label, style] = STATUS_STYLES[status] || [status, 'bg-slate-100 text-slate-600'];
-  return <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', style)}>{label}</span>;
+  return <span className={cn('inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold', style)}>{label}</span>;
 }
 
 export function Notice({ tone = 'info', children, className }) {
@@ -340,11 +342,12 @@ export function Button({ variant = 'primary', size = 'md', className, ...props }
     success: 'bg-emerald-600 text-white hover:bg-emerald-700',
     ghost: 'text-slate-600 hover:bg-slate-100',
   };
-  const sizes = { sm: 'h-8 px-3 text-xs', md: 'h-10 px-4 text-sm', lg: 'h-12 px-6 text-base' };
+  // Phones: small buttons a little taller (easier to tap), large ones less wide.
+  const sizes = { sm: 'h-9 px-3 text-xs sm:h-8', md: 'h-10 px-4 text-sm', lg: 'h-12 px-4 text-sm sm:px-6 sm:text-base' };
   return (
     <button
       type="button"
-      className={cn('inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:cursor-not-allowed disabled:opacity-50', variants[variant], sizes[size], className)}
+      className={cn('inline-flex max-w-full items-center justify-center gap-2 rounded-lg text-center font-semibold leading-tight transition disabled:cursor-not-allowed disabled:opacity-50', variants[variant], sizes[size], className)}
       {...props}
     />
   );

@@ -3,7 +3,7 @@
 //   "Sounds like" — type it the way it is said ("koh hee sin"). Works at once.
 //   "Exact sounds" — ARPAbet phonemes, with a dictionary lookup to start from.
 //                    Applied to the voice with "Apply to voice" (reloads the engine).
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpen, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { arpabetToReadable, fetchDatamuseArpabet } from '@/lib/arpabet';
 import { cn } from '@/lib/utils';
@@ -47,13 +47,18 @@ export default function PronunciationPanel({ voiceName, canApply = true, compact
   }, [voiceName]);
 
   useEffect(() => { setForm(EMPTY); setEditing(''); setPendingApply(false); setMessage(null); load(); }, [load]);
+  // Below xl the panel sits under the tester, so a word picked there would be
+  // filled in off screen: bring the form into view.
+  const formRef = useRef(null);
   useEffect(() => {
     if (!prefill?.word) return;
     setEditing('');
     setForm({ ...EMPTY, word: prefill.word });
+    if (window.matchMedia?.('(max-width: 1279px)').matches) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [prefill]);
 
   function edit(entry) {
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     setEditing(entry.word);
     setForm({
       word: entry.word,
@@ -136,29 +141,29 @@ export default function PronunciationPanel({ voiceName, canApply = true, compact
   const readable = form.mode === 'arpabet' && form.arpabet ? arpabetToReadable(form.arpabet) : '';
 
   return (
-    <section className={cn('flex flex-col rounded-2xl border border-slate-200 bg-white', compact ? '' : 'shadow-sm')}>
-      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
-        <div>
+    <section className={cn('flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white', compact ? '' : 'shadow-sm')}>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div className="min-w-0 flex-1">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900"><BookOpen size={15} /> Pronunciation</h3>
-          <p className="text-xs text-slate-500">Only affects <span className="font-medium text-slate-700">{voiceName || 'this voice'}</span>.</p>
+          <p className="text-xs text-slate-500 [overflow-wrap:anywhere]">Only affects <span className="font-medium text-slate-700">{voiceName || 'this voice'}</span>.</p>
         </div>
         {canApply && pendingApply && (
           <Button variant="dark" size="sm" onClick={apply} disabled={busy}><RefreshCw size={13} /> Apply to voice</Button>
         )}
       </div>
 
-      <form onSubmit={save} className="space-y-3 border-b border-slate-100 px-4 py-3">
+      <form ref={formRef} onSubmit={save} className="scroll-mt-24 space-y-3 border-b border-slate-100 px-4 py-3">
         <div className="flex gap-2">
           <input
             value={form.word}
             onChange={(event) => setForm({ ...form, word: event.target.value })}
             placeholder="Word, e.g. cohesin"
             aria-label="Word"
-            className="h-9 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:outline-none"
+            className="h-10 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:outline-none sm:h-9"
           />
           {editing && <Button variant="ghost" size="sm" onClick={() => { setEditing(''); setForm(EMPTY); }} aria-label="Cancel edit"><X size={14} /></Button>}
         </div>
-        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold" role="radiogroup" aria-label="How to describe it">
+        <div className="flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold sm:inline-flex" role="radiogroup" aria-label="How to describe it">
           {[['soundsLike', 'Sounds like'], ['arpabet', 'Exact sounds (ARPAbet)']].map(([value, label]) => (
             <button
               key={value}
@@ -166,7 +171,7 @@ export default function PronunciationPanel({ voiceName, canApply = true, compact
               role="radio"
               aria-checked={form.mode === value}
               onClick={() => setForm({ ...form, mode: value })}
-              className={cn('rounded-md px-3 py-1.5', form.mode === value ? 'bg-white text-slate-900 shadow' : 'text-slate-500')}
+              className={cn('flex-1 rounded-md px-3 py-2 sm:flex-none sm:py-1.5', form.mode === value ? 'bg-white text-slate-900 shadow' : 'text-slate-500')}
             >
               {label}
             </button>
@@ -179,7 +184,7 @@ export default function PronunciationPanel({ voiceName, canApply = true, compact
               onChange={(event) => setForm({ ...form, soundsLike: event.target.value })}
               placeholder="Spell it how it sounds, e.g. koh hee sin"
               aria-label="Sounds like"
-              className="h-9 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:outline-none"
+              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:outline-none sm:h-9"
             />
             <p className="mt-1 text-xs text-slate-500">Letters and spaces only. Split syllables with spaces to slow a word down.</p>
           </div>
@@ -191,7 +196,7 @@ export default function PronunciationPanel({ voiceName, canApply = true, compact
                 onChange={(event) => setForm({ ...form, arpabet: event.target.value.toUpperCase() })}
                 placeholder="K OW0 HH IY1 S IH0 N"
                 aria-label="ARPAbet sounds"
-                className="h-9 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 font-mono text-sm focus:border-primary focus:outline-none"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 font-mono text-sm focus:border-primary focus:outline-none sm:h-9"
               />
               <Button variant="outline" size="sm" onClick={lookUp} disabled={!form.word.trim() || lookup === 'loading'}>
                 {lookup === 'loading' ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Look up
@@ -210,7 +215,7 @@ export default function PronunciationPanel({ voiceName, canApply = true, compact
             )}
           </div>
         )}
-        <Button type="submit" variant="primary" size="sm" disabled={busy || !form.word.trim() || !(form.mode === 'soundsLike' ? form.soundsLike.trim() : form.arpabet.trim())}>
+        <Button type="submit" variant="primary" size="sm" className="w-full sm:w-auto" disabled={busy || !form.word.trim() || !(form.mode === 'soundsLike' ? form.soundsLike.trim() : form.arpabet.trim())}>
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} {editing ? 'Save changes' : 'Add word'}
         </Button>
       </form>
@@ -223,22 +228,22 @@ export default function PronunciationPanel({ voiceName, canApply = true, compact
           onChange={(event) => setFilter(event.target.value)}
           placeholder={`Search ${entries.length} word${entries.length === 1 ? '' : 's'}`}
           aria-label="Search words"
-          className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs focus:outline-none"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs focus:outline-none sm:h-8"
         />
       </div>
       <ul className="max-h-72 flex-1 divide-y divide-slate-100 overflow-y-auto px-2 py-2">
         {loading && <li className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-slate-400" /></li>}
         {!loading && shown.length === 0 && <li className="px-2 py-4 text-center text-xs text-slate-500">No custom words yet.</li>}
         {shown.map((entry) => (
-          <li key={entry.word} className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-slate-50">
+          <li key={entry.word} className="flex items-center gap-1 rounded-lg px-2 py-2 hover:bg-slate-50">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-slate-800">{entry.word}</p>
-              <p className="truncate text-xs text-slate-500">
+              <p className="text-sm font-medium text-slate-800 [overflow-wrap:anywhere]">{entry.word}</p>
+              <p className="truncate text-xs text-slate-500" title={entry.soundsLike || entry.arpabet}>
                 {entry.soundsLike ? `sounds like "${entry.soundsLike}"` : `${entry.arpabet} · ${arpabetToReadable(entry.arpabet)}`}
               </p>
             </div>
-            <button type="button" onClick={() => edit(entry)} className="rounded p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700" aria-label={`Edit ${entry.word}`}><Pencil size={13} /></button>
-            <button type="button" onClick={() => remove(entry.word)} disabled={busy} className="rounded p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${entry.word}`}><Trash2 size={13} /></button>
+            <button type="button" onClick={() => edit(entry)} className="shrink-0 rounded-lg p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700" aria-label={`Edit ${entry.word}`}><Pencil size={14} /></button>
+            <button type="button" onClick={() => remove(entry.word)} disabled={busy} className="shrink-0 rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${entry.word}`}><Trash2 size={14} /></button>
           </li>
         ))}
       </ul>

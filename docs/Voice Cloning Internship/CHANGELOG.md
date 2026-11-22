@@ -2757,3 +2757,22 @@
 - DEPLOYED 7d1b06f (2026-11-21 16:13-16:24 UTC): dev + staging main Lambdas and coordinators (all Successful; staging
   main code upload hit "Connection was closed" once and was redeployed), studio client dev + staging (live chunks
   contain "I'm done testing"). Not yet exercised live (slot + super-user test at once, early finish).
+
+## 2026-11-22 — Voice Studio: phone layout made robust (client only)
+
+- Long names, emails, voice IDs and labels wrap or truncate instead of overflowing; `.vs-root` safety net in
+  `globals.css` (no sideways page scroll, 16px fields on phones so iOS does not zoom). Phone grids use
+  `grid-cols-1` (a long voice ID had stretched the Training queue card past the screen).
+- Header: icon-only FAQ / Sign out on phones, product name truncates. Super-user console: phone header + section
+  strip stay pinned, strip shows the review count and keeps the current section in view; "Working…" pill moved to
+  the bottom on phones. Stat cards 2 per row.
+- Lecturer: 4-step progress fits narrow screens (labels wrap); session picker scrolls to the day's times and has a
+  Back on confirm; test banner/feedback buttons full width. Recorder: ‹ status › row + full-width
+  Start/Pause/Finish (live controls no longer overflow). Tester: Chat/Read aloud tabs full width, chat has a bounded
+  height so the input stays on screen, Send/Stop icon-only on phones; tapping a scanned word or Edit scrolls to the
+  Pronunciation form. Schedule: tapping a time scrolls the composer into view. Dialogs are bottom sheets on phones.
+- Files: client/src/globals.css, client/src/studio/{StudioChrome,StudioApp,RecordApp,VoiceTestBench,
+  PronunciationPanel,ConsentAndFaq}.jsx.
+- Tests: client 561/561, studio build OK. Checked at 375 px in Chrome with a mocked local API (long-name fixtures):
+  lecturer booking/journey/recording/test slot, super-user overview/job/schedule/sessions/tester/super users/
+  feedback; no element past the screen edge. Not checked on a real iOS/Android device.

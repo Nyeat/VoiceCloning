@@ -174,3 +174,21 @@ audio {
   --primary-foreground: 0 0% 100%;
   --ring: 237 61% 24%;
 }
+
+/* Voice Studio (build "studio"): phone safety net. Long names, emails and
+   voice IDs wrap instead of pushing the page sideways, nothing scrolls the
+   page horizontally, and form fields are 16px on phones so iOS does not zoom
+   in when one is focused. */
+.vs-root {
+  overflow-wrap: break-word;
+  overflow-x: clip;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (max-width: 639px) {
+  .vs-root input:not([type='checkbox']):not([type='radio']),
+  .vs-root select,
+  .vs-root textarea {
+    font-size: 16px;
+  }
+}

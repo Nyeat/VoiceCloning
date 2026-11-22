@@ -4,8 +4,8 @@
 //    any voice, read lecturer feedback and manage other super users.
 //  - Lecturers get one simple page: their approved voice, usable only inside
 //    the slot booked for them, with its own pronunciation list and feedback.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   CalendarCheck, CalendarClock, CheckCircle2, ChevronDown, ClipboardCheck, Cpu, Loader2, MessageSquareText, Mic2, RefreshCw, ShieldCheck,
   Star, ThumbsDown, ThumbsUp, Trash2, UserPlus, Users, X,
@@ -68,11 +68,11 @@ function useOverview() {
 function StatCard({ icon: Icon, label, value, tone = 'slate' }) {
   const tones = { slate: 'bg-slate-100 text-slate-700', amber: 'bg-amber-100 text-amber-700', blue: 'bg-blue-100 text-blue-700', violet: 'bg-violet-100 text-violet-700', emerald: 'bg-emerald-100 text-emerald-700' };
   return (
-    <Card className="flex items-center gap-3 p-4">
-      <span className={cn('flex h-10 w-10 items-center justify-center rounded-xl', tones[tone])}><Icon size={18} /></span>
-      <div>
-        <p className="text-2xl font-semibold text-slate-900">{value}</p>
-        <p className="text-xs text-slate-500">{label}</p>
+    <Card className="flex min-w-0 items-center gap-3 p-3 sm:p-4">
+      <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', tones[tone])}><Icon size={18} /></span>
+      <div className="min-w-0">
+        <p className="text-xl font-semibold text-slate-900 sm:text-2xl">{value}</p>
+        <p className="line-clamp-3 text-xs leading-4 text-slate-500" title={label}>{label}</p>
       </div>
     </Card>
   );
@@ -115,7 +115,7 @@ function Overview({ overview, onAction }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5 [&>*:last-child:nth-child(odd)]:col-span-2 xl:[&>*:last-child:nth-child(odd)]:col-span-1">
         <StatCard icon={CalendarCheck} label="Recording sessions booked" value={recordingBooked.length} tone="slate" />
         <StatCard icon={ClipboardCheck} label="Waiting for your review" value={review.length} tone="violet" />
         <StatCard icon={CalendarClock} label="Approved, need a slot" value={needSlot.length} tone="emerald" />
@@ -134,24 +134,26 @@ function Overview({ overview, onAction }) {
       )}
 
       <Card>
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-b border-slate-200 px-4 py-3 sm:px-5">
           <h2 className="font-semibold text-slate-900">Needs your review</h2>
           <span className="text-xs text-slate-500">Listen, then approve or send back</span>
         </div>
-        {review.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">Nothing waiting. You will get an email when a voice finishes training.</p> : (
+        {review.length === 0 ? <p className="px-4 py-6 text-sm text-slate-500 sm:px-5">Nothing waiting. You will get an email when a voice finishes training.</p> : (
           <ul className="divide-y divide-slate-100">
             {review.map((job) => (
-              <li key={job.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-slate-900">{who(job)}</p>
+              <li key={job.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-5">
+                <div className="min-w-0 flex-1 basis-56">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <p className="min-w-0 font-medium text-slate-900 [overflow-wrap:anywhere]">{who(job)}</p>
                     <StatusPill status={job.status} />
-                    <span className="text-xs text-slate-500">attempt {job.attempt} · {job.expName}</span>
                   </div>
-                  <p className="text-sm text-slate-600">{job.label}{job.error ? ` — ${job.error}` : ''}</p>
+                  <p className="text-sm text-slate-600 [overflow-wrap:anywhere]">{job.label}{job.error ? ` — ${job.error}` : ''}</p>
+                  <p className="text-xs text-slate-500 [overflow-wrap:anywhere]">attempt {job.attempt} · {job.expName}</p>
                 </div>
-                {job.status === 'review' && <Button variant="outline" size="sm" onClick={() => navigate(`/test?voice=${encodeURIComponent(job.expName)}`)}><Mic2 size={13} /> Test</Button>}
-                <Button variant="dark" size="sm" onClick={() => navigate(`/review/${job.id}`)}>Open</Button>
+                <div className="flex shrink-0 gap-2">
+                  {job.status === 'review' && <Button variant="outline" size="sm" onClick={() => navigate(`/test?voice=${encodeURIComponent(job.expName)}`)}><Mic2 size={13} /> Test</Button>}
+                  <Button variant="dark" size="sm" onClick={() => navigate(`/review/${job.id}`)}>Open</Button>
+                </div>
               </li>
             ))}
           </ul>
@@ -159,23 +161,25 @@ function Overview({ overview, onAction }) {
       </Card>
 
       <Card>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-3">
-          <h2 className="font-semibold text-slate-900">Booked recording sessions</h2>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-500">{recordingOpen} open session{recordingOpen === 1 ? '' : 's'} not picked yet</span>
-            <Button variant="dark" size="sm" onClick={() => navigate('/sessions')}><CalendarClock size={13} /> Add &amp; publish sessions</Button>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-slate-900">Booked recording sessions</h2>
+            <p className="text-xs text-slate-500">{recordingOpen} open session{recordingOpen === 1 ? '' : 's'} not picked yet</p>
           </div>
+          <Button variant="dark" size="sm" onClick={() => navigate('/sessions')}><CalendarClock size={13} /> Add &amp; publish</Button>
         </div>
-        {recordingBooked.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">Nobody has a recording session booked yet.</p> : (
+        {recordingBooked.length === 0 ? <p className="px-4 py-6 text-sm text-slate-500 sm:px-5">Nobody has a recording session booked yet.</p> : (
           <ul className="divide-y divide-slate-100">
             {recordingBooked.map((slot) => {
               const live = Date.parse(slot.start) <= now;
               return (
-                <li key={slot.id} className="flex flex-wrap items-center gap-3 px-5 py-2.5 text-sm">
-                  <span className={cn('h-2.5 w-2.5 rounded-full', live ? 'bg-rose-500' : 'bg-indigo-500')} />
-                  <span className="w-48 font-medium text-slate-800">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
-                  <span className="min-w-0 flex-1 truncate">{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}</span></span>
-                  <span className="text-xs text-slate-500">{live ? 'recording now' : relativeFromNow(slot.start, now)}{slot.claimedAt ? ' · picked by them' : ' · assigned'}{slot.hostName ? ` · run by ${slot.hostName}` : ''}</span>
+                <li key={slot.id} className="flex items-start gap-3 px-4 py-2.5 text-sm sm:items-center sm:px-5">
+                  <span className={cn('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full sm:mt-0', live ? 'bg-rose-500' : 'bg-indigo-500')} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
+                    <span className="font-medium text-slate-800 sm:w-48 sm:shrink-0">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
+                    <span className="min-w-0 flex-1 truncate" title={slot.assigneeEmail}>{slot.assigneeName || slot.assigneeEmail} {slot.assigneeName && <span className="text-xs text-slate-400">{slot.assigneeEmail}</span>}</span>
+                    <span className="text-xs text-slate-500 sm:text-right">{live ? 'recording now' : relativeFromNow(slot.start, now)}{slot.claimedAt ? ' · picked by them' : ' · assigned'}{slot.hostName ? ` · run by ${slot.hostName}` : ''}</span>
+                  </div>
                 </li>
               );
             })}
@@ -183,20 +187,20 @@ function Overview({ overview, onAction }) {
         )}
       </Card>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Card>
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
             <h2 className="font-semibold text-slate-900">Training queue</h2>
             <Button variant="ghost" size="sm" onClick={() => onAction(runTick)}><RefreshCw size={13} /> Check now</Button>
           </div>
-          <div className="px-5 py-2 text-xs text-slate-500">
+          <div className="px-4 py-2 text-xs text-slate-500 [overflow-wrap:anywhere] sm:px-5">
             GPU trainer: {overview.worker.reachable ? `${overview.worker.status}${overview.worker.expName ? ` (${overview.worker.expName})` : ''}` : 'off or starting — it is started automatically when work is queued'}
             {' · '}~{overview.trainingMinutes} min per voice
           </div>
           <ol className="divide-y divide-slate-100">
             {[training, ...queue].filter(Boolean).map((job) => (
-              <li key={job.id} className="flex items-center gap-3 px-5 py-2.5">
-                <span className={cn('flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold', job.status === 'training' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600')}>
+              <li key={job.id} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+                <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold', job.status === 'training' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600')}>
                   {job.status === 'training' ? <Loader2 size={13} className="animate-spin" /> : job.estimate?.position}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -204,7 +208,7 @@ function Overview({ overview, onAction }) {
                   {job.estimate && <p className="text-xs text-slate-500">{job.status === 'training' ? 'finishes' : 'starts'} {formatSgt(job.status === 'training' ? job.estimate.finishAt : job.estimate.startAt)} · done {relativeFromNow(job.estimate.finishAt)}</p>}
                   {job.error && job.status === 'queued' && <p className="text-xs text-amber-700">{job.error}</p>}
                 </div>
-                <button type="button" onClick={() => navigate(`/review/${job.id}`)} className="text-xs font-medium text-primary hover:underline">Details</button>
+                <button type="button" onClick={() => navigate(`/review/${job.id}`)} className="shrink-0 rounded-lg px-2 py-2 text-xs font-medium text-primary hover:underline">Details</button>
               </li>
             ))}
             {!training && queue.length === 0 && <li className="px-5 py-6 text-sm text-slate-500">The queue is empty.</li>}
@@ -218,10 +222,10 @@ function Overview({ overview, onAction }) {
           {needSlot.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No approved voice is waiting for a slot.</p> : (
             <ul className="divide-y divide-slate-100">
               {needSlot.map((job) => (
-                <li key={job.id} className="flex items-center gap-3 px-5 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-slate-900">{who(job)}</p>
-                    <p className="text-xs text-slate-500">{job.label} · {job.approvedExpName}</p>
+                <li key={job.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-5">
+                  <div className="min-w-0 flex-1 basis-40">
+                    <p className="font-medium text-slate-900 [overflow-wrap:anywhere]">{who(job)}</p>
+                    <p className="text-xs text-slate-500 [overflow-wrap:anywhere]">{job.label} · {job.approvedExpName}</p>
                   </div>
                   <Button variant="success" size="sm" onClick={() => navigate(`/schedule?person=${encodeURIComponent(job.ownerEmail)}`)}><CalendarClock size={13} /> Give a slot</Button>
                 </li>
@@ -269,25 +273,25 @@ function VoicesByStage({ jobs }) {
           const highlight = stage.key === 'queued' && items.length > 0;
           return (
             <details key={stage.key} open={stage.open && items.length > 0} className={cn('group rounded-xl border', highlight ? STAGE_TONES.amber : STAGE_TONES[stage.tone])}>
-              <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-2.5">
-                <span className={cn('h-2.5 w-2.5 rounded-full', STAGE_DOTS[stage.tone])} />
-                <span className={cn('text-sm font-semibold', highlight ? 'text-amber-900' : 'text-slate-800')}>{stage.title}</span>
-                <span className={cn('rounded-full px-2 text-xs font-semibold', highlight ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600')}>{items.length}</span>
-                <ChevronDown size={15} className="ml-auto text-slate-400 transition group-open:rotate-180" />
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-4 py-2.5 [&::-webkit-details-marker]:hidden">
+                <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', STAGE_DOTS[stage.tone])} />
+                <span className={cn('min-w-0 text-sm font-semibold', highlight ? 'text-amber-900' : 'text-slate-800')}>{stage.title}</span>
+                <span className={cn('shrink-0 rounded-full px-2 text-xs font-semibold', highlight ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600')}>{items.length}</span>
+                <ChevronDown size={15} className="ml-auto shrink-0 text-slate-400 transition group-open:rotate-180" />
               </summary>
               {items.length === 0 ? <p className="px-4 pb-3 text-xs text-slate-500">None.</p> : (
                 <ul className="divide-y divide-slate-100 border-t border-slate-100 bg-white/70">
                   {items.map((job) => (
-                    <li key={job.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-slate-800">{who(job)} <span className="font-normal text-slate-500">· {job.label}</span></p>
-                        <p className="text-xs text-slate-500">
+                    <li key={job.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+                      <div className="min-w-0 flex-1 basis-56">
+                        <p className="font-medium text-slate-800 [overflow-wrap:anywhere]">{who(job)} <span className="font-normal text-slate-500">· {job.label}</span></p>
+                        <p className="text-xs text-slate-500 [overflow-wrap:anywhere]">
                           {job.ownerEmail} · {job.expName}{job.attempt > 1 ? ` · attempt ${job.attempt}` : ''} · {job.files.length} files, {formatBytes(job.totalBytes)}
                           {job.estimate?.finishAt ? ` · done ${relativeFromNow(job.estimate.finishAt)}` : ''}
                         </p>
                       </div>
                       <span className="text-xs text-slate-500">{formatSgt(job.queuedAt || job.createdAt)}</span>
-                      <button type="button" onClick={() => navigate(`/review/${job.id}`)} className="text-xs font-medium text-primary hover:underline">Open</button>
+                      <button type="button" onClick={() => navigate(`/review/${job.id}`)} className="ml-auto rounded-lg px-2 py-1.5 text-xs font-medium text-primary hover:underline">Open</button>
                     </li>
                   ))}
                 </ul>
@@ -313,10 +317,10 @@ function ReviewForm({ job, reasons, maxAttempts, onAction }) {
 
   if (job.status !== 'review') return null;
   return (
-    <Card className="p-5">
+    <Card className="p-4 sm:p-5">
       <h3 className="font-semibold text-slate-900">Quality decision</h3>
       <p className="mt-1 text-sm text-slate-600">Test the voice first (chat or text-to-speech), then decide.</p>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
         <Button variant="success" onClick={() => onAction(() => reviewJob(job.id, { decision: 'approve', notes }))}><ThumbsUp size={15} /> Good — approve</Button>
         <Button variant={mode === 'reject' ? 'danger' : 'outline'} onClick={() => setMode(mode === 'reject' ? '' : 'reject')}><ThumbsDown size={15} /> Not good — retrain</Button>
         <Button variant="ghost" onClick={() => setMode(mode === 'recordings' ? '' : 'recordings')}>Ask for new recordings</Button>
@@ -327,8 +331,8 @@ function ReviewForm({ job, reasons, maxAttempts, onAction }) {
           <p className="text-sm font-medium text-slate-800">What is wrong? The retrain changes its recipe to match:</p>
           <div className="grid gap-2 sm:grid-cols-2">
             {Object.entries(reasons).map(([key, label]) => (
-              <label key={key} className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={picked.includes(key)} onChange={(event) => setPicked(event.target.checked ? [...picked, key] : picked.filter((item) => item !== key))} />
+              <label key={key} className="flex min-h-9 items-center gap-2.5 text-sm text-slate-700">
+                <input type="checkbox" className="h-4 w-4 shrink-0" checked={picked.includes(key)} onChange={(event) => setPicked(event.target.checked ? [...picked, key] : picked.filter((item) => item !== key))} />
                 {label}
               </label>
             ))}
@@ -340,7 +344,7 @@ function ReviewForm({ job, reasons, maxAttempts, onAction }) {
             <li>• The retrain is a new voice version; this one is kept for comparison.</li>
           </ul>
           <details className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" open>
-            <summary className="cursor-pointer text-xs font-semibold text-slate-600">Retrain settings (last run: SoVITS {job.trainingConfig?.sovitsEpochs}, GPT {job.trainingConfig?.gptEpochs}, batch {job.trainingConfig?.batchSize ?? 'default'}, noise removal {job.trainingConfig?.skipDenoise ? 'off' : 'on'})</summary>
+            <summary className="cursor-pointer py-1 text-xs font-semibold text-slate-600">Retrain settings (last run: SoVITS {job.trainingConfig?.sovitsEpochs}, GPT {job.trainingConfig?.gptEpochs}, batch {job.trainingConfig?.batchSize ?? 'default'}, noise removal {job.trainingConfig?.skipDenoise ? 'off' : 'on'})</summary>
             <p className="mt-1 text-xs text-slate-500">Blank numbers follow the recipe above.</p>
             <div className="mt-2"><TrainingSettings
               value={effective}
@@ -399,10 +403,10 @@ function JobDetail({ overview, onAction }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <button type="button" onClick={() => navigate('/')} className="text-xs font-medium text-primary hover:underline">← Overview</button>
-          <h2 className="mt-1 text-xl font-semibold text-slate-900">{who(job)} · {job.label}</h2>
-          <p className="text-sm text-slate-500">{job.ownerEmail} · attempt {job.attempt} · current voice {job.expName}</p>
+        <div className="min-w-0 flex-1 basis-64">
+          <button type="button" onClick={() => navigate('/')} className="-ml-1 rounded-lg px-1 py-1.5 text-xs font-medium text-primary hover:underline">← Overview</button>
+          <h2 className="mt-0.5 text-lg font-semibold text-slate-900 [overflow-wrap:anywhere] sm:text-xl">{who(job)} · {job.label}</h2>
+          <p className="text-sm text-slate-500 [overflow-wrap:anywhere]">{job.ownerEmail} · attempt {job.attempt} · current voice {job.expName}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={job.status} />
@@ -414,7 +418,7 @@ function JobDetail({ overview, onAction }) {
 
       {confirmWithdraw && (
         <Notice tone="warn" className="space-y-2">
-          <p className="font-semibold">Withdraw {who(job)}'s set "{job.label}"?</p>
+          <p className="font-semibold [overflow-wrap:anywhere]">Withdraw {who(job)}'s set "{job.label}"?</p>
           <ul className="list-disc space-y-0.5 pl-5 text-sm">
             <li>It leaves {job.status === 'queued' ? 'the training queue' : job.status === 'review' || job.status === 'failed' ? 'quality check' : 'its current stage'} and moves to "Withdrawn"; it will not train or be tested.</li>
             <li>{who(job)} is not emailed, and may book a new recording session.</li>
@@ -431,15 +435,15 @@ function JobDetail({ overview, onAction }) {
         <Notice tone="info">Estimated finish {formatSgt(job.estimate.finishAt)} SGT ({relativeFromNow(job.estimate.finishAt)}).</Notice>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           {voices.length > 0 && (
             <Card className="p-5">
               <h3 className="font-semibold text-slate-900">Trained versions</h3>
               <div className="mt-3 flex flex-wrap gap-2">
                 {voices.map((name) => (
-                  <Button key={name} variant={name === job.expName ? 'dark' : 'outline'} size="sm" onClick={() => navigate(`/test?voice=${encodeURIComponent(name)}`)}>
-                    <Mic2 size={13} /> Test {name}
+                  <Button key={name} variant={name === job.expName ? 'dark' : 'outline'} size="sm" title={name} onClick={() => navigate(`/test?voice=${encodeURIComponent(name)}`)}>
+                    <Mic2 size={13} className="shrink-0" /> <span className="truncate">Test {name}</span>
                   </Button>
                 ))}
               </div>
@@ -467,14 +471,14 @@ function JobDetail({ overview, onAction }) {
             <ul className="mt-2 space-y-2 text-slate-700">
               {job.attempts.map((attempt) => (
                 <li key={`${attempt.attempt}-${attempt.expName}`} className="rounded-lg bg-slate-50 px-3 py-2">
-                  <p className="font-medium">Attempt {attempt.attempt}: {attempt.result} <span className="text-xs text-slate-500">({attempt.expName})</span></p>
+                  <p className="font-medium [overflow-wrap:anywhere]">Attempt {attempt.attempt}: {attempt.result} <span className="text-xs text-slate-500">({attempt.expName})</span></p>
                   <p className="text-xs text-slate-500">SoVITS {attempt.config?.sovitsEpochs} · GPT {attempt.config?.gptEpochs} epochs · denoise {attempt.config?.skipDenoise ? 'off' : 'on'} · {formatSgt(attempt.finishedAt)}</p>
                   {attempt.error && <p className="text-xs text-rose-600">{attempt.error}</p>}
                 </li>
               ))}
               {job.reviews.map((entry) => (
                 <li key={entry.at} className="rounded-lg border border-slate-200 px-3 py-2">
-                  <p className="font-medium">{entry.decision} by {entry.reviewer}</p>
+                  <p className="font-medium [overflow-wrap:anywhere]">{entry.decision} by {entry.reviewer}</p>
                   {entry.reasons?.length > 0 && <p className="text-xs text-slate-500">{entry.reasons.map((reason) => overview.rejectReasons[reason] || reason).join(', ')}</p>}
                   {entry.notes && <p className="text-xs text-slate-600">“{entry.notes}”</p>}
                 </li>
@@ -485,13 +489,13 @@ function JobDetail({ overview, onAction }) {
           <Card className="p-5 text-sm">
             <h3 className="font-semibold text-slate-900">Audio</h3>
             <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs text-slate-600">
-              {job.files.map((file) => <li key={file.name}>{file.source === 'recorded' ? '🎙' : '📁'} {file.name} · {formatBytes(file.bytes)}</li>)}
+              {job.files.map((file) => <li key={file.name} className="[overflow-wrap:anywhere]">{file.source === 'recorded' ? '🎙' : '📁'} {file.name} · {formatBytes(file.bytes)}</li>)}
             </ul>
           </Card>
           {job.notifications?.length > 0 && (
             <Card className="p-5 text-xs text-slate-600">
               <h3 className="text-sm font-semibold text-slate-900">Emails</h3>
-              <ul className="mt-2 space-y-1">{job.notifications.map((note) => <li key={`${note.at}-${note.kind}`}>{formatSgt(note.at)} · {note.kind} → {note.status}{note.error ? ` (${note.error})` : ''}</li>)}</ul>
+              <ul className="mt-2 space-y-1">{job.notifications.map((note) => <li key={`${note.at}-${note.kind}`} className="[overflow-wrap:anywhere]">{formatSgt(note.at)} · {note.kind} → {note.status}{note.error ? ` (${note.error})` : ''}</li>)}</ul>
             </Card>
           )}
         </div>
@@ -555,7 +559,7 @@ function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCance
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{draft.id ? 'Edit' : 'New'} {kind === 'recording' ? 'recording session' : 'test slot'}</p>
           <p className="text-sm font-semibold text-slate-900">{formatDay(draft.day)} · {formatMinutes(draft.start)} – {formatMinutes(end % (24 * 60))}</p>
         </div>
-        <button type="button" onClick={onCancel} className="rounded p-1 text-slate-400 hover:bg-slate-200" aria-label="Close"><X size={16} /></button>
+        <button type="button" onClick={onCancel} className="-m-1 shrink-0 rounded-lg p-2 text-slate-400 hover:bg-slate-200" aria-label="Close"><X size={16} /></button>
       </div>
       <label className="block text-xs font-medium text-slate-600">Starts
         <select value={draft.start} onChange={(event) => setDraft({ ...draft, start: Number(event.target.value) })} className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm">
@@ -565,7 +569,7 @@ function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCance
       <div className="text-xs font-medium text-slate-600">Length
         <div className="mt-1 flex flex-wrap gap-1.5">
           {[...new Set([...LENGTHS, draft.minutes])].sort((a, b) => a - b).map((value) => (
-            <button key={value} type="button" onClick={() => setDraft({ ...draft, minutes: value })} className={cn('h-8 rounded-full px-3 text-xs font-semibold', draft.minutes === value ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')}>
+            <button key={value} type="button" onClick={() => setDraft({ ...draft, minutes: value })} className={cn('h-9 rounded-full px-3 sm:h-8 text-xs font-semibold', draft.minutes === value ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')}>
               {formatLength(value)}
             </button>
           ))}
@@ -625,6 +629,14 @@ function Schedule({ overview, onAction, kind = 'test' }) {
   const [draft, setDraft] = useState(() => (prefill ? { day: today, start: 13 * 60, minutes: 60, person: prefill, hostName: rememberedHost() } : null));
   const people = overview.people || [];
   const drafts = overview.draftCount || 0;
+  // Stacked layout (phones, tablets): the composer sits above the day timeline,
+  // so tapping a time down there would open it out of sight — bring it into view.
+  const composerRef = useRef(null);
+  const draftOpen = Boolean(draft);
+  useEffect(() => {
+    if (!draftOpen || !window.matchMedia?.('(max-width: 1023px)').matches) return;
+    composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [draftOpen, draft?.id, draft?.day, draft?.start]);
 
   const marks = useMemo(() => {
     const map = new Map();
@@ -684,19 +696,20 @@ function Schedule({ overview, onAction, kind = 'test' }) {
             <h2 className="font-semibold text-slate-900">{copy.title}</h2>
             <p className="mt-1 text-sm text-slate-600">{copy.help}</p>
           </div>
-          <Button variant={drafts ? 'success' : 'outline'} size="lg" disabled={!drafts} onClick={() => onAction(publishSlots)}>
+          <Button variant={drafts ? 'success' : 'outline'} size="lg" disabled={!drafts} className="w-full sm:w-auto" onClick={() => onAction(publishSlots)}>
             Publish {drafts ? `${drafts} change${drafts === 1 ? '' : 's'}` : '(nothing to publish)'}
           </Button>
         </div>
         <div className="mt-3"><Legend tones={copy.tones} /></div>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="space-y-5">
           <Card className="p-4">
             <MonthCalendar month={month} onMonth={setMonth} selected={day} onSelect={selectDay} marks={marks} today={today} />
           </Card>
           {draft && (
+            <div ref={composerRef} className="scroll-mt-32">
             <SlotComposer
               key={draft.id || 'new'}
               kind={kind}
@@ -707,6 +720,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
               onCancel={() => setDraft(null)}
               onDelete={() => onAction(() => deleteSlot(draft.id)).then((done) => { if (done) setDraft(null); })}
             />
+            </div>
           )}
         </div>
         <Card className="min-w-0 p-4">
@@ -717,8 +731,8 @@ function Schedule({ overview, onAction, kind = 'test' }) {
               <Button size="sm" variant="outline" onClick={() => setDraft({ day, start: Math.max(hours.start, 9 * 60), minutes: draft?.minutes || 60, person: kind === 'test' ? prefill : '', hostName: draft?.hostName ?? rememberedHost() })}><CalendarClock size={13} /> Add on this day</Button>
             </div>
           </div>
-          <p className="mb-2 text-xs text-slate-500">Click an empty time to add {kind === 'recording' ? 'a session' : 'a slot'} there; click a block to edit it.</p>
-          <div className="max-h-[620px] overflow-y-auto pr-1 pt-2">
+          <p className="mb-2 text-xs text-slate-500">Tap an empty time to add {kind === 'recording' ? 'a session' : 'a slot'} there; tap a block to edit it.</p>
+          <div className="max-h-[min(620px,65dvh)] overflow-y-auto overscroll-contain pr-1 pt-2">
             <DayTimeline
               day={day}
               hours={hours}
@@ -741,13 +755,15 @@ function Schedule({ overview, onAction, kind = 'test' }) {
               const tone = slotTone(slot, nowMs);
               return (
                 <li key={slot.id}>
-                  <button type="button" onClick={() => edit(slot)} className="flex w-full flex-wrap items-center gap-3 px-5 py-2.5 text-left text-sm hover:bg-slate-50">
-                    <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', TONES[tone].dot)} />
-                    <span className="w-44 font-medium text-slate-800">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
-                    <span className="min-w-0 flex-1 truncate text-slate-700">
-                      {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeEmail}{slot.claimedAt ? ' · picked it themselves' : ''}</span></> : <span className="text-sky-700">{copy.open}</span>}
+                  <button type="button" onClick={() => edit(slot)} className="flex w-full items-start gap-3 px-4 py-3 text-left text-sm hover:bg-slate-50 sm:items-center sm:px-5 sm:py-2.5">
+                    <span className={cn('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full sm:mt-0', TONES[tone].dot)} />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
+                      <span className="font-medium text-slate-800 sm:w-44 sm:shrink-0">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
+                      <span className="min-w-0 flex-1 truncate text-slate-700" title={slot.assigneeEmail || undefined}>
+                        {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeName ? slot.assigneeEmail : ''}{slot.claimedAt ? ' · picked it themselves' : ''}</span></> : <span className="text-sky-700">{copy.open}</span>}
+                      </span>
                     </span>
-                    <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', tone === 'draft' ? 'bg-amber-100 text-amber-800' : tone === 'live' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800')}>
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', tone === 'draft' ? 'bg-amber-100 text-amber-800' : tone === 'live' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800')}>
                       {tone === 'draft' ? 'Draft' : tone === 'live' ? 'Now' : 'Published'}
                     </span>
                   </button>
@@ -809,10 +825,12 @@ function FeedbackList({ overview }) {
         <ul className="divide-y divide-slate-100">
           {items.map((item) => (
             <li key={`${item.job.id}-${item.at}`} className="px-5 py-3">
-              <div className="mb-1 flex flex-wrap items-center gap-2">
-                <span className="font-medium text-slate-800">{who(item.job)}</span>
-                <span className="text-xs text-slate-500">{item.job.label} · {formatSgt(item.at)}</span>
-                <button type="button" onClick={() => navigate(`/review/${item.job.id}`)} className="ml-auto text-xs font-medium text-primary hover:underline">Open</button>
+              <div className="mb-1 flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium text-slate-800 [overflow-wrap:anywhere]">{who(item.job)}</span>{' '}
+                  <span className="text-xs text-slate-500 [overflow-wrap:anywhere]">{item.job.label} · {formatSgt(item.at)}</span>
+                </div>
+                <button type="button" onClick={() => navigate(`/review/${item.job.id}`)} className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-primary hover:underline">Open</button>
               </div>
               <FeedbackEntry entry={item} overview={overview} />
             </li>
@@ -836,42 +854,42 @@ function Superusers({ overview, onAction }) {
         <h2 className="font-semibold text-slate-900">Add a super user</h2>
         <p className="mt-1 text-sm text-slate-600">Super users review voices, book GPU slots, see all feedback and manage this list. They are emailed when added.</p>
         <form
-          className="mt-3 flex flex-wrap gap-2"
+          className="mt-3 grid gap-2 sm:flex sm:flex-wrap"
           onSubmit={(event) => { event.preventDefault(); onAction(() => addSuperuser(email, name)).then((done) => { if (done) { setEmail(''); setName(''); } }); }}
         >
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required placeholder="name@ntu.edu.sg" aria-label="Email" className="h-10 min-w-[240px] flex-1 rounded-lg border border-slate-300 px-3 text-sm" />
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name (optional)" aria-label="Name" className="h-10 w-48 rounded-lg border border-slate-300 px-3 text-sm" />
+          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required placeholder="name@ntu.edu.sg" aria-label="Email" autoComplete="off" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 px-3 text-sm sm:min-w-[240px] sm:flex-1" />
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name (optional)" aria-label="Name" maxLength={80} className="h-10 w-full min-w-0 rounded-lg border border-slate-300 px-3 text-sm sm:w-48" />
           <Button type="submit" variant="dark"><UserPlus size={15} /> Add</Button>
         </form>
       </Card>
       <Card>
         <ul className="divide-y divide-slate-100">
           {overview.superusers.map((user) => (
-            <li key={user.email} className="flex flex-wrap items-center gap-3 px-5 py-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">{(user.name || user.email).slice(0, 2).toUpperCase()}</span>
-              <div className="min-w-0 flex-1">
+            <li key={user.email} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">{(user.name || user.email).slice(0, 2).toUpperCase()}</span>
+              <div className={cn('min-w-0 flex-1', editing === user.email && 'basis-full sm:basis-0')}>
                 {editing === user.email ? (
-                  <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); onAction(() => renameSuperuser(user.email, editName)).then(() => setEditing('')); }}>
-                    <input value={editName} onChange={(event) => setEditName(event.target.value)} aria-label="Name" className="h-8 w-56 rounded-lg border border-slate-300 px-2 text-sm" autoFocus />
+                  <form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); onAction(() => renameSuperuser(user.email, editName)).then(() => setEditing('')); }}>
+                    <input value={editName} onChange={(event) => setEditName(event.target.value)} aria-label="Name" maxLength={80} className="h-9 min-w-0 flex-1 basis-40 rounded-lg border border-slate-300 px-2 text-sm sm:max-w-xs" autoFocus />
                     <Button type="submit" size="sm" variant="dark">Save</Button>
                     <Button size="sm" variant="ghost" onClick={() => setEditing('')}>Cancel</Button>
                   </form>
                 ) : (
                   <>
-                    <p className="font-medium text-slate-800">{user.name || user.email} {user.email === auth.user?.email?.toLowerCase() && <span className="text-xs font-normal text-slate-500">(you)</span>}</p>
-                    <p className="text-xs text-slate-500">{user.email}{user.locked ? ' · set in server configuration' : user.addedBy ? ` · added by ${user.addedBy}` : ''}</p>
+                    <p className="font-medium text-slate-800 [overflow-wrap:anywhere]">{user.name || user.email} {user.email === auth.user?.email?.toLowerCase() && <span className="text-xs font-normal text-slate-500">(you)</span>}</p>
+                    <p className="text-xs text-slate-500 [overflow-wrap:anywhere]">{user.email}{user.locked ? ' · set in server configuration' : user.addedBy ? ` · added by ${user.addedBy}` : ''}</p>
                   </>
                 )}
               </div>
               {!user.locked && editing !== user.email && (
-                <>
+                <div className="flex shrink-0 items-center gap-1">
                   <Button size="sm" variant="ghost" onClick={() => { setEditing(user.email); setEditName(user.name || ''); }}>Edit</Button>
                   {confirm === user.email ? (
                     <Button size="sm" variant="danger" onClick={() => onAction(() => removeSuperuser(user.email)).then(() => setConfirm(''))}>Confirm remove</Button>
                   ) : (
                     <Button size="sm" variant="ghost" onClick={() => setConfirm(user.email)} aria-label={`Remove ${user.email}`}><Trash2 size={14} /></Button>
                   )}
-                </>
+                </div>
               )}
               {user.locked && <ShieldCheck size={16} className="text-slate-400" aria-label="Locked" />}
             </li>
@@ -926,6 +944,31 @@ const SUPER_NAV = [
   ['/superusers', 'Super users', Users],
 ];
 
+// Phones and tablets: the sections as a swipeable strip under the header. The
+// current one is kept in view, and the review count shows like on the sidebar.
+function MobileNav({ reviewCount }) {
+  const location = useLocation();
+  const navRef = useRef(null);
+  useEffect(() => {
+    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [location.pathname]);
+  return (
+    <nav ref={navRef} aria-label="Sections" className="flex gap-1 overflow-x-auto overscroll-x-contain bg-slate-950 px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {SUPER_NAV.map(([to, label, Icon]) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={to === '/'}
+          className={({ isActive }) => cn('inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-xs font-medium', isActive ? 'bg-white/15 text-white' : 'text-white/70 active:bg-white/10')}
+        >
+          <Icon size={14} aria-hidden="true" /> {label}
+          {to === '/' && reviewCount > 0 && <span className="rounded-full bg-violet-500 px-1.5 text-[11px] font-semibold text-white">{reviewCount}</span>}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
 function SuperuserConsole() {
   const auth = useAuth();
   const { data, setData, error, setError } = useOverview();
@@ -967,16 +1010,12 @@ function SuperuserConsole() {
         </div>
       </aside>
       <div className="min-w-0 flex-1">
-        <div className="lg:hidden">
+        <div className="sticky top-0 z-30 lg:hidden">
           <Header product="Voice Studio · Super user" />
-          <nav className="flex gap-1 overflow-x-auto bg-slate-950 px-3 py-2">
-            {SUPER_NAV.map(([to, label]) => (
-              <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => cn('shrink-0 rounded-md px-3 py-1.5 text-xs', isActive ? 'bg-white/15 text-white' : 'text-white/70')}>{label}</NavLink>
-            ))}
-          </nav>
+          <MobileNav reviewCount={reviewCount} />
         </div>
-        <main className="mx-auto max-w-7xl space-y-4 px-4 py-6 sm:px-6">
-          {busy && <div className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs text-white shadow"><Loader2 size={13} className="animate-spin" /> Working…</div>}
+        <main className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 sm:py-6">
+          {busy && <div role="status" className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs text-white shadow-lg lg:bottom-auto lg:left-auto lg:right-4 lg:top-4 lg:translate-x-0"><Loader2 size={13} className="animate-spin" /> Working…</div>}
           {error && <Notice tone="error">{error}</Notice>}
           {data?.currentSlot && <SlotHoldBanner slot={data.currentSlot} now={Date.parse(data.now) || Date.now()} />}
           {!data ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-slate-400" /></div> : (
@@ -1014,7 +1053,7 @@ const FEEDBACK_LIKENESS = { yes: 'Sounds like me', mostly: 'Mostly', no: 'Not re
 
 function Chip({ active, onClick, children }) {
   return (
-    <button type="button" onClick={onClick} aria-pressed={active} className={cn('rounded-full px-3 py-1.5 text-xs font-semibold transition', active ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')}>
+    <button type="button" onClick={onClick} aria-pressed={active} className={cn('min-h-9 rounded-full px-3 py-1.5 text-xs font-semibold transition sm:min-h-0', active ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')}>
       {children}
     </button>
   );
@@ -1040,7 +1079,7 @@ function FeedbackForm({ job }) {
     }
   }
   return (
-    <Card className="p-5">
+    <Card className="p-4 sm:p-5">
       <h3 className="font-semibold text-slate-900">How does it sound?</h3>
       <p className="mt-1 text-sm text-slate-600">About a minute. It goes straight to the Voice Studio team, who use it to retrain your voice.</p>
       <form onSubmit={submit} className="mt-4 space-y-4">
@@ -1048,7 +1087,7 @@ function FeedbackForm({ job }) {
           <p className="text-xs font-semibold text-slate-700">Overall</p>
           <div className="mt-1 flex gap-1" role="radiogroup" aria-label="Rating">
             {[1, 2, 3, 4, 5].map((n) => (
-              <button key={n} type="button" role="radio" aria-checked={rating === n} aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} className="rounded p-0.5">
+              <button key={n} type="button" role="radio" aria-checked={rating === n} aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} className="rounded-lg p-1">
                 <Star size={26} className={n <= rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300'} />
               </button>
             ))}
@@ -1076,7 +1115,7 @@ function FeedbackForm({ job }) {
         <label className="block text-xs font-semibold text-slate-700">Anything else? <span className="font-normal text-slate-500">(optional)</span>
           <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} placeholder="What you liked, what felt wrong, where it happened…" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
         </label>
-        <Button type="submit" variant="dark" disabled={!rating || state === 'saving'}>{rating ? 'Send feedback' : 'Pick a star rating to send'}</Button>
+        <Button type="submit" variant="dark" className="w-full sm:w-auto" disabled={!rating || state === 'saving'}>{rating ? 'Send feedback' : 'Pick a star rating to send'}</Button>
         {state === 'saved' && <p className="text-sm text-emerald-700">Thank you — sent. You can send more any time.</p>}
         {state && !['saving', 'saved'].includes(state) && <p className="text-sm text-rose-600">{state}</p>}
       </form>
@@ -1094,8 +1133,8 @@ function FeedbackEntry({ entry, overview }) {
         {entry.likeness && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', entry.likeness === 'yes' ? 'bg-emerald-100 text-emerald-800' : entry.likeness === 'no' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800')}>{likeness[entry.likeness] || entry.likeness}</span>}
         {(entry.issues || []).map((issue) => <span key={issue} className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-700">{issues[issue] || issue}</span>)}
       </div>
-      {entry.words && <p className="text-sm text-slate-700"><span className="font-semibold">Words:</span> {entry.words}</p>}
-      {entry.comment && <p className="text-sm text-slate-700">{entry.comment}</p>}
+      {entry.words && <p className="text-sm text-slate-700 [overflow-wrap:anywhere]"><span className="font-semibold">Words:</span> {entry.words}</p>}
+      {entry.comment && <p className="whitespace-pre-line text-sm text-slate-700 [overflow-wrap:anywhere]">{entry.comment}</p>}
     </div>
   );
 }
@@ -1126,24 +1165,24 @@ function journeyStep(status) {
 
 function JourneySteps({ step, retrain = false }) {
   return (
-    <ol className="flex items-center">
+    // Each step is an equal column: circle on the line, label underneath that may
+    // wrap to two lines, so all four fit even on a narrow phone.
+    <ol className="grid grid-cols-4">
       {JOURNEY.map(([key, baseLabel], index) => {
         const label = retrain && key === 'training' ? 'Retraining' : baseLabel;
         const done = index < step;
         const current = index === step;
         return (
-          <li key={key} className={cn('flex items-center', index < JOURNEY.length - 1 && 'flex-1')}>
-            <div className="flex flex-col items-center gap-1.5">
-              <span className={cn(
-                'relative flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold',
-                done ? 'bg-emerald-500 text-white' : current ? 'bg-primary text-white ring-4 ring-primary/15' : 'bg-slate-100 text-slate-400',
-              )}>
-                {done ? <CheckCircle2 size={18} /> : index + 1}
-                {current && <span className="absolute inset-0 animate-ping rounded-full bg-primary/25" aria-hidden="true" />}
-              </span>
-              <span className={cn('whitespace-nowrap text-xs font-semibold', current ? 'text-slate-900' : done ? 'text-emerald-700' : 'text-slate-400')}>{label}</span>
-            </div>
-            {index < JOURNEY.length - 1 && <span className={cn('mx-2 mb-5 h-0.5 flex-1 rounded', index < step ? 'bg-emerald-400' : 'bg-slate-200')} />}
+          <li key={key} className="relative flex flex-col items-center gap-1.5 text-center" aria-current={current ? 'step' : undefined}>
+            {index > 0 && <span className={cn('absolute right-1/2 top-4 h-0.5 w-full -translate-y-1/2 sm:top-[18px]', index <= step ? 'bg-emerald-400' : 'bg-slate-200')} aria-hidden="true" />}
+            <span className={cn(
+              'relative z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold sm:h-9 sm:w-9',
+              done ? 'bg-emerald-500 text-white' : current ? 'bg-primary text-white ring-4 ring-primary/15' : 'bg-slate-100 text-slate-400',
+            )}>
+              {done ? <CheckCircle2 size={18} /> : index + 1}
+              {current && <span className="absolute inset-0 animate-ping rounded-full bg-primary/25" aria-hidden="true" />}
+            </span>
+            <span className={cn('px-0.5 text-[11px] font-semibold leading-tight sm:text-xs', current ? 'text-slate-900' : done ? 'text-emerald-700' : 'text-slate-400')}>{label}</span>
           </li>
         );
       })}
@@ -1190,13 +1229,13 @@ function VoiceJourney({ job, now, testSlot, testedSlot = null }) {
     body = <p>Our team is choosing a time for you to test it. We email you the time, and it shows here too.</p>;
   }
   return (
-    <Card className="p-6 sm:p-8">
+    <Card className="p-4 sm:p-8">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{job.label}</p>
+        <p className="min-w-0 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 [overflow-wrap:anywhere]">{job.label}</p>
         {job.attempt > 1 && job.status !== 'ready' && <span className="text-xs text-slate-400">improving it (try {job.attempt})</span>}
       </div>
       <div className="mt-5"><JourneySteps step={step} retrain={retrain} /></div>
-      <div className="mt-6 rounded-2xl bg-slate-50 px-5 py-4">
+      <div className="mt-5 rounded-2xl bg-slate-50 px-4 py-4 sm:mt-6 sm:px-5">
         <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
         <div className="mt-1 space-y-1 text-sm leading-6 text-slate-600">
           {retrain && <p>Our quality check found your voice could sound better, so we are training it again from the same recordings (try {job.attempt}). You do not need to do anything.</p>}
@@ -1232,6 +1271,15 @@ function SessionPicker({ me, onChanged }) {
     marks.set(key, [...(marks.get(key) || []), slot.mine ? 'mine' : slot.open ? 'open' : 'taken']);
   }
   const daySessions = sessions.filter((slot) => sgtDayKey(slot.start) === day);
+  // Phones: the day's times are under the calendar — show them after a tap.
+  const timesRef = useRef(null);
+  function pickDay(key) {
+    setDay(key);
+    setConfirming('');
+    if (window.matchMedia?.('(max-width: 767px)').matches) {
+      window.requestAnimationFrame(() => timesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    }
+  }
 
   async function act(id, call) {
     setBusy(id);
@@ -1248,7 +1296,7 @@ function SessionPicker({ me, onChanged }) {
 
   return (
     <Card>
-      <div className="border-b border-slate-200 px-5 py-3">
+      <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
         <h2 className="font-semibold text-slate-900">{mine ? 'Your recording session' : 'Book a recording session'}</h2>
         <p className="text-xs text-slate-500">
           {mine
@@ -1257,9 +1305,9 @@ function SessionPicker({ me, onChanged }) {
         </p>
       </div>
       {mine && (
-        <div className="mx-5 mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200">
-          <CheckCircle2 size={20} className="text-emerald-600" />
-          <div className="min-w-0 flex-1">
+        <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200 sm:mx-5">
+          <CheckCircle2 size={20} className="shrink-0 text-emerald-600" />
+          <div className="min-w-0 flex-1 basis-40">
             <p className="font-semibold text-emerald-900">{formatRange(mine.start, mine.end)}</p>
             <p className="text-xs text-emerald-800">{mineStarted ? 'Happening now' : relativeFromNow(mine.start, nowMs)}</p>
           </div>
@@ -1270,18 +1318,18 @@ function SessionPicker({ me, onChanged }) {
           )}
         </div>
       )}
-      {error && <Notice tone="error" className="mx-5 mt-3">{error}</Notice>}
-      {sessions.length === 0 ? <p className="px-5 py-6 text-sm text-slate-500">No sessions are published yet — please check back soon.</p> : (
-        <div className="grid gap-5 p-5 md:grid-cols-[300px_minmax(0,1fr)]">
+      {error && <Notice tone="error" className="mx-4 mt-3 sm:mx-5">{error}</Notice>}
+      {sessions.length === 0 ? <p className="px-4 py-6 text-sm text-slate-500 sm:px-5">No sessions are published yet — please check back soon.</p> : (
+        <div className="grid grid-cols-1 gap-5 p-4 sm:p-5 md:grid-cols-[300px_minmax(0,1fr)]">
           <div>
-            <MonthCalendar month={month} onMonth={setMonth} selected={day} onSelect={(key) => { setDay(key); setConfirming(''); }} marks={marks} today={today} />
+            <MonthCalendar month={month} onMonth={setMonth} selected={day} onSelect={pickDay} marks={marks} today={today} />
             <div className="mt-3"><Legend tones={['open', 'mine', 'taken']} /></div>
           </div>
-          <div className="min-w-0">
+          <div ref={timesRef} className="min-w-0 scroll-mt-20 border-t border-slate-100 pt-4 md:border-0 md:pt-0">
             <p className="text-sm font-semibold text-slate-900">{formatDay(day)}</p>
             {!mine && (
               <label className="mt-3 block text-xs font-medium text-slate-600">Your name (shown to the Voice Studio team)
-                <input required value={name} onChange={(event) => setName(event.target.value)} maxLength={80} className="mt-1 block h-9 w-full max-w-xs rounded-lg border border-slate-300 px-2 text-sm" />
+                <input required value={name} onChange={(event) => setName(event.target.value)} maxLength={80} autoComplete="name" className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-3 text-sm sm:max-w-xs" />
               </label>
             )}
             {daySessions.length === 0 ? <p className="mt-3 text-sm text-slate-500">No sessions on this day. Days with a blue dot have open times.</p> : (
@@ -1293,14 +1341,20 @@ function SessionPicker({ me, onChanged }) {
                     <li key={slot.id} className={cn('rounded-xl border p-3', slot.mine ? 'border-emerald-300 bg-emerald-50' : slot.open ? 'border-sky-200 bg-white' : 'border-slate-200 bg-slate-50')}>
                       <p className="font-semibold text-slate-900">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</p>
                       <p className="text-xs text-slate-500">{formatLength(length)} · {slot.mine ? 'your session' : slot.open ? 'open' : 'taken'}</p>
-                      <div className="mt-2">
+                      <div className="mt-2 flex flex-wrap gap-2">
                         {slot.mine && <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={13} /> Booked for you</span>}
                         {slot.open && !mine && (isConfirming
-                          ? <Button size="sm" variant="success" disabled={busy === slot.id || !name.trim()} onClick={() => act(slot.id, () => claimSlot(slot.id, name.trim()))}>{name.trim() ? 'Confirm booking' : 'Enter your name first'}</Button>
-                          : <Button size="sm" variant="dark" onClick={() => setConfirming(slot.id)}>Book this time</Button>)}
+                          ? <>
+                            <Button size="sm" variant="success" className="flex-1 sm:flex-none" disabled={busy === slot.id || !name.trim()} onClick={() => act(slot.id, () => claimSlot(slot.id, name.trim()))}>{busy === slot.id ? <Loader2 size={13} className="animate-spin" /> : null}{name.trim() ? 'Confirm booking' : 'Enter your name first'}</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setConfirming('')}>Back</Button>
+                          </>
+                          : <Button size="sm" variant="dark" className="flex-1 sm:flex-none" onClick={() => setConfirming(slot.id)}>Book this time</Button>)}
                         {slot.open && mine && !mineStarted && (isConfirming
-                          ? <Button size="sm" variant="success" disabled={busy === slot.id} onClick={() => act(slot.id, () => moveSlot(slot.id))}>Confirm change</Button>
-                          : <Button size="sm" variant="outline" onClick={() => setConfirming(slot.id)}>Change to this time</Button>)}
+                          ? <>
+                            <Button size="sm" variant="success" className="flex-1 sm:flex-none" disabled={busy === slot.id} onClick={() => act(slot.id, () => moveSlot(slot.id))}>{busy === slot.id ? <Loader2 size={13} className="animate-spin" /> : null}Confirm change</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setConfirming('')}>Back</Button>
+                          </>
+                          : <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => setConfirming(slot.id)}>Change to this time</Button>)}
                         {!slot.open && !slot.mine && <span className="text-xs text-slate-400">Not available</span>}
                       </div>
                     </li>
@@ -1361,22 +1415,22 @@ function LecturerHome({ me: initialMe, refresh }) {
   if (testing) {
     content = (
       <>
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-emerald-600 px-5 py-4 text-white">
-          <CheckCircle2 size={22} />
-          <div className="flex-1">
-            <p className="text-lg font-semibold">Your test time — until {formatSgt(testing.end, { withDate: false })} SGT</p>
-            <p className="text-sm text-white/85">Paste some text to hear it read in your voice, or chat with it. Fix any word it says wrongly on the right.</p>
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-emerald-600 px-4 py-4 text-white sm:px-5">
+          <CheckCircle2 size={22} className="hidden shrink-0 sm:block" />
+          <div className="min-w-0 flex-1 basis-60">
+            <p className="text-base font-semibold sm:text-lg">Your test time — until {formatSgt(testing.end, { withDate: false })} SGT</p>
+            <p className="text-sm text-white/85">Paste some text to hear it read in your voice, or chat with it. Fix any word it says wrongly in the Pronunciation panel.</p>
           </div>
           {finishing === '' && (
-            <Button variant="outline" size="sm" className="border-white/60 bg-white/10 text-white hover:bg-white/20" onClick={() => setFinishing('confirm')}>
+            <Button variant="outline" size="sm" className="w-full border-white/60 bg-white/10 text-white hover:bg-white/20 sm:w-auto" onClick={() => setFinishing('confirm')}>
               I'm done testing
             </Button>
           )}
         </div>
         {finishing && (
           <Notice tone="info" className="flex flex-wrap items-center justify-between gap-3">
-            <span>End your test slot now? Please leave feedback below first if you have not. Your voice cannot be tested again in this slot afterwards.</span>
-            <span className="flex gap-2">
+            <span className="min-w-0 flex-1 basis-64">End your test slot now? Please leave feedback below first if you have not. Your voice cannot be tested again in this slot afterwards.</span>
+            <span className="flex flex-wrap gap-2">
               <Button variant="ghost" size="sm" disabled={finishing === 'busy'} onClick={() => { setFinishing(''); setFinishError(''); }}>Keep testing</Button>
               <Button variant="dark" size="sm" disabled={finishing === 'busy'} onClick={finishTesting}>
                 {finishing === 'busy' ? <Loader2 size={13} className="animate-spin" /> : null} End my test
@@ -1391,7 +1445,7 @@ function LecturerHome({ me: initialMe, refresh }) {
         {feedbackTarget && (
           <div className="space-y-2">
             {ready.length > 1 && (
-              <select value={feedbackTarget.id} onChange={(event) => setFeedbackJob(event.target.value)} className="h-9 rounded-lg border border-slate-300 px-2 text-sm" aria-label="Feedback for which voice">
+              <select value={feedbackTarget.id} onChange={(event) => setFeedbackJob(event.target.value)} className="h-10 w-full max-w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto" aria-label="Feedback for which voice">
                 {ready.map((job) => <option key={job.id} value={job.id}>{job.label}</option>)}
               </select>
             )}
@@ -1408,9 +1462,9 @@ function LecturerHome({ me: initialMe, refresh }) {
   } else {
     content = (
       <>
-        <Card className="p-6 text-center sm:p-8">
+        <Card className="p-5 text-center sm:p-8">
           <CalendarClock size={30} className="mx-auto text-slate-400" />
-          <h1 className="mt-3 text-2xl font-semibold text-slate-900">{booked ? 'Your recording session is booked' : 'Book a recording session'}</h1>
+          <h1 className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">{booked ? 'Your recording session is booked' : 'Book a recording session'}</h1>
           {booked
             ? <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">We email you the day before and again just before it starts. The recording page opens here then.</p></>
             : <p className="mt-2 text-slate-600">Pick an open time below. During your session this page becomes your recording studio.</p>}
@@ -1423,7 +1477,7 @@ function LecturerHome({ me: initialMe, refresh }) {
   return (
     <div className="min-h-screen bg-slate-50">
       <Header product="Voice Studio" />
-      <main className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:px-6">{content}</main>
+      <main className="mx-auto max-w-5xl space-y-4 px-4 py-4 sm:space-y-5 sm:px-6 sm:py-6">{content}</main>
     </div>
   );
 }
@@ -1478,20 +1532,22 @@ export default function StudioApp() {
   return (
     <TooltipProvider>
       <PostLoginRedirectHandler />
-      <Routes>
-        <Route path="/faq" element={<FaqPage />} />
-        <Route path="/login" element={<StudioSignIn />} />
-        <Route
-          path="*"
-          element={(
-            <ProtectedRoute>
-              <GpuStatusProvider autoStart={false}>
-                <StudioHome />
-              </GpuStatusProvider>
-            </ProtectedRoute>
-          )}
-        />
-      </Routes>
+      <div className="vs-root">
+        <Routes>
+          <Route path="/faq" element={<FaqPage />} />
+          <Route path="/login" element={<StudioSignIn />} />
+          <Route
+            path="*"
+            element={(
+              <ProtectedRoute>
+                <GpuStatusProvider autoStart={false}>
+                  <StudioHome />
+                </GpuStatusProvider>
+              </ProtectedRoute>
+            )}
+          />
+        </Routes>
+      </div>
     </TooltipProvider>
   );
 }
