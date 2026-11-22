@@ -2776,3 +2776,5 @@
 - Tests: client 561/561, studio build OK. Checked at 375 px in Chrome with a mocked local API (long-name fixtures):
   lecturer booking/journey/recording/test slot, super-user overview/job/schedule/sessions/tester/super users/
   feedback; no element past the screen edge. Not checked on a real iOS/Android device.
+- DEPLOYED 3a422c2 (2026-11-22): studio client dev (d1zffrwq7b2rri) + staging (d271zk8d8curic) via the
+  Liu_Teng_Yu_Intern2026 role; live CSS contains .vs-root. Real-phone check still to do.
