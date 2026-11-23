@@ -952,7 +952,6 @@ function SlotHoldBanner({ slot, now }) {
   const until = formatSgt(slot.end, { withDate: false });
   let line;
   if (slot.phase === 'slot') line = <><b>{who}</b> is testing their voice until {until} SGT.</>;
-  else if (slot.phase === 'bridge') line = <>The GPU stays on for <b>{who}</b>'s test at {formatSgt(slot.start, { withDate: false })} SGT (less than an hour after the last one).</>;
   else line = <>The GPU is warming up for <b>{who}</b>'s test at {formatSgt(slot.start, { withDate: false })} SGT.</>;
   return (
     <div className="space-y-2">

@@ -361,3 +361,4 @@ These live in runtime configuration and will not appear in any branch diff:
 - Each tester gets their own hard-reserved GPU (lecturer per person, super users one shared); no other site or person
   switches it while used. Test slots 20 min, several people may share a time. Lecturers may test outside a slot (cold
   start). Sending feedback ends a lecturer's testing. Supersedes the 2026-11-21 two-GPU slot/QC split.
+- No GPU kept on between a person's slots (no 1 h bridge): released at slot end; a deleted/moved slot's GPU at once.

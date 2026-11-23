@@ -340,3 +340,28 @@ test('DELETE routes work with no body (CloudFront rejects a DELETE that has one)
   await h.call(boss, 'POST', 'admin/superusers', { email: 'two@ntu.edu.sg' });
   assert.equal((await h.call(boss, 'DELETE', 'admin/superusers/two%40ntu.edu.sg')).status, 200);
 });
+
+test('deleting or moving a test slot whose GPU is warming releases that GPU at once', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const { updateState } = await import('./store.js');
+  await updateState(h.store, (state) => {
+    state.jobs.push({ id: 'j1', ownerEmail: 'amy@gmail.com', status: 'approved', approvedExpName: 'x-amy-1', expName: 'x-amy-1', sourceExpName: 'x-amy-1', attempts: [], trainingConfig: {}, notifications: [], feedback: [], reviews: [{ at: new Date(T0).toISOString() }], files: [] });
+    return null;
+  });
+  const at = (m) => new Date(T0 + m * MIN).toISOString();
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(30), end: at(50), assigneeEmail: 'amy@gmail.com' });
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'amy@gmail.com' });
+  const slots = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
+  h.advance(15); // 15 min before the first slot: Amy's GPU warms
+  await h.call(boss, 'POST', 'admin/tick');
+  assert.equal(h.preloaded.length, 1);
+  assert.equal(h.released.length, 0);
+  // Moving it to later: the warming GPU is given back now.
+  assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { start: at(200), end: at(220) })).status, 200);
+  assert.equal(h.released.length, 1);
+  assert.match(h.released[0], /^reserved:studio-p-/u);
+  // Deleting a slot that never warmed releases nothing.
+  assert.equal((await h.call(boss, 'DELETE', `admin/slots/${slots[1].id}`)).status, 200);
+  assert.equal(h.released.length, 1);
+});

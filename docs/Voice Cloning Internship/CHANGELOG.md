@@ -2814,3 +2814,6 @@
 - Same day: Studio deletes fixed (CloudFront rejects DELETE with a body; client sends none, pronunciation word via
   query). client/src/studio/studioApi.js, lambda/studio/index.js(+test). Studio 36/36, client 562/562. Deployed
   Lambdas + studio client, dev + staging.
+- Same day (owner): no GPU bridge between test slots — each person's GPU is released when their slot ends and the
+  next slot warms its own 20 min early (SLOT_BRIDGE_MINUTES removed). Editing or deleting a test slot whose GPU was
+  already warming releases that GPU at once (wf.gpuToRelease). Lambda 449/449. Deployed Lambdas + studio client.

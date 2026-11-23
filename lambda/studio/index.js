@@ -328,7 +328,12 @@ export function createStudioService({
     }
   }
 
-  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices, finishTesting, testingDone };
+  // Gives one person's test GPU back now.
+  async function releasePersonGpu(email) {
+    await releaseSlotGpu(await personOwner(email));
+  }
+
+  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices, finishTesting, testingDone, releaseSlotGpu: releasePersonGpu };
 }
 
 // ── HTTP ─────────────────────────────────────────────────────────────────
@@ -410,6 +415,15 @@ export function createHandler({
       return { token: signStudioSession({ email, name, via }, { env, now }), email, name, expiresAt: new Date(now + STUDIO_SESSION_DAYS * 86400_000).toISOString() };
     } catch (error) {
       throw wf.clientError(503, error.message);
+    }
+  }
+
+  async function releaseGpuOf(personEmail) {
+    if (!personEmail) return;
+    try {
+      await service.releaseSlotGpu(personEmail);
+    } catch (error) {
+      console.warn(`[studio] GPU release for a changed slot failed (it idles off instead): ${error.message}`);
     }
   }
 
@@ -749,18 +763,26 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
+        // Editing or deleting a test slot also cancels its GPU: one already
+        // warming for it is released now instead of idling until it times out.
         if (route === 'PUT admin/slots/:id') {
-          await updateState(store, (state) => {
+          const { result } = await updateState(store, (state) => {
+            const before = { ...wf.findSlot(state, parts[2]) };
             wf.editSlot(state, parts[2], {
               start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName,
             }, now);
-            return null;
+            return { release: wf.gpuToRelease(state, before, now) };
           });
+          await releaseGpuOf(result.release);
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'DELETE admin/slots/:id') {
-          const { result } = await updateState(store, (state) => ({ removed: wf.removeSlot(state, parts[2]) }));
+          const { result } = await updateState(store, (state) => {
+            const removed = wf.removeSlot(state, parts[2]);
+            return { removed, release: wf.gpuToRelease(state, removed.slot, now) };
+          });
+          await releaseGpuOf(result.release);
           const told = result.removed.notify;
           if (told) {
             const template = wf.slotKind(result.removed.slot) === 'recording' ? templates.recordingCancelled : templates.slotCancelled;

@@ -34,8 +34,6 @@ export const MIN_SLOT_MINUTES = 15;
 export const MAX_SLOT_MINUTES = 8 * 60;
 // The GPU is started this long before a slot so the voice is ready at the start.
 export const SLOT_WARMUP_MINUTES = 20;
-// Back-to-back test slots: a gap shorter than this keeps the GPU on between them.
-export const SLOT_BRIDGE_MINUTES = 60;
 
 const MINUTE = 60_000;
 
@@ -592,11 +590,26 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
     updatedAt: iso(now),
     preloadedAt: null,
     reminderSentAt: null,
+    // A new time or person warms a fresh GPU; any GPU already warming for the
+    // old booking is released by the caller (gpuToRelease).
+    warm: null,
+    gpuReleasedAt: null,
   });
   // An edited published slot goes back to draft until it is published again,
   // so lecturers never see a half-edited schedule.
   if (slot.status === 'published') slot.status = 'draft';
   return slot;
+}
+
+/**
+ * After a test slot is edited or deleted: the email whose GPU was already
+ * started for it and must be given back now, or '' (never warmed, already
+ * released, or that person still has another slot holding their GPU).
+ */
+export function gpuToRelease(state, before, now) {
+  if (!before || slotKind(before) !== 'test' || !before.warm || before.gpuReleasedAt || !before.assigneeEmail) return '';
+  const stillHeld = gpuHolds(state, now).some((hold) => sameNtuPerson(hold.slot.assigneeEmail, before.assigneeEmail));
+  return stillHeld ? '' : normalizeEmail(before.assigneeEmail);
 }
 
 export function removeSlot(state, id) {
@@ -782,9 +795,9 @@ export function preloadVoiceFor(state, slot) {
 
 /**
  * Test slots holding a GPU now, one entry per person (each has a GPU of their
- * own): from SLOT_WARMUP_MINUTES before a slot to its end, and across a gap
- * shorter than SLOT_BRIDGE_MINUTES to that same person's next slot. phase:
- * 'warmup' | 'slot' | 'bridge'.
+ * own): from SLOT_WARMUP_MINUTES before a slot to its end, nothing between
+ * slots (owner 2026-11-23: every slot warms its own GPU, so a GPU is never kept
+ * on for a later one). phase: 'warmup' | 'slot'.
  */
 export function gpuHolds(state, now) {
   const byPerson = new Map();
@@ -801,12 +814,6 @@ export function gpuHolds(state, now) {
       const end = slotEnd(slot);
       if (from <= now && now < end) {
         holds.push({ slot, phase: now < ms(slot.start) ? 'warmup' : 'slot' });
-        break;
-      }
-      const next = slots[index + 1];
-      if (next && end <= now && now < ms(next.start) - SLOT_WARMUP_MINUTES * MINUTE
-        && ms(next.start) - end < SLOT_BRIDGE_MINUTES * MINUTE) {
-        holds.push({ slot: next, phase: 'bridge' });
         break;
       }
     }
@@ -840,8 +847,8 @@ export function nextWarmState(previous, capacity, now) {
 }
 
 /**
- * Ended test slots whose GPU warm-up ran and has not been released yet, except
- * for people whose GPU is still held (their next slot follows within the hour).
+ * Ended test slots whose GPU warm-up ran and has not been released yet: released
+ * at once, unless that person's next slot is already warming (a gap under 20 min).
  */
 export function slotsToRelease(state, now) {
   const held = gpuHolds(state, now).map((hold) => normalizeEmail(hold.slot.assigneeEmail));
