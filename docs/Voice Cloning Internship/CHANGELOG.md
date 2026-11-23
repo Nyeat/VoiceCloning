@@ -2840,3 +2840,11 @@
   lambda/studio/{index,workflow}.js + test, client/src/studio/{RecordApp.jsx,studioApi.js}. Tests 60/60.
   Commit e707c44 (with the two changes above) deployed: Lambda staging + dev (dev coordinator upload dropped twice,
   unchanged code so skipped), studio client staging + dev.
+- Same day: lecturers can record any time before they have sent recordings (recordingAccess reason 'open'; a booked
+  session is still shown); one submission per person unchanged (2fe956e). Editing a published test slot keeps the
+  same person's GPU on the NEW times at once (warms 20 min before new start, runs to new end) instead of releasing
+  it until republish; a new person still waits for Publish (ff1c58e). Slot warm-up failed every tick with "Voice
+  profile <voice>-v1 not found" for a voice nobody had opened (only the browser created that record): /ensure logic is
+  now `ensureVoiceProfileRecord()` in lambda/voice-profile, also called by the studio warm-up (409854a). Lambda
+  452/452. All deployed to staging + dev (Lambda + studio client); staging "man" slot went ERROR -> STARTING on the
+  next tick.
