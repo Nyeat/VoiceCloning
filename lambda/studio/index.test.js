@@ -93,7 +93,8 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   const carol = 'carol@ntu.edu.sg';
   const at0 = (m) => new Date(T0 + m * MIN).toISOString();
   assert.equal((await h.call(carol, 'GET', 'me')).body.recording.reason, 'open', 'anyone not yet submitted may record without a session');
-  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100), assigneeEmail: alice })).status, 400, 'name required');
+  // The person is optional (owner 2026-11-23: a blank session is free), but a given email must look like one.
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100), assigneeEmail: 'asd' })).status, 400, 'bad email refused');
   for (const [email, name] of [[alice, 'Alice'], [bob, 'Bob']]) {
     assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100), assigneeEmail: email, assigneeName: name })).status, 200);
   }

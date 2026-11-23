@@ -91,9 +91,9 @@ test('one person cannot hold two overlapping slots; different people can share a
   // Two people at the same time each get a GPU of their own.
   wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
   assert.throws(() => wf.addSlot(state, { id: 's3', start: at(90), end: at(150), assigneeEmail: 'A@staff.main.ntu.edu.sg', now: T0 }), (e) => e.code === 'SLOT_CLASH');
-  // Recording sessions are booked for a named person by a super user.
-  assert.throws(() => wf.addSlot(state, { id: 'r0', kind: 'recording', start: at(60), end: at(120), now: T0 }), /email/u);
-  assert.throws(() => wf.addSlot(state, { id: 'r0', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'r@gmail.com', now: T0 }), /name/u);
+  // Recording sessions: the person is optional (a free session); an email that is given must look like one.
+  assert.throws(() => wf.addSlot(state, { id: 'r0', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'asd', now: T0 }), /email/u);
+  assert.throws(() => wf.addSlot(state, { id: 'r0', start: at(60), end: at(120), now: T0 }), /test slot is for/u);
   wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', now: T0 });
   wf.addSlot(state, { id: 'r2', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'r@gmail.com', assigneeName: 'R', now: T0 });
   assert.equal(s1.status, 'draft');
@@ -114,6 +114,30 @@ test('one person cannot hold two overlapping slots; different people can share a
   assert.deepEqual(sent.map((n) => [n.kind, n.email]), [['slotCancelled', 'a@ntu.edu.sg'], ['slotBooked', 'c@ntu.edu.sg']]);
   // Deleting a slot someone was told about returns them for an email.
   assert.equal(wf.removeSlot(state, 's1').notify.assigneeEmail, 'c@ntu.edu.sg');
+});
+
+test('a recording session may be free (no person) and run by several staff', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  const free = wf.addSlot(state, { id: 'f1', kind: 'recording', start: at(60), end: at(120), hostNames: ['Dr Tan', ' dr tan ', 'Ms Lee', ''], now: T0 });
+  assert.equal(free.assigneeEmail, '');
+  assert.deepEqual(free.hostNames, ['Dr Tan', 'Ms Lee']);
+  assert.equal(free.hostName, 'Dr Tan, Ms Lee');
+  // Two free sessions at the same time never clash; a name without an email is kept.
+  wf.addSlot(state, { id: 'f2', kind: 'recording', start: at(60), end: at(120), assigneeName: 'Walk-in', now: T0 });
+  // A free session publishes without emailing anyone.
+  assert.deepEqual(wf.publishSlots(state, T0), []);
+  // Filling the person in later books it; clearing it frees it again.
+  wf.editSlot(state, 'f1', { assigneeEmail: 'r@gmail.com', assigneeName: 'R', hostNames: ['Ms Lee'] }, T0);
+  assert.deepEqual([state.slots[0].assigneeEmail, state.slots[0].hostName], ['r@gmail.com', 'Ms Lee']);
+  assert.deepEqual(wf.publishSlots(state, T0).map((n) => [n.kind, n.email]), [['recordingBooked', 'r@gmail.com']]);
+  wf.editSlot(state, 'f1', { assigneeEmail: '', assigneeName: '' }, T0);
+  assert.deepEqual(wf.publishSlots(state, T0).map((n) => [n.kind, n.email]), [['recordingCancelled', 'r@gmail.com']]);
+  // An old single hostName still reads as a one-person list.
+  wf.editSlot(state, 'f2', { hostName: 'Dr Wong' }, T0);
+  assert.deepEqual(state.slots[1].hostNames, ['Dr Wong']);
+  // Test slots still need a person.
+  assert.throws(() => wf.editSlot(state, wf.addSlot(state, { id: 't1', start: at(200), end: at(220), assigneeEmail: 'a@ntu.edu.sg', now: T0 }).id, { assigneeEmail: '' }, T0), /person/u);
 });
 
 test('recording: open in a booked session, and any time before the person has submitted', () => {

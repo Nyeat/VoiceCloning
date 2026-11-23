@@ -346,14 +346,15 @@ function TakeRow({ take, onRemove }) {
   );
 }
 
-function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser = false }) {
+function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser = false, forPerson = null }) {
   const inputRef = useRef(null);
   const [settings, setSettings] = useState({ skipDenoise: true });
   const [dragging, setDragging] = useState(false);
   const [label, setLabel] = useState('My teaching voice');
   // Super users may upload for someone else: the voice goes to that person's account.
-  const [forEmail, setForEmail] = useState('');
-  const [forName, setForName] = useState('');
+  // forPerson: prefilled by the console's "Upload audio" (stop 2) for that lecturer.
+  const [forEmail, setForEmail] = useState(forPerson?.email || '');
+  const [forName, setForName] = useState(forPerson?.name || '');
   const forValid = !forEmail.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(forEmail.trim());
   const [rejected, setRejected] = useState('');
   const totalSeconds = takes.reduce((sum, take) => sum + (take.duration || 0), 0);
@@ -576,7 +577,7 @@ function EmbeddedShell({ children }) {
  * Voice Studio embeds it during a lecturer's recording session (and for super
  * users); it is no longer a site of its own.
  */
-export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted } = {}) {
+export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted, forPerson = null } = {}) {
   const auth = useAuth();
   const [me, setMe] = useState(null);
   const [takes, setTakes] = useState([]);
@@ -681,7 +682,7 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
             disabled={submitting || consentMissing || !me}
             onNeedConsent={consentMissing ? () => setConsentOpen(true) : null}
           />
-          <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} superuser={me?.role === 'superuser'} />
+          <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} superuser={me?.role === 'superuser'} forPerson={forPerson} />
         </div>
 
         {!embedded && <MySubmissions me={me} onWithdraw={withdraw} />}
