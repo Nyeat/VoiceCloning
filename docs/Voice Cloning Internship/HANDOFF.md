@@ -18,8 +18,8 @@ Last updated: 2026-11-23
   bridge, released after; super-user lockout on all GPU routes (shared/studioGpuGuard); coordinator owners
   "reserved:studio" (hard) / "held:studio" (soft 10 min); fixed GPU demand for slots, training, 30 min after super-user
   testing. Fixed: /voice-profile/ensure never saved new profiles. Next: live slot warm-up -> release; chat/mic check.
-- 11-23 Voice Studio redesign DEPLOYED dev+staging (CHANGELOG/DECISIONS 11-23): Google-only, admin-booked sessions, one person
-  one GPU, voice names in pickers, nodemailer fix. Studio: Microsoft sign-in works (staff), Gmail waits for a Google client ID; email needs the LKC mailbox (TODO).
+- 11-23 Voice Studio redesign + later fixes (CHANGELOG 11-23, through 93835dd): approved voice before test slot, upload for someone, open recording, edit moves slot GPU, warm-up ensures profile, past slots hidden.
+  Dev has all; STAGING was overwritten 16:33 SGT by a teammate's unpushed tree ("To record" list) -> merge his work, then redeploy staging. Email needs the LKC mailbox (TODO).
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
