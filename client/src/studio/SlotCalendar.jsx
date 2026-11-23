@@ -97,7 +97,18 @@ const ROW_PX = 26; // one 30-minute row
  * pending: { start, minutes } draws a ghost block for the slot being composed.
  * onSlotDelete(slot) adds a hover delete button to each block (click twice to delete).
  */
-export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEmptyClick, selectedId, pending, nowMs }) {
+const BADGE_TONES = {
+  free: 'bg-white/90 text-emerald-800 ring-emerald-300',
+  booked: 'bg-rose-600 text-white ring-rose-600',
+  overridden: 'bg-white/90 text-slate-600 ring-slate-300',
+  draft: 'bg-amber-100 text-amber-900 ring-amber-300',
+};
+
+/**
+ * A day timeline. slots: [{ id, start, end, tone, title, subtitle, staff, badge?, staffFirst? }].
+ * bands: [{ start, end }] times where several people are free at once (an "Overlap" bracket).
+ */
+export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEmptyClick, selectedId, pending, nowMs, bands = [] }) {
   const [confirmId, setConfirmId] = useState('');
   const rows = [];
   for (let minutes = hours.start; minutes < hours.end; minutes += 30) rows.push(minutes);
@@ -131,6 +142,15 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
           <span className="absolute -left-1.5 -top-[5px] h-2 w-2 rounded-full bg-rose-500" />
         </div>
       )}
+      {bands.map((band) => {
+        const from = sgtDayKey(band.start) === day ? sgtMinutes(band.start) : 0;
+        const to = sgtDayKey(band.end) === day ? sgtMinutes(band.end) : 24 * 60;
+        return (
+          <div key={`${band.start}-${band.end}`} className="pointer-events-none absolute left-[3.1rem] z-10 w-2.5 rounded-l-md border-y-2 border-l-2 border-amber-400" style={{ top: top(from) + 1, height: Math.max(ROW_PX - 2, ((to - from) / 30) * ROW_PX - 2) }}>
+            <span className="absolute -left-12 top-1/2 -translate-y-1/2 rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-800">Overlap</span>
+          </div>
+        );
+      })}
       {pending && (
         <div className="pointer-events-none absolute left-16 right-1 z-10 rounded-lg border-2 border-dashed border-primary bg-primary/10 px-2 py-1 text-xs font-semibold text-primary" style={{ top: top(pending.start) + 1, height: Math.max(ROW_PX - 2, (pending.minutes / 30) * ROW_PX - 2) }}>
           New · {formatMinutes(pending.start)} – {formatMinutes(pending.start + pending.minutes)}
@@ -171,6 +191,22 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
                 selectedId === slot.id && 'ring-2 ring-slate-900 ring-offset-1',
               )}
             >
+              {/* Staff availability: who it belongs to first, then what it is, with a status badge. */}
+              {slot.staffFirst ? (
+                <>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    {(slot.staff || []).map((name) => (
+                      <span key={name} className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/85 py-0.5 pl-1 pr-2 text-[11px] font-semibold text-slate-800 shadow-sm ring-1 ring-black/5">
+                        <span aria-hidden="true" className={cn('h-3.5 w-3.5 shrink-0 rounded-full', staffColor(name).dot)} />
+                        {name}
+                      </span>
+                    ))}
+                    {slot.badge && <span className={cn('ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1', BADGE_TONES[slot.badge.tone] || BADGE_TONES.free)}>{slot.badge.label}</span>}
+                  </div>
+                  {!short && <p className="mt-0.5 truncate text-xs font-semibold">{slot.title}</p>}
+                  {!short && slot.subtitle && <p className="truncate text-[11px] opacity-80">{slot.subtitle}</p>}
+                </>
+              ) : (<>
               <div className="flex min-w-0 items-center gap-2">
                 <p className="min-w-0 truncate text-xs font-semibold">{slot.title}</p>
                 {/* Staff running it, named, each with their own colour (like calendar guests). */}
@@ -187,6 +223,7 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
                 )}
               </div>
               {slot.subtitle && <p className={cn('truncate text-[11px] opacity-80', short && 'hidden sm:block')}>{slot.subtitle}</p>}
+              </>)}
             </Tag>
             {/* Quick delete on hover: the first click arms it ("Delete?"), the second deletes. */}
             {onSlotDelete && (

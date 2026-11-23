@@ -2876,3 +2876,10 @@
   sites via deploy-client -Mode studio); live bundles checked (open recording, Staff availability, Upload for anyone,
   Delete); /api/studio/me 401 on both. Dummies re-seeded on both (12 people, 9 jobs, 8 slots). Both branches
   (separate-containers-new, codex/staging-multi-user-scaling) now at 10aca06 (staging fast-forwarded, owner OK).
+- Same day: Staff availability page re-laid out to the teammate's mock-up (owner: "the ui isnt even the same"): wide
+  day timeline (staff chip first, Free/Booked/Overridden/Draft badge, orange "Overlap" bracket via availability.js
+  overlapBands) + right panel (booked card + "Overridden availability", "N staff are free" overlap card, form,
+  open hours, "Mark my availability", month picker); day arrows; "Signed in as". Form warns before free time over a
+  booking (bookingAt; was a silent 409), free time for several staff = one block each, errors now a bottom toast.
+  Files: StudioApp.jsx, SlotCalendar.jsx, availability.js (+tests). Client studio 29/29, build OK. Deployed studio
+  site to dev + staging; NOT visually checked signed in (Chrome not signed in to the console).

@@ -17,6 +17,11 @@ export function freeTimeTaken(slots, range, excludeId = '') {
   return slots.filter((slot) => slot.id !== excludeId && isFree(slot) && overlaps(slot, range));
 }
 
+/** The booking (lecturer session) that `range` overlaps, or null. Free time cannot be added over one. */
+export function bookingAt(slots, range, excludeId = '') {
+  return slots.find((slot) => slot.id !== excludeId && isBooked(slot) && overlaps(slot, range)) || null;
+}
+
 /** Staff free across `range` who could run the booking instead (from overlapping free time). */
 export function staffFreeAt(slots, range, excludeId = '') {
   const names = [];
@@ -29,6 +34,29 @@ export function staffFreeAt(slots, range, excludeId = '') {
 /** Of the free time taken, what belongs to staff who are not running the booking (they get emailed). */
 export function overriddenOthers(taken, hosts) {
   return taken.filter((slot) => slotHosts(slot).some((name) => !hosts.some((host) => sameName(host, name))));
+}
+
+/** Times where two or more different staff are free at once (merged), for the "Overlap" bracket. */
+export function overlapBands(slots) {
+  const free = slots.filter(isFree);
+  const pieces = [];
+  for (let i = 0; i < free.length; i += 1) {
+    for (let j = i + 1; j < free.length; j += 1) {
+      const [a, b] = [free[i], free[j]];
+      const sameStaff = slotHosts(a).every((name) => slotHosts(b).some((other) => sameName(other, name)))
+        && slotHosts(b).every((name) => slotHosts(a).some((other) => sameName(other, name)));
+      if (sameStaff || !overlaps(a, b)) continue;
+      pieces.push({ start: Math.max(time(a.start), time(b.start)), end: Math.min(time(a.end), time(b.end)) });
+    }
+  }
+  pieces.sort((x, y) => x.start - y.start);
+  const merged = [];
+  for (const piece of pieces) {
+    const last = merged[merged.length - 1];
+    if (last && piece.start <= last.end) last.end = Math.max(last.end, piece.end);
+    else merged.push({ ...piece });
+  }
+  return merged.map((band) => ({ start: new Date(band.start).toISOString(), end: new Date(band.end).toISOString() }));
 }
 
 /** Overridden free time of this staff member, soonest first. */
