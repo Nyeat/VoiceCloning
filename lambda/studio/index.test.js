@@ -284,6 +284,70 @@ test('a recording session is booked for a named person; they see only their own'
   assert.equal((await h.call('cat@gmail.com', 'GET', 'me')).body.recording.reason, 'open', 'someone with no session may still record on their own');
 });
 
+test('staff availability: the first booking overrides overlapping free time; others are emailed; undo restores', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const at0 = (m) => new Date(T0 + m * MIN).toISOString();
+  assert.equal((await h.call(boss, 'POST', 'admin/superusers', { email: 'adam@ntu.edu.sg', name: 'Adam' })).status, 200);
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Adam'] });
+  const later = await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(180), end: at0(240), hostNames: ['Adam'] });
+  const [teng, adam, adamLater] = later.body.slots;
+  // Teng Yu books a lecturer into his own free hour: Adam's overlapping hour is overridden, his later one is not.
+  const booked = await h.call(boss, 'PUT', `admin/slots/${teng.id}`, { assigneeEmail: 'lee@gmail.com', assigneeName: 'Dr Lee', hostNames: ['Teng Yu'] });
+  assert.equal(booked.status, 200, JSON.stringify(booked.body));
+  const byId = (body, id) => body.slots.find((slot) => slot.id === id);
+  assert.equal(byId(booked.body, adam.id).overriddenBy.slotId, teng.id);
+  assert.equal(byId(booked.body, adamLater.id).overriddenBy, null);
+  // Overridden time cannot be booked, and new free time cannot be put over the booking.
+  assert.equal((await h.call(boss, 'PUT', `admin/slots/${adam.id}`, { assigneeEmail: 'x@gmail.com' })).status, 409);
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(90), end: at0(150), hostNames: ['Bea'] })).status, 409);
+  // Publishing emails the lecturer and Adam (the booker is not emailed about his own time).
+  const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
+  assert.deepEqual(published.body.published.map((p) => [p.email, p.kind]).sort(), [['adam@ntu.edu.sg', 'availabilityOverridden'], ['lee@gmail.com', 'recordingBooked']]);
+  assert.equal((await h.call(boss, 'POST', 'admin/slots/publish', {})).body.published.length, 0, 'told once');
+  // Undo (person cleared) gives Adam his hour back.
+  const undone = await h.call(boss, 'PUT', `admin/slots/${teng.id}`, { assigneeEmail: '', assigneeName: '' });
+  assert.equal(undone.status, 200, JSON.stringify(undone.body));
+  assert.equal(byId(undone.body, adam.id).overriddenBy, null);
+  assert.ok(h.sent.some((m) => m.to.includes('adam@ntu.edu.sg') && /free again/u.test(m.subject)), 'Adam told his time is free again');
+  // Booked again, published (Adam told), then the booking deleted: told free again once more.
+  await h.call(boss, 'PUT', `admin/slots/${teng.id}`, { assigneeEmail: 'lee@gmail.com', assigneeName: 'Dr Lee' });
+  await h.call(boss, 'POST', 'admin/slots/publish', {});
+  const before = h.sent.filter((m) => /free again/u.test(m.subject)).length;
+  await h.call(boss, 'DELETE', `admin/slots/${teng.id}`);
+  assert.equal(h.sent.filter((m) => /free again/u.test(m.subject)).length, before + 1);
+});
+
+test('staff availability: undoing before Publish sends no "free again" email', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const at0 = (m) => new Date(T0 + m * MIN).toISOString();
+  await h.call(boss, 'POST', 'admin/superusers', { email: 'adam@ntu.edu.sg', name: 'Adam' });
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
+  const both = await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Adam'] });
+  const [teng] = both.body.slots;
+  await h.call(boss, 'PUT', `admin/slots/${teng.id}`, { assigneeEmail: 'lee@gmail.com', assigneeName: 'Dr Lee' });
+  await h.call(boss, 'PUT', `admin/slots/${teng.id}`, { assigneeEmail: '', assigneeName: '' });
+  assert.equal(h.sent.filter((m) => /availability/u.test(m.subject)).length, 0);
+});
+
+test('staff availability: the booker can hand the session to another free staff member', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const at0 = (m) => new Date(T0 + m * MIN).toISOString();
+  await h.call(boss, 'POST', 'admin/superusers', { email: 'adam@ntu.edu.sg', name: 'Adam' });
+  await h.call(boss, 'POST', 'admin/superusers', { email: 'teng@ntu.edu.sg', name: 'Teng Yu' });
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
+  const both = await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Adam'] });
+  const [teng, adam] = both.body.slots;
+  // Teng Yu books it but gives it to Adam: Adam runs it, nobody is told their time was taken.
+  await h.call(boss, 'PUT', `admin/slots/${teng.id}`, { assigneeEmail: 'lee@gmail.com', assigneeName: 'Dr Lee', hostNames: ['Adam'] });
+  const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
+  assert.deepEqual(published.body.published.map((p) => p.kind), ['recordingBooked']);
+  assert.equal(published.body.slots.find((slot) => slot.id === adam.id).overriddenBy.slotId, teng.id);
+});
+
 test('feedback keeps the structured answers', async () => {
   const h = harness();
   const { updateState } = await import('./store.js');

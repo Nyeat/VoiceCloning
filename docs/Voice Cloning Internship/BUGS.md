@@ -5,6 +5,7 @@
   studioApi.js now sends DELETE without a body; the pronunciation word goes in the query string.
 - Confirmed 2026-11-23 (live log): Office 365 refuses lkc-digitallearning@ntu.edu.sg with "535 5.7.139
   SmtpClientAuthentication is disabled for the Mailbox" — NTU IT must enable SMTP AUTH on it.
+  Re-checked 14:30 SGT with the owner's password: same 535 5.7.139 (password not even checked yet).
 - Fixed 2026-11-23 (in code, NOT deployed): every Voice Studio email failed "Cannot find package 'nodemailer'" — the
   live Lambda zip lacked it. Packaging now verifies dependencies. After redeploy, check EMAIL_PASS: it is 19 chars on
   both Lambdas (a Gmail app password is 16 letters), so it may be the account password and fail Gmail auth (535).
@@ -480,3 +481,6 @@
   (preflight 403). Fix = bucket CORS AllowedOrigins (see TODO).
 - 2026-11-21 FIXED (e55bbc0): /voice-profile/ensure never wrote new profiles (persister "no change" check) — voices
   without a saved profile could not get ready anywhere that relied on ensure.
+- Voice Studio (2026-11-23, open): since 93835dd hides finished sessions, someone whose session ended with nothing
+  uploaded drops off the line (Stop 2 "Recorded · upload audio" never shows). Workaround: "Upload for anyone". Fix idea:
+  keep a finished recording session in the overview while its person has no submitted set.

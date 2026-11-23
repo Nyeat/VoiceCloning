@@ -805,6 +805,16 @@ export function createHandler({
 
         // Editing or deleting a test slot also cancels its GPU: one already
         // warming for it is released now instead of idling until it times out.
+        // Staff whose overridden time was given back after they were told it was taken.
+        const sendFreeAgain = async (notices) => {
+          const sent = [];
+          for (const item of notices || []) {
+            const message = templates.availabilityRestored({ slot: item.slot, by: item.by, name: item.name, env });
+            sent.push({ email: item.email, kind: 'availabilityRestored', ...(await service.mailer.send(item.email, message)) });
+          }
+          return sent;
+        };
+
         if (route === 'PUT admin/slots/:id') {
           const { result } = await updateState(store, (state) => {
             const before = { ...wf.findSlot(state, parts[2]) };
@@ -814,18 +824,20 @@ export function createHandler({
             wf.editSlot(state, parts[2], {
               start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName, hostNames: body.hostNames,
             }, now);
-            return { release: wf.gpuToRelease(state, before, now) };
+            return { release: wf.gpuToRelease(state, before, now), freeAgain: wf.freeAgainNotices(state, env, now) };
           });
           await releaseGpuOf(result.release);
+          await sendFreeAgain(result.freeAgain);
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
         if (route === 'DELETE admin/slots/:id') {
           const { result } = await updateState(store, (state) => {
             const removed = wf.removeSlot(state, parts[2]);
-            return { removed, release: wf.gpuToRelease(state, removed.slot, now) };
+            return { removed, release: wf.gpuToRelease(state, removed.slot, now), freeAgain: wf.freeAgainNotices(state, env, now) };
           });
           await releaseGpuOf(result.release);
+          await sendFreeAgain(result.freeAgain);
           const told = result.removed.notify;
           if (told) {
             const template = wf.slotKind(result.removed.slot) === 'recording' ? templates.recordingCancelled : templates.slotCancelled;
@@ -835,12 +847,21 @@ export function createHandler({
         }
 
         if (route === 'POST admin/slots/publish') {
-          const { result } = await updateState(store, (state) => ({ toNotify: wf.publishSlots(state, now) }));
+          const { result } = await updateState(store, (state) => {
+            const toNotify = wf.publishSlots(state, now);
+            // Staff whose availability a now-published booking took: pick another time.
+            return { toNotify, overridden: wf.overrideNotices(state, env, now), freeAgain: wf.freeAgainNotices(state, env, now) };
+          });
           const sent = [];
           for (const item of result.toNotify) {
             const message = templates[item.kind]({ slot: item.slot, moved: item.moved, env });
             sent.push({ email: item.email, kind: item.kind, ...(await service.mailer.send(item.email, message)) });
           }
+          for (const item of result.overridden) {
+            const message = templates.availabilityOverridden({ slot: item.slot, by: item.by, name: item.name, env });
+            sent.push({ email: item.email, kind: 'availabilityOverridden', ...(await service.mailer.send(item.email, message)) });
+          }
+          sent.push(...(await sendFreeAgain(result.freeAgain)));
           return ok({ ...(await adminView((await store.read()).state, email)), published: sent }, {}, event);
         }
 

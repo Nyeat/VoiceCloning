@@ -575,6 +575,124 @@ function hostFields(hostNames, hostName) {
   return { hostNames: hosts, hostName: hosts.join(', ') };
 }
 
+// ── Staff availability: the first booking wins ───────────────────────────
+//
+// A free recording session (no lecturer) is a staff member's availability.
+// When one is booked for a lecturer, every other free session that overlaps
+// it is "overridden": it can no longer be booked, and its staff are emailed
+// on Publish to pick another time. Undoing the booking (clearing the person,
+// moving it away, deleting it) gives the overridden time back.
+
+function isFreeRecording(slot) {
+  return slotKind(slot) === 'recording' && !slot.assigneeEmail;
+}
+
+function isBookedRecording(slot) {
+  return slotKind(slot) === 'recording' && Boolean(slot.assigneeEmail) && slot.status !== 'cancelled';
+}
+
+function sameHost(names, name) {
+  return names.some((other) => other.toLowerCase() === String(name).toLowerCase());
+}
+
+/** Re-applies the rule for one booking after it was added, edited or removed. Returns newly overridden slots. */
+function applyOverrides(state, booking, now) {
+  const stillBooked = isBookedRecording(booking);
+  for (const slot of liveSlots(state)) {
+    if (slot.overriddenBy?.slotId === booking.id && !(stillBooked && slotsOverlap(slot, booking))) {
+      // Staff already told their time was taken are told it is free again (freeAgainNotices).
+      if (slot.overriddenBy.notifiedAt) slot.freeAgain = { ...slot.overriddenBy, at: iso(now) };
+      slot.overriddenBy = null;
+    }
+  }
+  if (!stillBooked) return [];
+  const hit = [];
+  for (const slot of liveSlots(state)) {
+    if (slot.id === booking.id || !isFreeRecording(slot) || !slotsOverlap(slot, booking)) continue;
+    if (slot.overriddenBy?.slotId === booking.id) {
+      // Same booking, new details (time, lecturer, staff): refresh what the banner says.
+      Object.assign(slot.overriddenBy, { start: booking.start, end: booking.end, assigneeName: booking.assigneeName, hostNames: [...(booking.hostNames || [])] });
+      continue;
+    }
+    if (slot.overriddenBy) continue; // the first booking keeps it
+    slot.freeAgain = null; // taken again before the "free again" email went: no need to send it
+    slot.overriddenBy = {
+      slotId: booking.id,
+      start: booking.start,
+      end: booking.end,
+      assigneeName: booking.assigneeName || booking.assigneeEmail,
+      hostNames: [...(booking.hostNames || [])],
+      at: iso(now),
+      notifiedAt: null,
+    };
+    hit.push(slot);
+  }
+  return hit;
+}
+
+function assertTimeNotTaken(state, slot) {
+  // Availability cannot be added over time that is already booked (it would be overridden at once).
+  if (!isFreeRecording(slot) || slot.overriddenBy) return;
+  const booking = liveSlots(state).find((other) => other.id !== slot.id && isBookedRecording(other) && slotsOverlap(other, slot));
+  if (booking) {
+    const error = clientError(409, `${booking.assigneeName || booking.assigneeEmail} is already booked then`
+      + `${booking.hostNames?.length ? ` with ${booking.hostNames.join(', ')}` : ''}. Pick another time.`);
+    error.code = 'SLOT_TAKEN';
+    throw error;
+  }
+}
+
+/**
+ * Overridden availability whose staff have not been told yet and whose booking
+ * is published: marks them told and returns who to email. Staff who run the
+ * booking themselves (they handed it over or took it) are not emailed.
+ */
+// Staff are named on sessions; their email is their super-user entry (by name) or the name itself if it is an email.
+function staffEmailResolver(state, env) {
+  const staff = listSuperusers(state, env);
+  return (name) => {
+    const typed = normalizeEmail(name);
+    if (EMAIL_SHAPE.test(typed)) return typed;
+    return staff.find((entry) => entry.name && entry.name.trim().toLowerCase() === String(name).trim().toLowerCase())?.email || '';
+  };
+}
+
+/** Availability given back after its staff were told it was taken: who to email now ("free again"). Clears them. */
+export function freeAgainNotices(state, env = process.env, now = Date.now()) {
+  const emailOf = staffEmailResolver(state, env);
+  const notices = [];
+  for (const slot of liveSlots(state)) {
+    const by = slot.freeAgain;
+    if (!by) continue;
+    slot.freeAgain = null;
+    if (ms(slot.end) <= now || slot.overriddenBy) continue;
+    for (const name of slot.hostNames || []) {
+      if (sameHost(by.hostNames || [], name)) continue;
+      const email = emailOf(name);
+      if (email) notices.push({ email, name, slot: { ...slot }, by: { ...by } });
+    }
+  }
+  return notices;
+}
+
+export function overrideNotices(state, env = process.env, now = Date.now()) {
+  const emailOf = staffEmailResolver(state, env);
+  const notices = [];
+  for (const slot of liveSlots(state)) {
+    const by = slot.overriddenBy;
+    if (!by || by.notifiedAt || ms(slot.end) <= now) continue;
+    const booking = findSlot(state, by.slotId);
+    if (!booking || booking.status !== 'published') continue;
+    by.notifiedAt = iso(now);
+    for (const name of slot.hostNames || []) {
+      if (sameHost(booking.hostNames || [], name)) continue;
+      const email = emailOf(name);
+      if (email) notices.push({ email, name, slot: { ...slot }, by: { ...by } });
+    }
+  }
+  return notices;
+}
+
 // Test slots always need a person. A recording session may be left free (no
 // person yet); an email that is given must look like an email.
 function checkAssignee(slotType, assigneeEmail) {
@@ -608,8 +726,11 @@ export function addSlot(state, {
     notified: null,
     preloadedAt: null,
     reminderSentAt: null,
+    overriddenBy: null,
   };
+  if (slotType === 'recording') assertTimeNotTaken(state, slot);
   state.slots.push(slot);
+  if (slotType === 'recording') applyOverrides(state, slot, now);
   return slot;
 }
 
@@ -621,7 +742,23 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
     if (slotKind(slot) === 'test' && !normalizeEmail(assigneeEmail)) throw clientError(400, 'A slot needs a person');
     checkAssignee(slotKind(slot), assigneeEmail);
   }
+  // Overridden availability belongs to an earlier booking: it cannot be booked.
+  if (slot.overriddenBy && normalizeEmail(assigneeEmail ?? '')) {
+    const by = slot.overriddenBy;
+    const error = clientError(409, `This time was taken: ${by.assigneeName || 'a lecturer'} is booked then`
+      + `${by.hostNames?.length ? ` with ${by.hostNames.join(', ')}` : ''}. Pick another time.`);
+    error.code = 'SLOT_TAKEN';
+    throw error;
+  }
   assertNoClash(state, times, id, slotKind(slot), assigneeEmail ?? slot.assigneeEmail);
+  if (slotKind(slot) === 'recording' && !normalizeEmail(assigneeEmail ?? slot.assigneeEmail)) {
+    // Moved availability: still overridden only while it overlaps the booking that took it.
+    const booking = slot.overriddenBy ? findSlot(state, slot.overriddenBy.slotId) : null;
+    const candidate = { ...slot, ...times, assigneeEmail: '' };
+    if (!booking || !slotsOverlap(booking, candidate)) candidate.overriddenBy = null;
+    assertTimeNotTaken(state, candidate);
+    slot.overriddenBy = candidate.overriddenBy;
+  }
   Object.assign(slot, times, {
     ...(assigneeEmail !== undefined ? { assigneeEmail: normalizeEmail(assigneeEmail) } : {}),
     ...(assigneeName !== undefined ? { assigneeName: cleanText(assigneeName, 80) } : {}),
@@ -637,6 +774,7 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
   // An edited published slot goes back to draft until it is published again,
   // so lecturers never see a half-edited schedule.
   if (slot.status === 'published') slot.status = 'draft';
+  if (slotKind(slot) === 'recording') applyOverrides(state, slot, now);
   return slot;
 }
 
@@ -656,6 +794,8 @@ export function removeSlot(state, id) {
   if (!slot) throw clientError(404, 'Slot not found');
   const told = slot.notified;
   slot.status = 'cancelled';
+  // A deleted booking gives back the availability it overrode.
+  if (slotKind(slot) === 'recording') applyOverrides(state, slot, Date.now());
   return { slot, notify: told?.assigneeEmail ? told : null };
 }
 

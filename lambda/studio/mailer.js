@@ -163,6 +163,29 @@ export const templates = {
       ], studio ? { label: 'Pick another time', url: studio } : null),
     };
   },
+  // Staff: another staff member booked a lecturer over this person's free time.
+  availabilityOverridden({ slot, by, name, env }) {
+    const { studio } = studioLinks(env);
+    const hosts = (by.hostNames || []).join(', ') || 'Another staff member';
+    return {
+      subject: 'Your recording availability was taken',
+      ...layout('Your availability was taken', [
+        `${name ? `Hi ${name}, your` : 'Your'} free time on ${formatSgtRange(slot.start, slot.end)} was overridden: ${hosts} booked ${by.assigneeName || 'a lecturer'} for ${formatSgtRange(by.start, by.end)}, and the first booking gets the time.`,
+        'Please pick another time on the Book recording calendar in Voice Studio. If you would rather run this session yourself, ask them to hand it to you.',
+      ], studio ? { label: 'Pick another time', url: studio } : null),
+    };
+  },
+  // Staff: the booking that took their free time was undone, moved or cancelled.
+  availabilityRestored({ slot, by, name, env }) {
+    const { studio } = studioLinks(env);
+    return {
+      subject: 'Your recording availability is free again',
+      ...layout('Your availability is free again', [
+        `${name ? `Hi ${name}, the` : 'The'} booking of ${by.assigneeName || 'a lecturer'} that took your free time was undone, so your ${formatSgtRange(slot.start, slot.end)} is available again and can be booked.`,
+        'Nothing to do if that still suits you. If you already picked another time, delete whichever you no longer need on the Book recording calendar.',
+      ], studio ? { label: 'Open Voice Studio', url: studio } : null),
+    };
+  },
   slotReminder({ slot, env }) {
     const { studio } = studioLinks(env);
     return {

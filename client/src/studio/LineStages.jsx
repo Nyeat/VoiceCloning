@@ -16,12 +16,15 @@ const who = (job) => job.ownerName || job.ownerEmail;
 // Only a finished session with nothing uploaded needs "Upload audio"; a draft at stop 1 also waits on you, but for publishing.
 const needsUpload = (rider) => rider.stop === 'record' && rider.alert;
 
-function ListCard({ title, subtitle, children, empty }) {
+function ListCard({ title, subtitle, children, empty, action = null }) {
   return (
     <Card className="overflow-hidden">
-      <div className="border-b border-slate-200 px-5 py-3.5">
-        <h2 className="text-base font-bold text-slate-900">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-xs text-slate-600">{subtitle}</p>}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-3.5">
+        <div className="min-w-0">
+          <h2 className="text-base font-bold text-slate-900">{title}</h2>
+          {subtitle && <p className="mt-0.5 text-xs text-slate-600">{subtitle}</p>}
+        </div>
+        {action}
       </div>
       {empty ? <p className="px-5 py-6 text-sm text-slate-600">{empty}</p> : <ul className="divide-y divide-slate-100">{children}</ul>}
     </Card>
@@ -46,7 +49,17 @@ export function RecordingStage({ overview, line }) {
   const riderOf = new Map(line.riders.map((rider) => [rider.email, rider]));
   return (
     <div className="space-y-5">
-      <ListCard title="To record" empty={toRecord.length === 0 ? 'Nobody is booked to record. Book a session in step 1.' : ''}>
+      {/* Owner 2026-11-23: audio can be uploaded for anyone at any time, not only after a session. */}
+      <ListCard
+        title="To record"
+        subtitle="Upload audio for anyone at any time: the people below, or anybody else by email."
+        empty={toRecord.length === 0 ? 'Nobody is booked to record. Upload for anyone above, or book a session in step 1.' : ''}
+        action={(
+          <Link to="/record" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3.5 text-[13px] font-bold text-white hover:bg-primary/90">
+            <Upload size={15} aria-hidden="true" /> Upload for anyone
+          </Link>
+        )}
+      >
         {toRecord.map(({ rider, slot }) => {
           const upload = `/record?for=${encodeURIComponent(rider.email)}&name=${encodeURIComponent(rider.name === rider.email ? '' : rider.name)}`;
           return (
@@ -58,13 +71,18 @@ export function RecordingStage({ overview, line }) {
                 {rider.note === 'Recording now' && <span className="text-xs font-semibold text-rose-700"> · recording now</span>}
                 {rider.note === 'Uploading' && <span className="text-xs text-slate-600"> · upload in progress</span>}
               </span>
-              {needsUpload(rider) && (
-                <Link to={upload} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3.5 text-[13px] font-bold text-white hover:bg-primary/90">
-                  <Upload size={15} aria-hidden="true" /> Upload audio
-                </Link>
-              )}
               {!needsUpload(rider) && slot?.status === 'draft' && <Link to="/sessions" className="text-xs font-bold text-amber-800 hover:underline">Draft · publish in step 1</Link>}
               {!needsUpload(rider) && slot?.status !== 'draft' && slot?.hostName && <span className="text-xs text-slate-600">run by {slot.hostName}</span>}
+              {/* Every row can upload, session or not; recorded ones are highlighted. */}
+              <Link
+                to={upload}
+                className={cn(
+                  'inline-flex min-h-10 items-center gap-2 rounded-lg px-3.5 text-[13px] font-bold',
+                  needsUpload(rider) ? 'bg-primary text-white hover:bg-primary/90' : 'bg-white text-primary ring-1 ring-primary/40 hover:bg-primary/5',
+                )}
+              >
+                <Upload size={15} aria-hidden="true" /> Upload audio
+              </Link>
             </li>
           );
         })}

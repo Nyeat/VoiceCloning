@@ -2852,3 +2852,19 @@
   so finished recording sessions / test slots vanish from every list (93835dd, Lambda 453/453). Deployed dev Lambda
   only: staging Lambda + studio site were redeployed at 16:33 SGT from a teammate's unpushed tree ("To record" list
   with Upload audio; lacks 2fe956e/ff1c58e) — staging waits until that work is pushed and merged.
+- Same day: Book recording is now "Staff availability" (teammate's mock-up): a free recording session = a staff
+  member's free time. First booking wins: booking free time marks every other overlapping free time `overriddenBy`
+  (hatched "Overridden", cannot be booked; new free time over a booking is 409); Publish emails those staff
+  (`availabilityOverridden`, matched by super-user name or email) once. Booker can hand the session to another staff
+  member free then ("Who runs it"); Undo / clearing / moving / deleting the booking restores the overridden time.
+  Overridden staff see a banner + "Pick another time" open-hours panel (Mark me free). Files: lambda/studio/
+  workflow.js, index.js, mailer.js, index.test.js; client/src/studio/StudioApp.jsx, SlotCalendar.jsx, availability.js
+  (+test). Tests: lambda studio 43/43, client studio 27/27, studio build OK. Not run live / not deployed; no
+  "your time is free again" email when an override is undone.
+- Same day: (1) "free again" email: when a booking that overrode staff time is undone/cleared/moved/deleted
+  after they were emailed, they get `availabilityRestored` at once (`freeAgainNotices`; undone before Publish = no
+  email). (2) Stop 2 "To record": Upload audio on every row + "Upload for anyone" (any email, any time).
+  (3) `lambda/scripts/seed-studio-fixtures.mjs` rewritten: 12 dummies, one per line state (no "training" dummy: it
+  would hold the real queue); no password accounts (Google-only) and old ones deleted. Friend locked out of
+  recording = STAGING runs teammate's tree without 2fe956e (bundle checked); fix = redeploy. Lambda 457/457 +
+  studio 44/44, client studio 27/27, build OK. Not deployed (AWS creds expired); dummies not re-seeded yet.

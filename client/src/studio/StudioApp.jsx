@@ -37,6 +37,9 @@ import {
 } from './StudioChrome.jsx';
 import { buildLine } from './superLine.js';
 import { addHosts, slotHosts } from './staffColors.js';
+import {
+  freeTimeTaken, openHours, overriddenFor, overriddenOthers, staffFreeAt,
+} from './availability.js';
 import { StaffChip, StaffField, knownStaff, rememberStaff } from './StaffField.jsx';
 import { MobileLine, StageHeader, SuperSidebar } from './SuperLineChrome.jsx';
 import { LineMap } from './LineMap.jsx';
@@ -299,6 +302,7 @@ function slotTone(slot, now) {
   // Recording sessions: green = free (nobody yet), red = booked for a lecturer;
   // a dashed outline means it is still a draft (owner 2026-11-23).
   if (slot.kind === 'recording') {
+    if (slot.overriddenBy) return 'overridden';
     const base = slot.assigneeEmail ? 'reserved' : 'free';
     return slot.status === 'draft' ? `${base}Draft` : base;
   }
@@ -384,9 +388,73 @@ function TestPeopleField({ draft, setDraft, people }) {
   );
 }
 
-function SlotComposer({ kind, draft, setDraft, people, staffSuggestions, onSave, onDelete, onCancel }) {
+const sgtTime = (value) => formatSgt(value, { withDate: false });
+
+// Staff availability (recording only). Free time another booking took first
+// cannot be booked; booking free time takes everyone else's overlapping free
+// time, unless the session is handed to one of them.
+function AvailabilityFields({ draft, setDraft, availability, me, onPickAnother }) {
+  const { overriddenBy, freeStaff, taken } = availability;
+  if (overriddenBy) {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs leading-snug text-amber-950">
+        <p className="font-semibold">This free time was taken</p>
+        <p className="mt-1">{(overriddenBy.hostNames || []).join(', ') || 'Another staff member'} booked {overriddenBy.assigneeName || 'a lecturer'} for {sgtTime(overriddenBy.start)} – {sgtTime(overriddenBy.end)}. The first booking gets the time, so this cannot be booked. Move it, delete it, or pick another time.</p>
+        <Button size="sm" variant="dark" className="mt-2" onClick={onPickAnother}>Pick another time</Button>
+      </div>
+    );
+  }
+  const email = String(draft.person || '').trim();
+  if (!email || !EMAIL_SHAPE.test(email) || draft.originalPerson) return null;
+  const hosts = draft.hosts || [];
+  const owners = draft.ownHosts?.length ? draft.ownHosts : hosts.slice(0, 1);
+  const choices = addHosts(addHosts([], owners.join(','), 8), freeStaff.join(','), 8);
+  const others = overriddenOthers(taken, hosts);
+  return (
+    <div className="space-y-2">
+      {choices.length > 1 && (
+        <div className="text-xs font-medium text-slate-600">
+          Who runs it
+          <div className="mt-1 space-y-1">
+            {choices.map((name) => {
+              const chosen = hosts.length === 1 && hosts[0].toLowerCase() === name.toLowerCase();
+              return (
+                <label key={name} className={cn('flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 ring-1', chosen ? 'bg-white ring-slate-900' : 'ring-slate-200 hover:bg-white')}>
+                  <input type="radio" name="booking-host" checked={chosen} onChange={() => setDraft({ ...draft, hosts: [name] })} />
+                  <StaffChip name={name} size="sm" />
+                  <span className="text-[11px] font-normal text-slate-500">
+                    {me && name.toLowerCase() === me.toLowerCase() ? 'you, since you are booking it' : owners.some((owner) => owner.toLowerCase() === name.toLowerCase()) ? 'owns this free time' : 'also free then: hand it to them'}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {others.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-[11px] leading-snug text-amber-950">
+          <p className="text-xs font-semibold">This overrides other availability</p>
+          <ul className="mt-1.5 space-y-1">
+            {others.map((slot) => (
+              <li key={slot.id} className="flex flex-wrap items-center gap-1.5">
+                {slotHosts(slot).map((name) => <StaffChip key={name} name={name} size="sm" />)}
+                <span>{sgtTime(slot.start)} – {sgtTime(slot.end)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5">The first booking gets the time. They are emailed when you publish and asked to pick another time{choices.length > 1 ? ', or hand the session to one of them above' : ''}.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SlotComposer({ kind, draft, setDraft, people, staffSuggestions, onSave, onDelete, onCancel, availability, me, onPickAnother }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const typedEmail = String(draft.person || '').trim();
+  const taken = kind === 'recording' && Boolean(availability?.overriddenBy);
+  const overriding = kind === 'recording' && !taken && typedEmail && EMAIL_SHAPE.test(typedEmail) && !draft.originalPerson
+    ? overriddenOthers(availability?.taken || [], draft.hosts || []).length : 0;
   const canSave = kind === 'recording'
     ? !typedEmail || EMAIL_SHAPE.test(typedEmail)
     : Boolean(draft.id ? draft.person : (draft.persons || []).length);
@@ -414,12 +482,16 @@ function SlotComposer({ kind, draft, setDraft, people, staffSuggestions, onSave,
           ))}
         </div>
       </div>
-      {kind === 'recording' ? <RecordingPersonFields draft={draft} setDraft={setDraft} /> : <TestPeopleField draft={draft} setDraft={setDraft} people={people} />}
+      {kind === 'recording' && !taken && <RecordingPersonFields draft={draft} setDraft={setDraft} />}
+      {kind === 'test' && <TestPeopleField draft={draft} setDraft={setDraft} people={people} />}
+      {kind === 'recording' && availability && <AvailabilityFields draft={draft} setDraft={setDraft} availability={availability} me={me} onPickAnother={onPickAnother} />}
       {kind === 'recording' && (
         <StaffField value={draft.hosts || []} onChange={(hosts) => setDraft({ ...draft, hosts })} suggestions={staffSuggestions} />
       )}
       <div className="flex flex-wrap gap-2 pt-1">
-        <Button variant="dark" disabled={!canSave} onClick={onSave}>{draft.id ? 'Save changes' : kind === 'recording' ? 'Add session' : 'Add slot'}</Button>
+        <Button variant={overriding ? 'danger' : 'dark'} disabled={!canSave} onClick={onSave}>
+          {overriding ? `Book & override ${overriding} availabilit${overriding === 1 ? 'y' : 'ies'}` : draft.id ? 'Save changes' : kind === 'recording' ? 'Add session' : 'Add slot'}
+        </Button>
         {draft.id && (confirmDelete
           ? <Button variant="danger" onClick={onDelete}>Confirm delete</Button>
           : <Button variant="ghost" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete</Button>)}
@@ -429,14 +501,41 @@ function SlotComposer({ kind, draft, setDraft, people, staffSuggestions, onSave,
   );
 }
 
+// After free time was overridden: the hours still open that day, one tap each.
+function OpenHours({ day, who, hours, onMarkFree, onClose }) {
+  return (
+    <div className="space-y-3 rounded-xl border border-indigo-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Pick another time</p>
+          <p className="text-sm font-semibold text-slate-900">Open hours on {formatDay(day)}</p>
+          <p className="mt-0.5 text-xs text-slate-500">Nobody is booked then{who ? <>; marks <b>{who}</b> as free</> : ''}. Free time is a draft until published.</p>
+        </div>
+        <button type="button" onClick={onClose} className="-m-1 shrink-0 rounded-lg p-2 text-slate-400 hover:bg-slate-100" aria-label="Close"><X size={16} /></button>
+      </div>
+      {hours.length === 0 ? <p className="text-sm text-slate-500">No open hours left that day. Pick another day on the calendar.</p> : (
+        <ul className="space-y-1.5">
+          {hours.slice(0, 8).map((range) => (
+            <li key={range.start} className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+              <span>{sgtTime(range.start)} – {sgtTime(range.end)}</span>
+              <Button size="sm" variant="outline" onClick={() => onMarkFree(range)}>Mark me free</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-[11px] text-slate-500">Or choose another day on the calendar and tap a time.</p>
+    </div>
+  );
+}
+
 const SCHEDULE_COPY = {
   recording: {
-    title: 'Recording calendar',
-    help: 'Click a time on the day. Add the lecturer to book it for them, or leave it blank as a free session. Sessions may run in parallel.',
-    footer: 'Only you see this calendar. Publishing emails the person; they are reminded the day before and on the day. Their recording page opens only during their session.',
+    title: 'Staff availability',
+    help: 'Click a time to add when you are free (green). To book a lecturer, open free time and add their email. The first booking gets the time: other staff free then are overridden and emailed to pick another time, or you can hand the session to one of them.',
+    footer: 'Only staff see this calendar. Publishing emails the lecturer (reminded the day before and on the day) and any staff whose free time was overridden. The lecturer\'s recording page opens only during their session.',
     list: 'Upcoming recording sessions',
-    open: 'Free session',
-    tones: ['free', 'reserved'],
+    open: 'Available',
+    tones: ['free', 'reserved', 'overridden'],
   },
   test: {
     title: 'Test slot calendar',
@@ -467,6 +566,41 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     [overview.slots],
   );
   const drafts = overview.draftCount || 0;
+  // Staff availability (recording): who is looking (their super-user name, else the
+  // last staff name this browser used), free time a booking would take, open hours.
+  const auth = useAuth();
+  const recording = kind === 'recording';
+  const me = useMemo(() => {
+    const mine = (overview.superusers || []).find((user) => user.email === auth.user?.email?.toLowerCase());
+    return mine?.name || knownStaff()[0] || '';
+  }, [overview.superusers, auth.user?.email]);
+  const [openHoursFor, setOpenHoursFor] = useState(null); // { day, who }
+  const [lastBooking, setLastBooking] = useState(null); // { id, label, overridden, hosts } for Undo
+  const [dismissed, setDismissed] = useState(() => {
+    try { return JSON.parse(window.localStorage.getItem('voice-studio-dismissed-overrides') || '[]'); } catch { return []; }
+  });
+  const dismiss = (id) => {
+    const next = [...dismissed, id].slice(-50);
+    setDismissed(next);
+    try { window.localStorage.setItem('voice-studio-dismissed-overrides', JSON.stringify(next)); } catch { /* per-viewer only */ }
+  };
+  const takenFromMe = recording ? overriddenFor(slots, me).filter((slot) => !dismissed.includes(slot.id)) : [];
+  const draftRange = draft && recording
+    ? { start: sgtIso(draft.day, draft.start), end: new Date(Date.parse(sgtIso(draft.day, draft.start)) + draft.minutes * 60_000).toISOString() }
+    : null;
+  const draftOriginal = draft?.id ? slots.find((slot) => slot.id === draft.id) : null;
+  const availability = draftRange ? {
+    overriddenBy: draftOriginal?.overriddenBy || null,
+    taken: freeTimeTaken(slots, draftRange, draft.id || ''),
+    freeStaff: staffFreeAt(slots, draftRange, draft.id || ''),
+  } : null;
+  function pickAnotherTime(slot, who) {
+    const key = sgtDayKey(slot.start);
+    setDay(key);
+    setMonth(monthOf(key));
+    setDraft(null);
+    setOpenHoursFor({ day: key, who: who || slotHosts(slot)[0] || me });
+  }
   // Stacked layout (phones, tablets): the composer sits above the day timeline,
   // so tapping a time down there would open it out of sight — bring it into view.
   const composerRef = useRef(null);
@@ -491,8 +625,10 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     start: slot.start,
     end: slot.end,
     tone: slotTone(slot, nowMs),
-    title: slot.assigneeName || slot.assigneeEmail || copy.open,
-    subtitle: `${formatSgt(slot.start, { withDate: false })} – ${formatSgt(slot.end, { withDate: false })}${slot.status === 'draft' ? ' · draft' : ''}${slot.assigneeEmail && slot.assigneeName ? ` · ${slot.assigneeEmail}` : ''}`,
+    title: slot.overriddenBy ? 'Overridden' : slot.assigneeName || slot.assigneeEmail || copy.open,
+    subtitle: slot.overriddenBy
+      ? `Taken by ${(slot.overriddenBy.hostNames || []).join(', ') || 'a booking'}'s booking${slot.overriddenBy.assigneeName ? ` (${slot.overriddenBy.assigneeName})` : ''}`
+      : `${formatSgt(slot.start, { withDate: false })} – ${formatSgt(slot.end, { withDate: false })}${slot.status === 'draft' ? ' · draft' : ''}${slot.assigneeEmail && slot.assigneeName ? ` · ${slot.assigneeEmail}` : ''}`,
     staff: slotHosts(slot),
   }));
 
@@ -506,11 +642,17 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     const key = sgtDayKey(original.start);
     setDay(key);
     setMonth(monthOf(key));
+    setOpenHoursFor(null);
     setDraft({
       id: original.id, day: key, start: sgtMinutes(original.start),
       minutes: Math.round((Date.parse(original.end) - Date.parse(original.start)) / 60000),
-      person: original.assigneeEmail || '', originalPerson: original.assigneeEmail || '', name: original.assigneeName || '', hosts: slotHosts(original),
+      person: original.assigneeEmail || '', originalPerson: original.assigneeEmail || '', name: original.assigneeName || '', hosts: slotHosts(original), ownHosts: slotHosts(original),
     });
+  }
+  async function markFree(range) {
+    const who = openHoursFor?.who || me;
+    if (who) rememberStaff([who]);
+    await onAction(() => addSlot({ kind: 'recording', start: range.start, end: range.end, hostNames: who ? [who] : [] }));
   }
   async function save() {
     const start = sgtIso(draft.day, draft.start);
@@ -527,8 +669,13 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     } else {
       body = { kind, start, end, assignees: (draft.persons || []).map((email) => ({ email, name: nameOf(email) })) };
     }
+    // Booking free time: remember enough to Undo, and whose time it overrides.
+    const booking = recording && draft.id && !draft.originalPerson && body.assigneeEmail && !availability?.overriddenBy
+      ? { id: draft.id, label: `${body.assigneeName || body.assigneeEmail} · ${formatMinutes(draft.start)} – ${formatMinutes((draft.start + draft.minutes) % (24 * 60))}`, hosts: draft.ownHosts || [], runBy: hostNames || [], overridden: [...new Set(overriddenOthers(availability?.taken || [], hostNames || []).flatMap((slot) => slotHosts(slot)))] }
+      : null;
     const done = await onAction(() => (draft.id ? editSlot(draft.id, body) : addSlot(body)));
     if (!done) return;
+    setLastBooking(booking);
     // Adding a run of sessions: the composer moves on to the next free time.
     setDraft(draft.id ? null : blankDraft({ day: draft.day, start: Math.min(23 * 60 + 45, draft.start + draft.minutes), minutes: draft.minutes, hosts: draft.hosts }));
   }
@@ -549,8 +696,35 @@ function Schedule({ overview, onAction, kind = 'test' }) {
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
           <Legend tones={copy.tones} />
           {kind === 'recording' && <span className="inline-flex items-center gap-1.5 text-xs text-slate-600"><span aria-hidden="true" className="h-2.5 w-4 rounded-sm border border-dashed border-slate-500" /> Dashed = draft, not published yet</span>}
+          {recording && me && <span className="ml-auto"><StaffChip name={me} size="sm" /> <span className="text-[11px] text-slate-500">is you on this browser</span></span>}
         </div>
       </Card>
+
+      {/* What the overridden staff member sees: their free time was taken; pick another. */}
+      {takenFromMe.map((slot) => (
+        <div key={slot.id} role="status" className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <CalendarClock size={18} className="shrink-0 text-amber-700" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">Your {sgtTime(slot.start)} – {sgtTime(slot.end)} on {formatDay(sgtDayKey(slot.start))} was taken.</p>
+            <p className="text-xs">{(slot.overriddenBy.hostNames || []).join(', ') || 'Another staff member'} booked {slot.overriddenBy.assigneeName || 'a lecturer'} in that time, so your availability was overridden. Please pick another time.</p>
+          </div>
+          <Button size="sm" variant="dark" onClick={() => pickAnotherTime(slot, me)}>Pick another time</Button>
+          <Button size="sm" variant="ghost" onClick={() => dismiss(slot.id)}>Dismiss</Button>
+        </div>
+      ))}
+
+      {/* What the booker sees right after booking: who was overridden, with Undo. */}
+      {lastBooking && (
+        <div role="status" className="flex flex-wrap items-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white">
+          <CheckCircle2 size={18} className="shrink-0 text-emerald-400" aria-hidden="true" />
+          <p className="min-w-0 flex-1">
+            Booked <b>{lastBooking.label}</b>{lastBooking.runBy.length ? ` with ${lastBooking.runBy.join(', ')}` : ''}.
+            {lastBooking.overridden.length > 0 && ` ${lastBooking.overridden.join(', ')}'s availability at that time was overridden; they are emailed when you publish.`}
+          </p>
+          <Button size="sm" variant="outline" onClick={() => onAction(() => editSlot(lastBooking.id, { assigneeEmail: '', assigneeName: '', hostNames: lastBooking.hosts })).then((done) => { if (done) setLastBooking(null); })}>Undo</Button>
+          <button type="button" onClick={() => setLastBooking(null)} className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10" aria-label="Close"><X size={16} /></button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="space-y-5">
@@ -569,8 +743,20 @@ function Schedule({ overview, onAction, kind = 'test' }) {
               onSave={save}
               onCancel={() => setDraft(null)}
               onDelete={() => onAction(() => deleteSlot(draft.id)).then((done) => { if (done) setDraft(null); })}
+              availability={availability}
+              me={me}
+              onPickAnother={() => draftOriginal && pickAnotherTime(draftOriginal)}
             />
             </div>
+          )}
+          {recording && !draft && openHoursFor && (
+            <OpenHours
+              day={openHoursFor.day}
+              who={openHoursFor.who}
+              hours={openHours(slots, openHoursFor.day, { nowMs, who: openHoursFor.who })}
+              onMarkFree={markFree}
+              onClose={() => setOpenHoursFor(null)}
+            />
           )}
         </div>
         <Card className="min-w-0 p-4">
@@ -611,7 +797,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
                       <span className="font-medium text-slate-800 sm:w-44 sm:shrink-0">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
                       <span className="min-w-0 flex-1 truncate text-slate-700" title={slot.assigneeEmail || undefined}>
-                        {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-500">{slot.assigneeName ? slot.assigneeEmail : ''}</span></> : <span className="font-medium text-emerald-700">{slot.assigneeName ? `${slot.assigneeName} · ` : ''}{copy.open}</span>}
+                        {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-500">{slot.assigneeName ? slot.assigneeEmail : ''}</span></> : slot.overriddenBy ? <span className="font-medium text-slate-500">Overridden · taken by {(slot.overriddenBy.hostNames || []).join(', ') || 'a booking'}</span> : <span className="font-medium text-emerald-700">{slot.assigneeName ? `${slot.assigneeName} · ` : ''}{copy.open}</span>}
                         {slotHosts(slot).length > 0 && <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">{slotHosts(slot).map((name) => <StaffChip key={name} name={name} size="sm" />)}</span>}
                       </span>
                     </span>

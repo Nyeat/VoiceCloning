@@ -23,6 +23,8 @@ export const TONES = {
   freeDraft: { block: 'border-emerald-500 border-dashed bg-emerald-50 text-emerald-950', dot: 'bg-emerald-500', label: 'Free · draft' },
   reserved: { block: 'border-rose-400 bg-rose-100 text-rose-950', dot: 'bg-rose-500', label: 'Booked for a lecturer' },
   reservedDraft: { block: 'border-rose-500 border-dashed bg-rose-50 text-rose-950', dot: 'bg-rose-500', label: 'Booked · draft' },
+  // Free time another staff member's booking took first (hatched; cannot be booked).
+  overridden: { block: 'border-slate-300 bg-[repeating-linear-gradient(135deg,#f1f5f9_0_6px,#ffffff_6px_12px)] text-slate-500', dot: 'bg-slate-400', label: 'Overridden (taken by a booking)' },
 };
 
 export function Legend({ tones }) {
