@@ -2828,3 +2828,15 @@
   reservation of the GPU holding that voice (35 min after last use). Lambda 450/450, coordinator 88/88.
 - Same day (owner): an owned GPU is never handed to another owner on staging (MODEL_RESERVED_OWNER_FRESH_MS=24 h, was
   35 min); unused ones are scaled in instead. Dev keeps 35 min (fixed GPUs, cannot add). Deployed coordinators.
+- Same day: Voice Studio test slots can only be booked (or reassigned) for someone with an approved voice
+  (`wf.assertVoiceApproved`, 400 VOICE_NOT_APPROVED; picker greys out unapproved people). Lecturers testing their own
+  voice now report activity (`POST /studio/voices/:id/activity`, `lastLecturerTestAt`), so studio gpuDemand
+  'testing' keeps the fixed GPU (training + live chat) on 30 min after use and starts it if off — before, only super
+  users did. Files: lambda/studio/{workflow,index}.js + tests, client/src/studio/{StudioApp,VoiceTestBench}.jsx,
+  studioApi.js. Studio+instance tests 59/59, studio client builds.
+- Same day: super users can upload for someone else ("For someone else?" email + name on the upload panel): the job's
+  ownerEmail is that person (voice name from their email, receipt emailed to them, they see status and test it on
+  sign-in); `submittedBy` lets the uploader finish the upload and see it marked "for <person>". Files:
+  lambda/studio/{index,workflow}.js + test, client/src/studio/{RecordApp.jsx,studioApi.js}. Tests 60/60.
+  Commit e707c44 (with the two changes above) deployed: Lambda staging + dev (dev coordinator upload dropped twice,
+  unchanged code so skipped), studio client staging + dev.
