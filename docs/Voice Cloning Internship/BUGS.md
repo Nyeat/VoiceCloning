@@ -44,8 +44,8 @@
   instance/start, voice-profile/active answer unsigned on both); decide whether to remove it or update the test.
 - Open 2026-11-19: Live MC and chatbot voice chat need the FIXED staging GPU (gateway tg-3002 has only
   i-0f0da8be59367f7a8, 30-min idle stop); Live MC has no start API, so it 503s whenever that GPU is stopped.
-- Open 2026-11-19: Lambda role still lacks autoscaling:TerminateInstanceInAutoScalingGroup (re-verified 17:18 SGT).
-  Mitigated by a9c202f: an all-idle fleet shrinks via desired-1; a partly busy fleet keeps its idle GPU until granted.
+- Fixed 2026-11-23 (owner: admin granted it): Lambda role now has autoscaling:TerminateInstanceInAutoScalingGroup, so
+  per-GPU scale-in removes one idle GPU while others are busy (no denials in the 24 h logs). Not yet seen terminate live.
 - Fixed 2026-11-19: a new ASG GPU was routed users ~4 min before its boot warm finished (bounced 503s, a needless
   extra GPU, and a risk of failing the script's /coordinator/register). Gate in coordinator; see CHANGELOG.
 - Fixed 2026-11-19: the idle spare copy of a busy voice could not be switched to another voice.

@@ -38,8 +38,8 @@
 - [ ] Admin cleanup (role lacks the permissions): terminate stopped i-0f6c399842bd8cc38 and i-0d4172699706f7121 (v42 test GPU) with their 500 GB disks; delete LT versions 1-40; delete 24 orphan 500 GB snapshots of deleted staging images incl. snap-03997dabc64f1d8c0 (v40), list in CHANGELOG 2026-11-20; KEEP snap-08ec74499a13176f7 (dev backup).
 - [ ] Update dev GPUs to HEAD the next time they run (stopped during the 2026-11-20 audit).
 - [ ] Coordinator review (2026-11-16), in priority order (max raised to 3): class-start
-  bursts need scheduled prewarm or deficit-based batch scale-out; per-GPU idle scale-in built (d1a0b35) — confirm the Lambda role
-  has autoscaling:TerminateInstanceInAutoScalingGroup (logs show AccessDenied otherwise); add the fixed staging GPU as a permanent inference worker (check VRAM beside
+  bursts need scheduled prewarm or deficit-based batch scale-out; per-GPU idle scale-in built (d1a0b35; terminate permission granted
+  2026-11-23); add the fixed staging GPU as a permanent inference worker (check VRAM beside
   training); let lectures send text while STARTING; server-side owner check for cloned-voice synthesis; live-prove
   the six-request/three-GPU burst (scale-from-0 seen live 2026-11-17); delete the other inert ASG policies/alarms.
 - [ ] Boot-warm gate (2026-11-19) releases ~2 min late on the current AMI: add SG ingress tcp 3103 on
@@ -47,9 +47,8 @@
   so workers report residencySource. Re-check a scale-from-0 releases at warm completion.
 - [ ] NTU IT: shared mailbox with SMTP AUTH (or Graph Mail.Send) for training emails; then set EMAIL_HOST=smtp.office365.com etc. on both training GPUs.
 - [ ] Admin: add https://d3k2rz0hqm8nxi.cloudfront.net as SPA redirect URI on Entra app 9b5c52c0 (Faculty).
-- [ ] Admin: grant autoscaling:TerminateInstanceInAutoScalingGroup on ASG vcs-staging-gpu-inference to
-  Liu_Teng_Yu_Intern2026-LambdaExecutionRole (the 11-19 grant was a different permission). Check with
-  coordinator logs `"decision":"scale-in","method":"terminate"`.
+- [ ] Live-check per-GPU scale-in now the terminate permission is granted (2026-11-23): leave one owned GPU idle
+  30 min while another is busy; coordinator log `"decision":"scale-in","method":"terminate"` removes only the idle one.
 - [ ] npm audit on the GPU box: gpu-worker 1 critical/3 high, inference worker 1 critical/1 high, gateway 1 critical.
 - [ ] Owner decision: should a visible open tab count as using its voice (heartbeat) or only messages/selections
   (current)? Two tabs with different voices currently take turns on one GPU.

@@ -5,8 +5,8 @@ Last updated: 2026-11-23
 ## Current State
 
 - 11-17..11-20 (details in CHANGELOG): training login redesign, GPU wait popups everywhere, coordinator overflow/8 s dwell/
-  boot-at-registration/lost-boot retry, per-GPU scale-in 30 min (fixed GPU idle-off 40; scale-in IAM still missing ->
-  all-idle fallback), 10 min switch protection, GPU_PAUSED switch, voice names, LT v42 default (v41 rollback).
+  boot-at-registration/lost-boot retry, per-GPU scale-in 30 min (fixed GPU idle-off 40; scale-in IAM granted 11-23),
+  10 min switch protection (removed 11-23), GPU_PAUSED switch, voice names, LT v42 default (v41 rollback).
 - 11-20 (64d34f7, deployed all): first-GPU hold, one GPU per account (training site), honest/live GPU status, keep-alive, naming.
 - 11-20/21 Voice Studio live (10cd835, 2d37a57): sessions->queue->QC->test slots, calendars, email sign-in, fixtures.
 - 11-21 7b8c964 DEPLOYED (dev+staging Lambdas, coordinators, training clients): training site = GPU belongs to the account that started it; own voices switch it (wait if busy), other accounts get their own GPU (no first-GPU hold, no taking a just-warmed GPU); load still scales. Test page shows saved names. Next: two-account live test.
