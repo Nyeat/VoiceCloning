@@ -66,7 +66,9 @@ export const sendFeedback = (jobId, feedback) => api.post(`/studio/submissions/$
 export const getVoiceAccess = (voice) => api.get(`/studio/voices/${enc(voice)}/access`).then((res) => res.data);
 export const getPronunciations = (voice) => api.get(`/studio/voices/${enc(voice)}/pronunciations`).then((res) => res.data);
 export const savePronunciation = (voice, entry) => api.post(`/studio/voices/${enc(voice)}/pronunciations`, entry).then((res) => res.data);
-export const deletePronunciation = (voice, word) => api.delete(`/studio/voices/${enc(voice)}/pronunciations`, { data: { word } }).then((res) => res.data);
+// DELETE never carries a body: CloudFront's signed Lambda origin rejects a DELETE
+// with one (403 "signature does not match"), so arguments go in the query string.
+export const deletePronunciation = (voice, word) => api.delete(`/studio/voices/${enc(voice)}/pronunciations`, { params: { word } }).then((res) => res.data);
 export const applyPronunciations = (voice) => api.post(`/studio/voices/${enc(voice)}/pronunciations/apply`, {}).then((res) => res.data);
 
 export const getOverview = () => api.get('/studio/admin/overview').then((res) => res.data);
@@ -76,7 +78,7 @@ export const reviewJob = (jobId, body) => api.post(`/studio/admin/jobs/${enc(job
 // A test slot may carry assignees: [{ email, name }] — one slot (and GPU) each.
 export const addSlot = (slot) => api.post('/studio/admin/slots', slot).then((res) => res.data);
 export const editSlot = (id, changes) => api.put(`/studio/admin/slots/${enc(id)}`, changes).then((res) => res.data);
-export const deleteSlot = (id) => api.delete(`/studio/admin/slots/${enc(id)}`, { data: {} }).then((res) => res.data);
+export const deleteSlot = (id) => api.delete(`/studio/admin/slots/${enc(id)}`).then((res) => res.data);
 export const publishSlots = () => api.post('/studio/admin/slots/publish', {}).then((res) => res.data);
 export const retryJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/retry`, {}).then((res) => res.data);
 export const cancelJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/cancel`, {}).then((res) => res.data);
@@ -86,7 +88,7 @@ export const restoreJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/
 export const requestRecordings = (jobId, notes) => api.post(`/studio/admin/jobs/${enc(jobId)}/request-recordings`, { notes }).then((res) => res.data);
 export const addSuperuser = (email, name) => api.post('/studio/admin/superusers', { email, name }).then((res) => res.data);
 export const renameSuperuser = (email, name) => api.put(`/studio/admin/superusers/${enc(email)}`, { name }).then((res) => res.data);
-export const removeSuperuser = (email) => api.delete(`/studio/admin/superusers/${enc(email)}`, { data: {} }).then((res) => res.data);
+export const removeSuperuser = (email) => api.delete(`/studio/admin/superusers/${enc(email)}`).then((res) => res.data);
 
 export function errorText(error, fallback = 'Something went wrong') {
   return error?.response?.data?.error || error?.message || fallback;

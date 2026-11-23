@@ -1,5 +1,10 @@
 # Bugs
 
+- Fixed 2026-11-23: Voice Studio delete (recording sessions, test slots, super users, pronunciations) silently failed —
+  CloudFront's SigV4 Lambda origin answers 403 "signature does not match" to any DELETE with a body (POST/PUT fine).
+  studioApi.js now sends DELETE without a body; the pronunciation word goes in the query string.
+- Confirmed 2026-11-23 (live log): Office 365 refuses lkc-digitallearning@ntu.edu.sg with "535 5.7.139
+  SmtpClientAuthentication is disabled for the Mailbox" — NTU IT must enable SMTP AUTH on it.
 - Fixed 2026-11-23 (in code, NOT deployed): every Voice Studio email failed "Cannot find package 'nodemailer'" — the
   live Lambda zip lacked it. Packaging now verifies dependencies. After redeploy, check EMAIL_PASS: it is 19 chars on
   both Lambdas (a Gmail app password is 16 letters), so it may be the account password and fail Gmail auth (535).

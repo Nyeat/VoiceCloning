@@ -2811,3 +2811,6 @@
   studioSession.js copy not redeployed (only adds the via field; old copy still accepts the tokens).
 - Same day: "Continue with Microsoft" restored on the Studio sign-in page beside Google (staff have NTU addresses, which
   Google sign-in refuses). client/src/studio/StudioChrome.jsx; client 562/562, studio build OK; studio client redeployed.
+- Same day: Studio deletes fixed (CloudFront rejects DELETE with a body; client sends none, pronunciation word via
+  query). client/src/studio/studioApi.js, lambda/studio/index.js(+test). Studio 36/36, client 562/562. Deployed
+  Lambdas + studio client, dev + staging.

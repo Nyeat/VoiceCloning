@@ -671,7 +671,8 @@ export function createHandler({
         await voiceAccessFor(email, parts[1], passwordAccount);
         const stored = await service.readJson(voiceDictionaryKey(parts[1]));
         const entries = Array.isArray(stored?.entries) ? stored.entries : [];
-        const word = String(body.word || '').trim().toLowerCase();
+        // DELETE sends the word in the query string (CloudFront rejects a DELETE with a body).
+        const word = String(body.word || event.queryStringParameters?.word || '').trim().toLowerCase();
         let next = entries.filter((entry) => String(entry.word || '').toLowerCase() !== word);
         if (method === 'POST') {
           const entry = validatePronunciation(body);

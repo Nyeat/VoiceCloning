@@ -326,3 +326,17 @@ test('a Google-verified super user address is a super user', async () => {
   const me = await h.call('', 'GET', 'me', undefined, { 'x-vcs-entra-token': signedIn.body.token });
   assert.equal(me.body.role, 'superuser');
 });
+
+test('DELETE routes work with no body (CloudFront rejects a DELETE that has one)', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const at = (m) => new Date(T0 + m * MIN).toISOString();
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'a@gmail.com', assigneeName: 'A' });
+  const id = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots[0].id;
+  const removed = await h.call(boss, 'DELETE', `admin/slots/${id}`);
+  assert.equal(removed.status, 200, JSON.stringify(removed.body));
+  assert.equal(removed.body.slots.length, 0);
+  assert.ok(h.sent.some((m) => m.to.includes('a@gmail.com') && /cancelled/u.test(m.subject)));
+  await h.call(boss, 'POST', 'admin/superusers', { email: 'two@ntu.edu.sg' });
+  assert.equal((await h.call(boss, 'DELETE', 'admin/superusers/two%40ntu.edu.sg')).status, 200);
+});
