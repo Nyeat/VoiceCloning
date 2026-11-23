@@ -350,9 +350,18 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
     return null;
   });
   const at = (m) => new Date(T0 + m * MIN).toISOString();
+  const refused = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(30), end: at(50), assigneeEmail: 'nobody@gmail.com' });
+  assert.equal(refused.status, 400, 'no test slot without an approved voice');
+  assert.equal(refused.body.code, 'VOICE_NOT_APPROVED');
   await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(30), end: at(50), assigneeEmail: 'amy@gmail.com' });
   await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'amy@gmail.com' });
   const slots = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
+  assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { assigneeEmail: 'nobody@gmail.com' })).status, 400, 'nor handed to someone unapproved');
+  // Amy chatting with her approved voice keeps the fixed GPU on; others cannot.
+  assert.equal((await h.call('nobody@gmail.com', 'POST', 'voices/x-amy-1/activity')).status, 404, 'someone else\'s voice is not even visible');
+  const activity = await h.call('amy@gmail.com', 'POST', 'voices/x-amy-1/activity');
+  assert.equal(activity.status, 200, JSON.stringify(activity.body));
+  assert.equal(activity.body.demand, 'testing');
   h.advance(15); // 15 min before the first slot: Amy's GPU warms
   await h.call(boss, 'POST', 'admin/tick');
   assert.equal(h.preloaded.length, 1);
@@ -364,4 +373,24 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   // Deleting a slot that never warmed releases nothing.
   assert.equal((await h.call(boss, 'DELETE', `admin/slots/${slots[1].id}`)).status, 200);
   assert.equal(h.released.length, 1);
+});
+
+test('a super user can upload for someone: the voice is theirs to follow and test', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const lee = 'lee@gmail.com';
+  assert.equal((await h.call('carol@gmail.com', 'POST', 'submissions', { label: 'x', forEmail: lee, consent: { accepted: true, version: 'v' } })).status, 403, 'only super users upload for others');
+  const created = await h.call(boss, 'POST', 'submissions', { label: 'Lee voice', forEmail: 'Lee@Gmail.com', forName: 'Dr Lee' });
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  const id = created.body.jobId;
+  const presigned = await h.call(boss, 'POST', `submissions/${id}/presign`, { files: [{ name: 'a.wav', type: 'audio/wav' }] });
+  assert.equal(presigned.status, 200, 'the uploader finishes the upload');
+  const submitted = await h.call(boss, 'POST', `submissions/${id}/submit`, { keys: presigned.body.uploads.map((u) => u.key) });
+  assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
+  const mine = submitted.body.jobs.find((job) => job.id === id);
+  assert.equal(mine.forEmail, lee, 'the uploader sees who it is for');
+  const theirs = (await h.call(lee, 'GET', 'me')).body.jobs;
+  assert.equal(theirs.length, 1, 'the person sees it when they sign in');
+  assert.ok(['queued', 'training'].includes(theirs[0].status), theirs[0].status);
+  assert.ok(h.sent.some((m) => m.to.includes(lee)), 'and is emailed the receipt');
 });

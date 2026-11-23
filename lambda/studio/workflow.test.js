@@ -326,6 +326,9 @@ test('fixed GPU demand: super users testing keeps it on for 30 min after their l
   state.lastSuperuserTestAt = new Date(T0).toISOString();
   assert.equal(wf.gpuDemand(state, T0 + 29 * MIN), 'testing');
   assert.equal(wf.gpuDemand(state, T0 + 31 * MIN), '');
+  state.lastLecturerTestAt = new Date(T0 + 20 * MIN).toISOString();
+  assert.equal(wf.gpuDemand(state, T0 + 31 * MIN), 'testing', 'a lecturer chatting with their voice keeps it on too');
+  assert.equal(wf.gpuDemand(state, T0 + 51 * MIN), '');
 });
 
 test('super-user training settings are sanitized and honoured', () => {

@@ -12,7 +12,7 @@ import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
 import { createLiveAuthGuard } from '../shared/liveAuth.js';
 import { generatePresignedPutUrl, headObject, getObject, uploadBuffer } from '../shared/s3.js';
 import { sanitizeFilename } from '../shared/paths.js';
-import { describeVoiceIdentity, nextVoiceName } from '../shared/voiceIdentity.js';
+import { describeVoiceIdentity, nextVoiceName, normalizeEmail } from '../shared/voiceIdentity.js';
 import { gpuGet, gpuPost, inferencePost } from '../shared/gpuWorker.js';
 import { listTrainedVoiceNames, bestModelsForVoice } from '../shared/trainedVoices.js';
 import * as wf from './workflow.js';
@@ -429,7 +429,10 @@ export function createHandler({
 
   function ownJob(state, id, email) {
     const job = wf.findJob(state, id);
-    if (!job || !wf.sameNtuPerson(job.ownerEmail, email)) throw wf.clientError(404, 'Recording set not found');
+    // The person it is for, or the super user who uploaded it on their behalf.
+    if (!job || !(wf.sameNtuPerson(job.ownerEmail, email) || (job.submittedBy && wf.sameNtuPerson(job.submittedBy, email)))) {
+      throw wf.clientError(404, 'Recording set not found');
+    }
     return job;
   }
 
@@ -447,7 +450,7 @@ export function createHandler({
     const superuser = superuserOf(state, email, passwordAccount);
     const estimates = new Map(wf.estimateQueue(state, { now, env }).map((entry) => [entry.jobId, entry]));
     const jobs = state.jobs
-      .filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && job.status !== 'cancelled')
+      .filter((job) => (wf.sameNtuPerson(job.ownerEmail, email) || (job.submittedBy && wf.sameNtuPerson(job.submittedBy, email))) && job.status !== 'cancelled')
       .map((job) => wf.lecturerJob(job, estimates.get(job.id)))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return {
@@ -529,6 +532,18 @@ export function createHandler({
     return { state, superuser, access: wf.voiceAccess(state, { email, voiceName, now: clock(), superuser }) };
   }
 
+  // Records that a voice is being tried on this site (at most once a minute)
+  // and ticks, so a stopped GPU starts now rather than on the 5-min schedule.
+  async function recordTestActivity(field, now) {
+    await updateState(store, (state) => {
+      if (now - Date.parse(state[field] || 0) < 60_000) return { skipWrite: true };
+      state[field] = new Date(now).toISOString();
+      return null;
+    });
+    const result = await service.tick({ force: true }).catch((error) => ({ error: error.message }));
+    return { recorded: true, demand: result?.demand || '', gpuStart: result?.gpuStart || null };
+  }
+
   return async function studioHandler(event) {
     const method = event.requestContext?.http?.method || 'GET';
     if (method === 'OPTIONS') return preflight(event);
@@ -559,10 +574,15 @@ export function createHandler({
       }
 
       if (route === 'POST submissions') {
-        const identity = describeVoiceIdentity(email, STUDIO_IDENTITY);
+        // A super user may upload on someone's behalf (forEmail): the voice is
+        // theirs, so when they sign in they see its status and can test it.
+        const forEmail = normalizeEmail(body.forEmail);
+        const owner = forEmail || email;
+        const identity = describeVoiceIdentity(owner, STUDIO_IDENTITY);
         if (!identity.valid) throw wf.clientError(400, identity.error);
         const { result } = await updateState(store, async (state) => {
           const superuser = superuserOf(state, email, passwordAccount);
+          if (forEmail && !superuser) throw wf.clientError(403, 'Only super users can upload for someone else');
           // Super users record their own reference voices and do not sign the lecturer consent.
           if (!superuser && (body.consent?.accepted !== true || !String(body.consent?.version || '').trim())) {
             throw wf.clientError(400, 'Please read and accept the consent form first');
@@ -573,11 +593,15 @@ export function createHandler({
           if (!superuser && wf.hasSubmittedVoice(state, email)) {
             throw wf.clientError(409, 'Your recordings are already submitted. We email you as your voice moves along.');
           }
-          const open = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && ['uploading', 'queued'].includes(job.status));
-          if (open.length >= 5) throw wf.clientError(429, 'You already have 5 recording sets waiting. Please wait for them to train.');
-          const expName = nextVoiceName(email, await service.takenVoiceNames(state), STUDIO_IDENTITY);
-          if (!expName) throw wf.clientError(409, 'You have too many voices; ask a super user to remove one');
-          const job = wf.createJob(state, { id: newId(), ownerEmail: email, ownerName: body.name, expName, label: body.label, consent: superuser ? null : body.consent, trainingConfig: superuser ? body.trainingConfig : null, now });
+          const open = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, owner) && ['uploading', 'queued'].includes(job.status));
+          if (open.length >= 5) throw wf.clientError(429, `${forEmail || 'You'} already ${forEmail ? 'has' : 'have'} 5 recording sets waiting. Please wait for them to train.`);
+          const expName = nextVoiceName(owner, await service.takenVoiceNames(state), STUDIO_IDENTITY);
+          if (!expName) throw wf.clientError(409, 'Too many voices for this person; remove one first');
+          const job = wf.createJob(state, {
+            id: newId(), ownerEmail: owner, ownerName: forEmail ? body.forName : body.name, expName, label: body.label,
+            consent: superuser ? null : body.consent, trainingConfig: superuser ? body.trainingConfig : null, now,
+          });
+          if (forEmail) job.submittedBy = normalizeEmail(email);
           job.recordingSlotId = access.slot?.id || '';
           return { job };
         });
@@ -675,6 +699,14 @@ export function createHandler({
         return ok({ voiceName: parts[1], superuser, ...access }, {}, event);
       }
 
+      // A lecturer is using their voice (chat, a reading, the page opening):
+      // keeps the GPU that serves live chat on for 30 min, and starts it if off.
+      if (route === 'POST voices/:id/activity') {
+        const { access } = await voiceAccessFor(email, parts[1], passwordAccount);
+        if (!access.allowed) throw wf.clientError(403, 'This voice is not open for testing');
+        return ok(await recordTestActivity('lastLecturerTestAt', now), {}, event);
+      }
+
       if (route === 'GET voices/:id/pronunciations') {
         await voiceAccessFor(email, parts[1], passwordAccount);
         const stored = await service.readJson(voiceDictionaryKey(parts[1]));
@@ -753,6 +785,7 @@ export function createHandler({
             ? body.assignees.slice(0, 20)
             : [{ email: body.assigneeEmail, name: body.assigneeName }];
           await updateState(store, (state) => {
+            if (body.kind !== 'recording') for (const person of people) wf.assertVoiceApproved(state, person?.email);
             for (const person of people) {
               wf.addSlot(state, {
                 id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: person?.email, assigneeName: person?.name, hostName: body.hostName, actor: email, now,
@@ -768,6 +801,9 @@ export function createHandler({
         if (route === 'PUT admin/slots/:id') {
           const { result } = await updateState(store, (state) => {
             const before = { ...wf.findSlot(state, parts[2]) };
+            // Handing a test slot to someone else: they too need an approved voice.
+            if (before.id && wf.slotKind(before) === 'test' && body.assigneeEmail !== undefined
+              && !wf.sameNtuPerson(body.assigneeEmail, before.assigneeEmail)) wf.assertVoiceApproved(state, body.assigneeEmail);
             wf.editSlot(state, parts[2], {
               start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName,
             }, now);
@@ -825,14 +861,7 @@ export function createHandler({
         // The tester is in use (a chat message, a reading, the page opening):
         // keeps the chat service on for 30 min after, and starts it if it is off.
         if (route === 'POST admin/test-activity') {
-          const at = new Date(now).toISOString();
-          await updateState(store, (state) => {
-            if (now - Date.parse(state.lastSuperuserTestAt || 0) < 60_000) return { skipWrite: true };
-            state.lastSuperuserTestAt = at;
-            return null;
-          });
-          const result = await service.tick({ force: true }).catch((error) => ({ error: error.message }));
-          return ok({ recorded: true, demand: result?.demand || '', gpuStart: result?.gpuStart || null }, {}, event);
+          return ok(await recordTestActivity('lastSuperuserTestAt', now), {}, event);
         }
 
         if (route === 'POST admin/test-email') {

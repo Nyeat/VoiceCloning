@@ -556,16 +556,21 @@ function TestPeopleField({ draft, setDraft, people }) {
     <div className="text-xs font-medium text-slate-600">
       {editing ? 'Who' : 'Who (pick one or more)'}
       <div className="mt-1 flex flex-wrap gap-1.5">
-        {listed.map((entry) => (
-          <button key={entry.email} type="button" onClick={() => toggle(entry.email)} aria-pressed={chosen.includes(entry.email)} className={cn('min-h-8 rounded-full px-3 py-1 text-xs font-semibold', chosen.includes(entry.email) ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')} title={entry.email}>
-            {entry.name || entry.email}{entry.approvedVoices.length ? '' : ' · not approved yet'}
-          </button>
-        ))}
+        {listed.map((entry) => {
+          // Only people with an approved voice can be booked (the server refuses the rest).
+          const blocked = !entry.approvedVoices.length && !chosen.includes(entry.email);
+          return (
+            <button key={entry.email} type="button" disabled={blocked} onClick={() => toggle(entry.email)} aria-pressed={chosen.includes(entry.email)} className={cn('min-h-8 rounded-full px-3 py-1 text-xs font-semibold', chosen.includes(entry.email) ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100', blocked && 'cursor-not-allowed opacity-50 hover:bg-white')} title={blocked ? `${entry.email}: approve their voice first` : entry.email}>
+              {entry.name || entry.email}{entry.approvedVoices.length ? '' : ' · not approved yet'}
+            </button>
+          );
+        })}
       </div>
       <div className="mt-2 flex gap-2">
         <input value={typed} onChange={(event) => setTyped(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addTyped(); } }} placeholder="or type an email" type="email" className="block h-9 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-sm" />
         <Button size="sm" variant="outline" onClick={addTyped} disabled={!typed.trim()}>Add</Button>
       </div>
+      <p className="mt-1 text-[11px] text-slate-500">Approve a person&apos;s voice first, then book their test slot.</p>
       {!editing && chosen.length > 1 && <p className="mt-1 text-[11px] text-slate-500">{chosen.length} people: one slot and one GPU each, all warmed 20 min before.</p>}
     </div>
   );

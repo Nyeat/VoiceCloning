@@ -7,8 +7,11 @@ const enc = encodeURIComponent;
 export const getMe = () => api.get('/studio/me').then((res) => res.data);
 
 // consent: the record the lecturer accepted (super users send none).
-export async function createSubmission({ label, name, consent = null, trainingConfig = null }) {
-  return (await api.post('/studio/submissions', { label, name, ...(consent ? { consent } : {}), ...(trainingConfig ? { trainingConfig } : {}) })).data;
+export async function createSubmission({ label, name, consent = null, trainingConfig = null, forPerson = null }) {
+  return (await api.post('/studio/submissions', {
+    label, name, ...(consent ? { consent } : {}), ...(trainingConfig ? { trainingConfig } : {}),
+    ...(forPerson?.email ? { forEmail: forPerson.email, forName: forPerson.name || '' } : {}),
+  })).data;
 }
 
 /** "Sign in with Google": credential is the Google ID token from Google Identity Services. */
@@ -83,6 +86,7 @@ export const publishSlots = () => api.post('/studio/admin/slots/publish', {}).th
 export const retryJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/retry`, {}).then((res) => res.data);
 export const cancelJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/cancel`, {}).then((res) => res.data);
 export const recordTestActivity = () => api.post('/studio/admin/test-activity', {}).then((res) => res.data);
+export const recordVoiceActivity = (voiceName) => api.post(`/studio/voices/${enc(voiceName)}/activity`, {}).then((res) => res.data);
 export const sendTestEmail = () => api.post('/studio/admin/test-email', {}).then((res) => res.data);
 export const restoreJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/restore`, {}).then((res) => res.data);
 export const requestRecordings = (jobId, notes) => api.post(`/studio/admin/jobs/${enc(jobId)}/request-recordings`, { notes }).then((res) => res.data);

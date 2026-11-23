@@ -20,21 +20,22 @@ import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
 import { voiceCapacityWait } from '@/lib/voiceCapacity';
 import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
 import { buildVoiceProfileId } from '@/lib/voiceIdentity';
-import { recordTestActivity } from './studioApi.js';
+import { recordTestActivity, recordVoiceActivity } from './studioApi.js';
 import { cn } from '@/lib/utils';
 import PronunciationPanel from './PronunciationPanel.jsx';
 import { Button, Card } from './StudioChrome.jsx';
 
 const MAX_TEXT = 3000;
 
-// Super users' testing keeps the chat service (fixed GPU) on until 30 min after
-// their last use, and starts it when it is off. Reported at most once a minute.
-let reportActivity = false;
+// Testing a voice here (super user or lecturer) keeps the chat service (fixed
+// GPU) on until 30 min after the last use, and starts it when it is off.
+// Reported at most once a minute.
+let reportActivity = null;
 let lastReportedAt = 0;
 function noteTestActivity() {
   if (!reportActivity || Date.now() - lastReportedAt < 60_000) return;
   lastReportedAt = Date.now();
-  recordTestActivity().catch(() => {});
+  reportActivity().catch(() => {});
 }
 
 function splitSentences(text) {
@@ -563,10 +564,10 @@ export default function VoiceTestBench({
   const wait = useVoiceWait(voice, gpu);
   const ready = gpu.status === 'ready';
   useEffect(() => {
-    reportActivity = audience === 'superuser';
+    reportActivity = audience === 'superuser' ? recordTestActivity : (voice ? () => recordVoiceActivity(voice) : null);
     noteTestActivity();
-    return () => { reportActivity = false; };
-  }, [audience]);
+    return () => { reportActivity = null; };
+  }, [audience, voice]);
 
   function chooseVoice(name) {
     const next = new URLSearchParams(params);

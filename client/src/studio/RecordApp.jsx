@@ -351,6 +351,10 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser
   const [settings, setSettings] = useState({ skipDenoise: true });
   const [dragging, setDragging] = useState(false);
   const [label, setLabel] = useState('My teaching voice');
+  // Super users may upload for someone else: the voice goes to that person's account.
+  const [forEmail, setForEmail] = useState('');
+  const [forName, setForName] = useState('');
+  const forValid = !forEmail.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(forEmail.trim());
   const [rejected, setRejected] = useState('');
   const totalSeconds = takes.reduce((sum, take) => sum + (take.duration || 0), 0);
   const minutes = totalSeconds / 60;
@@ -420,6 +424,31 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser
         />
         {minutes > 0 && minutes < 5 && <p className="text-xs text-amber-700">Under 5 minutes usually gives a weak voice. You can still submit.</p>}
         {superuser && (
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="for-email">For someone else? (optional)</label>
+            <input
+              id="for-email"
+              type="email"
+              value={forEmail}
+              disabled={submitting}
+              placeholder="their email — leave empty for your own voice"
+              onChange={(event) => setForEmail(event.target.value)}
+              className={cn('h-11 w-full rounded-lg border bg-white px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:h-10', forValid ? 'border-slate-300' : 'border-rose-400')}
+            />
+            {forEmail.trim() && (
+              <input
+                value={forName}
+                maxLength={80}
+                disabled={submitting}
+                placeholder="their name (optional)"
+                onChange={(event) => setForName(event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:h-10"
+              />
+            )}
+            {forEmail.trim() && forValid && <p className="text-xs text-slate-500">The voice goes to {forEmail.trim()}: they are emailed, and when they sign in they see its status and can test it.</p>}
+          </div>
+        )}
+        {superuser && (
           <details className="rounded-lg border border-slate-200 bg-white px-3 py-2">
             <summary className="cursor-pointer text-xs font-semibold text-slate-600">Training settings (super users)</summary>
             <div className="mt-3"><TrainingSettings value={settings} onChange={setSettings} disabled={submitting} /></div>
@@ -431,7 +460,7 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser
             <div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-primary transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
           </div>
         ) : (
-          <Button variant="primary" size="lg" className="w-full" disabled={takes.length === 0} onClick={() => onSubmit(label, superuser ? trainingSettingsPayload(settings) : null)}>
+          <Button variant="primary" size="lg" className="w-full" disabled={takes.length === 0 || !forValid} onClick={() => onSubmit(label, superuser ? trainingSettingsPayload(settings) : null, superuser && forEmail.trim() ? { email: forEmail.trim().toLowerCase(), name: forName.trim() } : null)}>
             Submit for training
           </Button>
         )}
@@ -481,7 +510,7 @@ function MySubmissions({ me, onWithdraw }) {
           <li key={job.id} className="flex flex-wrap items-start gap-3 px-4 py-3 sm:px-5">
             <div className="min-w-0 flex-1 basis-56">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="min-w-0 font-medium text-slate-900 [overflow-wrap:anywhere]">{job.label}</p>
+                <p className="min-w-0 font-medium text-slate-900 [overflow-wrap:anywhere]">{job.label}{job.forEmail && <span className="ml-1 text-xs font-normal text-slate-500">· for {job.forName || job.forEmail}</span>}</p>
                 <StatusPill status={job.status} />
               </div>
               <p className="mt-1 text-sm text-slate-600">{lecturerStatusLine(job, now)}</p>
@@ -579,13 +608,13 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
     return () => window.removeEventListener('beforeunload', warn);
   }, [takes.length, submitted]);
 
-  async function submit(label, trainingConfig = null) {
+  async function submit(label, trainingConfig = null, forPerson = null) {
     setSubmitting(true);
     setError('');
     setProgress(0);
     try {
       if (consentMissing) { setConsentOpen(true); throw new Error('Please accept the consent form first.'); }
-      const { jobId } = await createSubmission({ label, name: auth.user?.name || '', consent: needsConsent ? consent : null, trainingConfig });
+      const { jobId } = await createSubmission({ label, name: auth.user?.name || '', consent: needsConsent ? consent : null, trainingConfig, forPerson });
       const view = await uploadAndSubmit(jobId, takes, { onProgress: setProgress });
       setMe(view);
       setSubmitted(view.jobs.find((job) => job.id === jobId) || { id: jobId });

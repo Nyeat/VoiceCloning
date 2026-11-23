@@ -794,6 +794,17 @@ export function preloadVoiceFor(state, slot) {
 }
 
 /**
+ * A test slot can only be booked for someone whose voice has passed QC:
+ * without an approved voice there is nothing to warm on their GPU.
+ */
+export function assertVoiceApproved(state, email) {
+  if (!normalizeEmail(email) || preloadVoiceFor(state, { assigneeEmail: email })) return;
+  const error = clientError(400, `${normalizeEmail(email)} has no approved voice yet. Approve their voice first, then book a test slot.`);
+  error.code = 'VOICE_NOT_APPROVED';
+  throw error;
+}
+
+/**
  * Test slots holding a GPU now, one entry per person (each has a GPU of their
  * own): from SLOT_WARMUP_MINUTES before a slot to its end, nothing between
  * slots (owner 2026-11-23: every slot warms its own GPU, so a GPU is never kept
@@ -864,7 +875,10 @@ export const SUPERUSER_TEST_IDLE_MINUTES = 30;
 export function gpuDemand(state, now) {
   if (state.jobs.some((job) => real(job) && (job.status === 'training' || job.status === 'queued'))) return 'training';
   if (gpuHolds(state, now).length > 0) return 'slot';
-  if (now - ms(state.lastSuperuserTestAt) < SUPERUSER_TEST_IDLE_MINUTES * MINUTE) return 'testing';
+  // Anyone testing a voice on this site (super user or lecturer: chat, reading)
+  // keeps the fixed GPU, which also serves live chat, on for 30 min after.
+  const lastTest = Math.max(ms(state.lastSuperuserTestAt) || 0, ms(state.lastLecturerTestAt) || 0);
+  if (now - lastTest < SUPERUSER_TEST_IDLE_MINUTES * MINUTE) return 'testing';
   return '';
 }
 
@@ -880,6 +894,8 @@ export function lecturerJob(job, estimate) {
   return {
     id: job.id,
     label: job.label,
+    // Set when a super user uploaded it for someone: who it is for.
+    ...(job.submittedBy ? { forEmail: job.ownerEmail, forName: job.ownerName || '' } : {}),
     status: lecturerStatus(job.status),
     attempt: job.attempt,
     files: job.files,
