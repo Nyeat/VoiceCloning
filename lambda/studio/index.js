@@ -503,7 +503,9 @@ export function createHandler({
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
       queue: wf.orderQueue(state.jobs).map((job) => job.id),
       slots: state.slots
-        .filter((slot) => slot.status !== 'cancelled' && Date.parse(slot.end) > now - 7 * 24 * 3600_000)
+        // Only what is still to come or running: a session or test slot that is
+        // over (or a test the lecturer finished early) is not shown anywhere.
+        .filter((slot) => slot.status !== 'cancelled' && wf.slotEnd(slot) > now)
         .sort((a, b) => a.start.localeCompare(b.start)),
       draftCount: state.slots.filter((slot) => slot.status === 'draft').length,
       people: [...new Map(state.jobs.filter((job) => job.status !== 'uploading').map((job) => [job.ownerEmail, {

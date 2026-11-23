@@ -394,3 +394,16 @@ test('a super user can upload for someone: the voice is theirs to follow and tes
   assert.ok(['queued', 'training'].includes(theirs[0].status), theirs[0].status);
   assert.ok(h.sent.some((m) => m.to.includes(lee)), 'and is emailed the receipt');
 });
+
+test('sessions and test slots that are over are not sent to the console', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const at = (m) => new Date(T0 + m * MIN).toISOString();
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at(10), end: at(70), assigneeEmail: 'r@gmail.com', assigneeName: 'R' });
+  await h.call(boss, 'POST', 'admin/slots/publish', {});
+  assert.equal((await h.call(boss, 'GET', 'admin/overview')).body.slots.length, 1, 'upcoming is shown');
+  h.advance(30);
+  assert.equal((await h.call(boss, 'GET', 'admin/overview')).body.slots.length, 1, 'running is shown');
+  h.advance(45);
+  assert.equal((await h.call(boss, 'GET', 'admin/overview')).body.slots.length, 0, 'over: gone');
+});
