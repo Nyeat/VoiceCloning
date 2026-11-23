@@ -1,8 +1,7 @@
 # Active TODO
 
 - [ ] Staff availability (2026-11-23, deployed dev+staging): live-test with two staff super users (names on Super users
-  page): both free 3-4 -> one books -> other sees Overridden + email on Publish; Undo -> "free again" email. Fast-forward
-  codex/staging-multi-user-scaling to 32f6e35 (owner OK).
+  page): both free 3-4 -> one books -> other sees Overridden + email on Publish; Undo -> "free again" email.
 - [ ] Voice Studio redesign (2026-11-23, DEPLOYED; sign-in down meanwhile): owner creates a Google OAuth web client
   (origins https://d271zk8d8curic.cloudfront.net + https://d1zffrwq7b2rri.cloudfront.net), set VITE_GOOGLE_CLIENT_ID
   (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID (lambda/.env.deployment*), redeploy studio client + Lambdas. Then live-test: book recording session ->

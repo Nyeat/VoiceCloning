@@ -2874,5 +2874,5 @@
   StudioApp.jsx, index.test.js (+1 test). Studio API 18/18, client studio 27/27, build OK. Not deployed.
 - Same day 17:25 SGT: DEPLOYED 32f6e35 to dev + staging (main Lambdas + coordinators via deploy-lambda, studio
   sites via deploy-client -Mode studio); live bundles checked (open recording, Staff availability, Upload for anyone,
-  Delete); /api/studio/me 401 on both. Dummies re-seeded on both (12 people, 9 jobs, 8 slots). Staging branch pointer
-  codex/staging-multi-user-scaling NOT moved (push needs owner OK; it is a fast-forward).
+  Delete); /api/studio/me 401 on both. Dummies re-seeded on both (12 people, 9 jobs, 8 slots). Both branches
+  (separate-containers-new, codex/staging-multi-user-scaling) now at 10aca06 (staging fast-forwarded, owner OK).
