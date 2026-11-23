@@ -98,7 +98,7 @@ export const templates = {
       subject: `Voice ready for review: ${job.ownerName || job.ownerEmail} (attempt ${job.attempt})`,
       ...layout('A trained voice is waiting for quality control', [
         `${job.ownerName || job.ownerEmail} — "${job.label}" finished training (attempt ${job.attempt}, voice ${job.expName}).`,
-        'Listen to it, then mark it good (and book their test slot) or send it back for a retrain.',
+        'Listen to it, then mark it good (and assign their test slot) or send it back for a retrain.',
       ], studio ? { label: 'Open the review', url: `${studio}/review/${encodeURIComponent(job.id)}` } : null),
     };
   },
@@ -201,7 +201,7 @@ export const templates = {
     return {
       subject: 'You are now a Voice Studio super user',
       ...layout('You were added as a super user', [
-        `${actor} gave ${email} super-user access to LKCMedicine Voice Studio: review trained voices, book test slots and manage other super users.`,
+        `${actor} gave ${email} super-user access to LKCMedicine Voice Studio: review trained voices, assign test slots and manage other super users.`,
       ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },

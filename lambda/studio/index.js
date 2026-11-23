@@ -795,7 +795,7 @@ export function createHandler({
             if (body.kind !== 'recording') for (const person of people) wf.assertVoiceApproved(state, person?.email);
             for (const person of people) {
               wf.addSlot(state, {
-                id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: person?.email, assigneeName: person?.name, hostName: body.hostName, actor: email, now,
+                id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: person?.email, assigneeName: person?.name, hostName: body.hostName, hostNames: body.hostNames, actor: email, now,
               });
             }
             return null;
@@ -812,7 +812,7 @@ export function createHandler({
             if (before.id && wf.slotKind(before) === 'test' && body.assigneeEmail !== undefined
               && !wf.sameNtuPerson(body.assigneeEmail, before.assigneeEmail)) wf.assertVoiceApproved(state, body.assigneeEmail);
             wf.editSlot(state, parts[2], {
-              start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName,
+              start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName, hostNames: body.hostNames,
             }, now);
             return { release: wf.gpuToRelease(state, before, now) };
           });

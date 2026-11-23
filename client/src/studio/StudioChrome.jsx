@@ -14,7 +14,7 @@ export function Brand({ product, tone = 'light' }) {
       <img src={ntuLogo} alt="Nanyang Technological University" className="h-7 w-auto shrink-0 sm:h-8" />
       <span className={cn('h-7 w-px shrink-0', tone === 'dark' ? 'bg-white/30' : 'bg-slate-300')} aria-hidden="true" />
       <div className="min-w-0 leading-tight">
-        <p className={cn('text-[11px] font-semibold uppercase tracking-[0.16em]', tone === 'dark' ? 'text-white/70' : 'text-slate-500')}>LKCMedicine</p>
+        <p className={cn('whitespace-nowrap text-[11px] font-semibold uppercase', tone === 'dark' ? 'tracking-[0.1em] text-white/70' : 'tracking-[0.16em] text-slate-500')}>LKCMedicine</p>
         <p className={cn('truncate text-sm font-semibold', tone === 'dark' ? 'text-white' : 'text-slate-900')}>{product}</p>
       </div>
     </div>
@@ -275,7 +275,7 @@ const STATUS_STYLES = {
   'quality-check': ['Quality check', 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'],
   review: ['Needs review', 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'],
   approved: ['Approved', 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'],
-  scheduled: ['Ready · slot booked', 'bg-emerald-600 text-white'],
+  scheduled: ['Ready · slot assigned', 'bg-emerald-600 text-white'],
   ready: ['Ready to test', 'bg-emerald-600 text-white'],
   failed: ['Failed', 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'],
   cancelled: ['Withdrawn', 'bg-slate-100 text-slate-500'],

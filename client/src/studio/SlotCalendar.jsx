@@ -1,22 +1,28 @@
 // Calendar pieces shared by the super-user schedule and the lecturer session
 // picker: a month view to choose the day (dots show what is on it) and a day
 // timeline where sessions are blocks and empty time can be clicked.
-import React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   addMonths, formatMinutes, formatMonth, layoutLanes, monthGrid, monthOf, sgtDayKey, sgtMinutes,
 } from './slotCalendar.js';
+import { staffColor } from './staffColors.js';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export const TONES = {
   open: { block: 'border-sky-300 bg-sky-50 text-sky-900', dot: 'bg-sky-500', label: 'Open' },
-  booked: { block: 'border-indigo-300 bg-indigo-100 text-indigo-950', dot: 'bg-indigo-600', label: 'Booked' },
+  booked: { block: 'border-indigo-300 bg-indigo-100 text-indigo-950', dot: 'bg-indigo-600', label: 'Published' },
   mine: { block: 'border-emerald-400 bg-emerald-100 text-emerald-950', dot: 'bg-emerald-600', label: 'Yours' },
   draft: { block: 'border-amber-300 bg-amber-50 text-amber-950 border-dashed', dot: 'bg-amber-500', label: 'Draft (not published)' },
   live: { block: 'border-rose-400 bg-rose-100 text-rose-950', dot: 'bg-rose-600', label: 'Happening now' },
   taken: { block: 'border-slate-200 bg-slate-100 text-slate-500', dot: 'bg-slate-400', label: 'Taken' },
+  // Recording sessions (owner 2026-11-23): green = free, red = booked for a lecturer; dashed = draft.
+  free: { block: 'border-emerald-400 bg-emerald-100 text-emerald-950', dot: 'bg-emerald-500', label: 'Free (nobody booked)' },
+  freeDraft: { block: 'border-emerald-500 border-dashed bg-emerald-50 text-emerald-950', dot: 'bg-emerald-500', label: 'Free · draft' },
+  reserved: { block: 'border-rose-400 bg-rose-100 text-rose-950', dot: 'bg-rose-500', label: 'Booked for a lecturer' },
+  reservedDraft: { block: 'border-rose-500 border-dashed bg-rose-50 text-rose-950', dot: 'bg-rose-500', label: 'Booked · draft' },
 };
 
 export function Legend({ tones }) {
@@ -87,8 +93,10 @@ const ROW_PX = 26; // one 30-minute row
  * A day timeline. slots: [{ id, start, end, tone, title, subtitle }].
  * onEmptyClick(minutes) makes empty half-hours clickable (super users adding).
  * pending: { start, minutes } draws a ghost block for the slot being composed.
+ * onSlotDelete(slot) adds a hover delete button to each block (click twice to delete).
  */
-export function DayTimeline({ day, hours, slots, onSlotClick, onEmptyClick, selectedId, pending, nowMs }) {
+export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEmptyClick, selectedId, pending, nowMs }) {
+  const [confirmId, setConfirmId] = useState('');
   const rows = [];
   for (let minutes = hours.start; minutes < hours.end; minutes += 30) rows.push(minutes);
   const top = (minutes) => ((minutes - hours.start) / 30) * ROW_PX;
@@ -133,18 +141,14 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onEmptyClick, sele
         const tone = TONES[slot.tone] || TONES.open;
         const short = endMinutes - startMinutes <= 30;
         const Tag = onSlotClick ? 'button' : 'div';
+        const confirming = confirmId === slot.id;
         return (
-          <Tag
+          // The wrapper holds the block and its quick-delete button side by side
+          // (a button cannot sit inside the block's own button).
+          <div
             key={slot.id}
-            type={onSlotClick ? 'button' : undefined}
-            onClick={onSlotClick ? () => onSlotClick(slot) : undefined}
-            className={cn(
-              'absolute z-10 overflow-hidden rounded-lg border px-2 text-left shadow-sm transition',
-              tone.block,
-              short ? 'flex items-center gap-2 py-0' : 'py-1',
-              onSlotClick && 'hover:shadow-md',
-              selectedId === slot.id && 'ring-2 ring-slate-900 ring-offset-1',
-            )}
+            className="group absolute z-10"
+            onMouseLeave={() => { if (confirming) setConfirmId(''); }}
             style={{
               top: top(startMinutes) + 1,
               height: Math.max(ROW_PX - 2, ((endMinutes - startMinutes) / 30) * ROW_PX - 2),
@@ -153,9 +157,58 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onEmptyClick, sele
               width: `calc((100% - 4.25rem) / ${lanes} - 2px)`,
             }}
           >
-            <p className="truncate text-xs font-semibold">{slot.title}</p>
-            {slot.subtitle && <p className={cn('truncate text-[11px] opacity-80', short && 'hidden sm:block')}>{slot.subtitle}</p>}
-          </Tag>
+            <Tag
+              type={onSlotClick ? 'button' : undefined}
+              onClick={onSlotClick ? () => onSlotClick(slot) : undefined}
+              className={cn(
+                'block h-full w-full overflow-hidden rounded-lg border px-2 text-left shadow-sm transition',
+                tone.block,
+                short ? 'flex items-center gap-2 py-0' : 'py-1',
+                onSlotDelete && (short ? 'pr-8' : 'pr-10'),
+                onSlotClick && 'hover:shadow-md',
+                selectedId === slot.id && 'ring-2 ring-slate-900 ring-offset-1',
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="min-w-0 truncate text-xs font-semibold">{slot.title}</p>
+                {/* Staff running it, named, each with their own colour (like calendar guests). */}
+                {slot.staff?.length > 0 && (
+                  <span className="ml-auto flex min-w-0 items-center gap-1 overflow-hidden" title={`Run by ${slot.staff.join(', ')}`}>
+                    <span className="sr-only">Run by</span>
+                    {slot.staff.map((name) => (
+                      <span key={name} className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/85 py-0.5 pl-1 pr-2 text-[11px] font-semibold text-slate-800 shadow-sm ring-1 ring-black/5">
+                        <span aria-hidden="true" className={cn('h-3.5 w-3.5 shrink-0 rounded-full', staffColor(name).dot)} />
+                        {name}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </div>
+              {slot.subtitle && <p className={cn('truncate text-[11px] opacity-80', short && 'hidden sm:block')}>{slot.subtitle}</p>}
+            </Tag>
+            {/* Quick delete on hover: the first click arms it ("Delete?"), the second deletes. */}
+            {onSlotDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirming) { setConfirmId(''); onSlotDelete(slot); } else setConfirmId(slot.id);
+                }}
+                onBlur={() => { if (confirming) setConfirmId(''); }}
+                aria-label={confirming ? `Confirm: delete ${slot.title}` : `Delete ${slot.title}`}
+                title={confirming ? 'Click again to delete' : 'Delete'}
+                className={cn(
+                  'absolute right-1 z-20 flex items-center justify-center gap-1 rounded-md text-[11px] font-bold transition focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100',
+                  short ? 'top-0.5 h-5' : 'top-1 h-7',
+                  confirming
+                    ? 'bg-rose-600 px-2 text-white opacity-100 shadow'
+                    : cn('bg-white/95 text-slate-600 opacity-0 shadow-sm ring-1 ring-black/10 hover:bg-rose-600 hover:text-white', short ? 'w-5' : 'w-7'),
+                )}
+              >
+                <Trash2 size={short ? 12 : 14} aria-hidden="true" />
+                {confirming && 'Delete?'}
+              </button>
+            )}
+          </div>
         );
       })}
     </div>

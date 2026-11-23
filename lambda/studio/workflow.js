@@ -550,15 +550,48 @@ export function findSlot(state, id) {
   return state.slots.find((slot) => slot.id === id && slot.status !== 'cancelled') || null;
 }
 
+const MAX_SESSION_HOSTS = 8;
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+// Staff running a recording session: a list (several may run one), trimmed,
+// deduplicated case-insensitively. An old single `hostName` reads as a list of one.
+function cleanHosts(hostNames, hostName) {
+  const raw = Array.isArray(hostNames) ? hostNames : (hostName ? String(hostName).split(',') : []);
+  const seen = new Set();
+  const hosts = [];
+  for (const value of raw) {
+    const name = cleanText(value, 80);
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    hosts.push(name);
+    if (hosts.length >= MAX_SESSION_HOSTS) break;
+  }
+  return hosts;
+}
+
+function hostFields(hostNames, hostName) {
+  const hosts = cleanHosts(hostNames, hostName);
+  // hostName stays as the joined list for anything that still reads the single field.
+  return { hostNames: hosts, hostName: hosts.join(', ') };
+}
+
+// Test slots always need a person. A recording session may be left free (no
+// person yet); an email that is given must look like an email.
+function checkAssignee(slotType, assigneeEmail) {
+  const typed = String(assigneeEmail ?? '').trim();
+  if (slotType === 'test') {
+    if (!normalizeEmail(typed)) throw clientError(400, 'Choose who this test slot is for');
+    return;
+  }
+  if (typed && !EMAIL_SHAPE.test(typed)) throw clientError(400, 'That email does not look right');
+}
+
 export function addSlot(state, {
-  id, kind = 'test', start, end, assigneeEmail = '', assigneeName = '', hostName = '', actor, now,
+  id, kind = 'test', start, end, assigneeEmail = '', assigneeName = '', hostName = '', hostNames, actor, now,
 }) {
   const slotType = kind === 'recording' ? 'recording' : 'test';
   const times = validateTimes(start, end, now);
-  if (!normalizeEmail(assigneeEmail)) {
-    throw clientError(400, slotType === 'test' ? 'Choose who this test slot is for' : 'Enter the email of the person recording');
-  }
-  if (slotType === 'recording' && !cleanText(assigneeName, 80)) throw clientError(400, 'Enter the name of the person recording');
+  checkAssignee(slotType, assigneeEmail);
   assertNoClash(state, times, '', slotType, assigneeEmail);
   const slot = {
     id,
@@ -568,7 +601,7 @@ export function addSlot(state, {
     assigneeEmail: normalizeEmail(assigneeEmail),
     assigneeName: cleanText(assigneeName, 80),
     // Who runs it (the super user account is shared, so the login does not say).
-    hostName: cleanText(hostName, 80),
+    ...hostFields(hostNames, hostName),
     createdBy: normalizeEmail(actor),
     updatedAt: iso(now),
     // What the assignee was last told (person + time), so Publish emails only real changes.
@@ -580,19 +613,19 @@ export function addSlot(state, {
   return slot;
 }
 
-export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, hostName }, now) {
+export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, hostName, hostNames }, now) {
   const slot = findSlot(state, id);
   if (!slot) throw clientError(404, 'Slot not found');
   const times = validateTimes(start ?? slot.start, end ?? slot.end, now);
-  if (assigneeEmail !== undefined && !normalizeEmail(assigneeEmail)) throw clientError(400, 'A slot needs a person');
-  if (slotKind(slot) === 'recording' && assigneeName !== undefined && !cleanText(assigneeName, 80)) {
-    throw clientError(400, 'Enter the name of the person recording');
+  if (assigneeEmail !== undefined) {
+    if (slotKind(slot) === 'test' && !normalizeEmail(assigneeEmail)) throw clientError(400, 'A slot needs a person');
+    checkAssignee(slotKind(slot), assigneeEmail);
   }
   assertNoClash(state, times, id, slotKind(slot), assigneeEmail ?? slot.assigneeEmail);
   Object.assign(slot, times, {
     ...(assigneeEmail !== undefined ? { assigneeEmail: normalizeEmail(assigneeEmail) } : {}),
     ...(assigneeName !== undefined ? { assigneeName: cleanText(assigneeName, 80) } : {}),
-    ...(hostName !== undefined ? { hostName: cleanText(hostName, 80) } : {}),
+    ...(hostNames !== undefined || hostName !== undefined ? hostFields(hostNames, hostName) : {}),
     updatedAt: iso(now),
     preloadedAt: null,
     reminderSentAt: null,
@@ -808,7 +841,7 @@ export function preloadVoiceFor(state, slot) {
  */
 export function assertVoiceApproved(state, email) {
   if (!normalizeEmail(email) || preloadVoiceFor(state, { assigneeEmail: email })) return;
-  const error = clientError(400, `${normalizeEmail(email)} has no approved voice yet. Approve their voice first, then book a test slot.`);
+  const error = clientError(400, `${normalizeEmail(email)} has no approved voice yet. Approve their voice first, then assign a test slot.`);
   error.code = 'VOICE_NOT_APPROVED';
   throw error;
 }

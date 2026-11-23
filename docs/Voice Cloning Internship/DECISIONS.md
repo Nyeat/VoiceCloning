@@ -368,3 +368,25 @@ These live in runtime configuration and will not appear in any branch diff:
   or voice switches another's; the owner switches its own at once. Lectures are owned per voice. Cost: more GPUs.
 - 2026-11-23 (owner): ownership does not lapse on staging — an unused owned GPU is scaled in, never handed over.
   Relies on per-GPU scale-in (terminate permission granted 2026-11-23).
+- 2026-11-23 (owner) — wording: test slots are **assigned**, never "booked". Super users assign each approved
+  lecturer a test slot; lecturers never book or pick one. All UI copy, emails and docs say "assign test slot"
+  (super-user console step 5 of the train-line flow is "Assign test slot"). Still to rename when the train-line
+  console is implemented: `StudioApp.jsx` "Approved — book a test slot" and the super-users blurb "book GPU
+  slots", the `scheduled` pill "Ready · slot booked" (`StudioChrome.jsx`), and `lambda/studio/mailer.js` copy
+  ("book their test slot", "book test slots"). Internal identifiers (`slotBooked` email kind, `'booked'` tone)
+  may stay.
+- 2026-11-23 (owner) — recording flow for the train-line console: the lecturer records in their in-person session,
+  then a **super user uploads that audio** for the lecturer, which sends the set to training. Stop 2 lists only
+  people to record (with "Upload audio" once recorded) and "Submitted, moving on to training"; no live "recording
+  now" card and no "record a reference voice" tool in the console. Uses the "upload for someone" feature
+  (`e707c44`, `forEmail`/`forName` on `createSubmission`): "Upload audio" opens `/record?for=<email>&name=<name>`
+  with the lecturer prefilled.
+- 2026-11-23 (owner) — quality check is the super user's check before the lecturer hears the voice, and has exactly
+  two outcomes: **Approve** (→ assign test slot) or **Retrain** on the same audio (reasons ticked adjust the recipe).
+  The current "Ask for new recordings" action in `ReviewForm` (`requestRecordings`) is dropped from QC in the
+  train-line console.
+- 2026-11-23 (owner) — recording sessions: the lecturer's email and name are **optional**. Blank = a free session
+  (green on the calendar, nobody emailed); an email filled in = booked for that lecturer (red); dashed outline =
+  draft. A given email must look like one (the server used to accept "asd"). "Run by" holds **several staff**
+  (`hostNames[]`, max 8, each with a stable colour, like calendar guests); `hostName` is kept as the joined list
+  for older readers.
