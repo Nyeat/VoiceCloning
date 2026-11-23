@@ -2803,3 +2803,9 @@
   client/src/pages/LivePage.jsx.
 - Tests: lambda 447/447, coordinator 88/88, gateway 191/191, client 562/562; studio + default builds OK. NOT deployed,
   not browser-checked, not run against a real GPU.
+- DEPLOYED 1b69667 + f59d519 (2026-11-23 12:29 SGT, owner chose "deploy as is" without a Google client ID): dev +
+  staging main Lambdas and coordinators (Successful; live zips contain nodemailer + voiceLabels.js; EMAIL_HOST
+  smtp.office365.com:587, EMAIL_USER lkc-digitallearning@ntu.edu.sg), studio + live-fast + training clients on both
+  (live studio chunks contain the Google-only sign-in). Studio sign-in is unusable until VITE_GOOGLE_CLIENT_ID /
+  STUDIO_GOOGLE_CLIENT_ID are set; email fails until the LKC mailbox has SMTP AUTH and EMAIL_PASS is reset. Gateway
+  studioSession.js copy not redeployed (only adds the via field; old copy still accepts the tokens).

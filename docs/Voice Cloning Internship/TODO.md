@@ -1,9 +1,8 @@
 # Active TODO
 
-- [ ] Voice Studio redesign (2026-11-23, not deployed): owner creates a Google OAuth web client (origins
-  https://d271zk8d8curic.cloudfront.net + https://d1zffrwq7b2rri.cloudfront.net), set VITE_GOOGLE_CLIENT_ID
-  (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID (both main Lambdas); then deploy Lambdas + studio + default
-  clients together (Google-only would lock everyone out without it). Then live-test: book recording session ->
+- [ ] Voice Studio redesign (2026-11-23, DEPLOYED; sign-in down meanwhile): owner creates a Google OAuth web client
+  (origins https://d271zk8d8curic.cloudfront.net + https://d1zffrwq7b2rri.cloudfront.net), set VITE_GOOGLE_CLIENT_ID
+  (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID (lambda/.env.deployment*), redeploy studio client + Lambdas. Then live-test: book recording session ->
   reminders, two people in one 20-min test slot get two GPUs at -20 min, feedback releases the GPU.
 - [ ] Email (owner 2026-11-23: send from lkc-digitallearning@ntu.edu.sg, not Gmail): .env.deployment* now point at
   smtp.office365.com:587 with that address. Admin must confirm SMTP AUTH is on for it and give its password; after the
