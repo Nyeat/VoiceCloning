@@ -242,6 +242,55 @@ async function parseStoredProfile(readObject, key) {
   };
 }
 
+/**
+ * Creates the saved profile record for a trained voice that has none (synthesis
+ * and GPU warm-up resolve a voice by reading it). Used by POST /ensure and by
+ * Voice Studio's slot warm-up, which runs before anyone opened the voice.
+ * Returns { voiceProfileId, displayName, created } or { error, status }.
+ */
+export async function ensureVoiceProfileRecord(voiceName, {
+  ownerEmail = '',
+  readObject = defaultReadObject,
+  findBestModels = bestModelsForVoice,
+  resolveReferences = resolveSavedProfileReferenceSelection,
+  persistProfile = persistSavedProfileReferenceSelection,
+} = {}) {
+  const voiceProfileId = buildVoiceProfileId(voiceName);
+  const existing = await parseStoredProfile(readObject, getProfileStorageKey(voiceProfileId));
+  if (existing) return { voiceProfileId, displayName: existing.displayName, created: false };
+
+  const models = await findBestModels(voiceName);
+  if (!models) return { status: 404, error: `${voiceName} has no trained models to build a voice from` };
+
+  const draft = {
+    voiceProfileId,
+    displayName: voiceName,
+    ...(ownerEmail ? { ownerEmail: normalizeEmail(ownerEmail) } : {}),
+    gptKey: models.gptKey,
+    sovitsKey: models.sovitsKey,
+    prompt_lang: 'en',
+    text_lang: 'en',
+    preferredRoute: 'sentence',
+    aux_ref_audio_paths: [],
+    defaults: {},
+  };
+
+  // Reference clips are chosen from the run's own training audio. Without
+  // them there is nothing to speak from, so this is a hard failure rather
+  // than a half-built record.
+  const selection = await resolveReferences(draft);
+  if (!selection?.ref_audio_path) {
+    return { status: 409, error: `${voiceName} has no usable reference audio yet. Open it in the TTS page and pick a reference clip.` };
+  }
+
+  // force: the persister otherwise writes only when the selection differs
+  // from what the profile holds, and this new record already carries it —
+  // so nothing was ever saved and the voice never got ready (2026-11-21).
+  const written = await persistProfile({ ...draft, ...selection }, selection, { force: true });
+  if (written === false) return { status: 500, error: `Could not save the voice record for ${voiceName}. Please try again.` };
+  return { voiceProfileId, displayName: voiceName, created: true };
+}
+
 function getHeaderValue(headers, headerName) {
   const normalizedHeaderName = String(headerName || '').trim().toLowerCase();
   if (!normalizedHeaderName) return '';
@@ -494,52 +543,12 @@ export function createHandler({
           return err(403, `${normalizeEmail(identity?.email)} does not own a voice called ${voiceName}`, event);
         }
 
-        const voiceProfileId = buildVoiceProfileId(voiceName);
-        const existing = await parseStoredProfile(readObject, getProfileStorageKey(voiceProfileId));
-        if (existing) {
-          return ok({ voiceProfileId, displayName: existing.displayName, created: false }, {}, event);
-        }
-
-        const models = await findBestModels(voiceName);
-        if (!models) {
-          return err(404, `${voiceName} has no trained models to build a voice from`, event);
-        }
-
-        const draft = {
-          voiceProfileId,
-          displayName: voiceName,
-          ...(superuserAnyVoice
-            ? (studioOwner ? { ownerEmail: normalizeEmail(studioOwner) } : {})
-            : { ownerEmail: normalizeEmail(studioOwner || identity?.email) }),
-          gptKey: models.gptKey,
-          sovitsKey: models.sovitsKey,
-          prompt_lang: 'en',
-          text_lang: 'en',
-          preferredRoute: 'sentence',
-          aux_ref_audio_paths: [],
-          defaults: {},
-        };
-
-        // Reference clips are chosen from the run's own training audio. Without
-        // them there is nothing to speak from, so this is a hard failure rather
-        // than a half-built record.
-        const selection = await resolveReferences(draft);
-        if (!selection?.ref_audio_path) {
-          return err(
-            409,
-            `${voiceName} has no usable reference audio yet. Open it in the TTS page and pick a reference clip.`,
-            event,
-          );
-        }
-
-        // force: the persister otherwise writes only when the selection differs
-        // from what the profile holds, and this new record already carries it —
-        // so nothing was ever saved and the voice never got ready (2026-11-21).
-        const written = await persistProfile({ ...draft, ...selection }, selection, { force: true });
-        if (written === false) {
-          return err(500, `Could not save the voice record for ${voiceName}. Please try again.`, event);
-        }
-        return ok({ voiceProfileId, displayName: voiceName, created: true }, {}, event);
+        const ensured = await ensureVoiceProfileRecord(voiceName, {
+          ownerEmail: superuserAnyVoice ? studioOwner : (studioOwner || identity?.email),
+          readObject, findBestModels, resolveReferences, persistProfile,
+        });
+        if (ensured.error) return err(ensured.status, ensured.error, event);
+        return ok(ensured, {}, event);
       }
 
       if (method === 'GET' && internalMatch) {

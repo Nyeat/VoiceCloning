@@ -51,12 +51,17 @@ async function defaultStartGpu() {
 // (ownerKey: studioPersonOwner), and keeps asking for it through the slot (each
 // ask counts as use, so the GPU is never idled out or switched under them).
 // Returns the coordinator's answer (state, canStartConversation, …).
-async function defaultPreloadVoice(voiceName, ownerKey) {
-  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel }, { buildVoiceProfileId }] = await Promise.all([
+async function defaultPreloadVoice(voiceName, ownerKey, ownerEmail = '') {
+  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel }, { buildVoiceProfileId }, { ensureVoiceProfileRecord }] = await Promise.all([
     import('../shared/voiceProfileRuntime.js'),
     import('../shared/modelCoordinator.js'),
     import('../shared/voiceIdentity.js'),
+    import('../voice-profile/index.js'),
   ]);
+  // A voice nobody has opened yet has no saved record; the warm-up would fail
+  // with "Voice profile … not found" every tick (2026-11-23). Create it first.
+  const ensured = await ensureVoiceProfileRecord(voiceName, { ownerEmail });
+  if (ensured.error) throw new Error(ensured.error);
   const body = await createVoiceProfileResolver()({ voiceProfileId: buildVoiceProfileId(voiceName), text: 'Voice Studio slot warm-up.' });
   return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey });
 }
@@ -261,7 +266,7 @@ export function createStudioService({
       if (!voiceName) return;
       let capacity = null;
       try {
-        capacity = await preloadVoice(voiceName, await personOwner(hold.slot.assigneeEmail));
+        capacity = await preloadVoice(voiceName, await personOwner(hold.slot.assigneeEmail), hold.slot.assigneeEmail);
         preloaded.push(voiceName);
       } catch (error) {
         capacity = { state: 'ERROR', message: error.message };
