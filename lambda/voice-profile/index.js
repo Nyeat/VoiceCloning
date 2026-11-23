@@ -4,7 +4,7 @@ import { isSafePathSegment } from '../shared/paths.js';
 import { inferencePost } from '../shared/gpuWorker.js';
 import { createLiveAuthGuard, isAuthExemptOrigin } from '../shared/liveAuth.js';
 import {
-  peekCoordinatedModel, prepareCoordinatedModel, studioOwnerOption, trainingOwnerOption, ttsSiteOption,
+  peekCoordinatedModel, prepareCoordinatedModel, siteOwnerOption,
 } from '../shared/modelCoordinator.js';
 import { studioGpuAccess } from '../shared/studioGpuGuard.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
@@ -628,10 +628,8 @@ export function createHandler({
         return ok(await prepareModelCapacity(resolvedBody, {
           allowScale: true,
           source: body.source === 'prewarm' ? 'prewarm' : 'lecture-preflight',
-          ...await trainingOwnerOption(event, authGuard),
-          // Voice Studio / admin TTS: one GPU, switched to this voice at once.
-          ...ttsSiteOption(event),
-          ...studioOwnerOption(studioOwner),
+          // Every site's GPU has an owner; only that owner switches it.
+          ...await siteOwnerOption(event, { authGuard, studioOwner, voiceProfileId }),
         }), {}, event);
       }
 

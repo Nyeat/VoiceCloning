@@ -564,6 +564,13 @@ function isReservedOwner(ownerKey) {
 function isHeldOwner(ownerKey) {
   return String(ownerKey || '').startsWith(HELD_OWNER_PREFIX);
 }
+// A lecture voice's GPU is owned by the VOICE (many students share it), not by
+// a person: it is protected from other voices and sites like a person's, but a
+// busy one still overflows to another GPU instead of making callers wait.
+const SHARED_VOICE_OWNER_PREFIX = 'reserved:voice-';
+function isSharedVoiceOwner(ownerKey) {
+  return String(ownerKey || '').startsWith(SHARED_VOICE_OWNER_PREFIX);
+}
 function otherOwnersRecords(items, workers, ownerKey, test) {
   const records = items.filter((item) => item.entity === 'OWNER' && itemInScope(item) && test(item.ownerKey)
     && (!ownerKey || ownerFamily(item.ownerKey) !== ownerFamily(ownerKey)));
@@ -1264,7 +1271,8 @@ async function prepareCapacity(event) {
   });
   // One person, one GPU: a GPU already starting for another of this person's
   // voices switches to this one once it is up, instead of a second GPU.
-  const ownBoot = ownerKey && existing.find((item) => (
+  const personalOwner = ownerKey && !isSharedVoiceOwner(ownerKey);
+  const ownBoot = personalOwner && existing.find((item) => (
     item.entity === 'PENDING' && itemInScope(item)
     && now - Number(item.requestedAt || 0) < pendingTtlMs
     && item.modelKey !== modelKey
@@ -1313,7 +1321,7 @@ async function prepareCapacity(event) {
   const noGpuYet = !workers.some((worker) => worker.reachable !== false && !reservedForOthers.has(worker.instanceId));
   // Training site: this account already has a GPU (holding one of its own
   // voices). It switches to this pick when free; never a second GPU.
-  const ownGpu = capacityInput.ownedWorkerIds.some((id) => workers.some((worker) => (
+  const ownGpu = personalOwner && capacityInput.ownedWorkerIds.some((id) => workers.some((worker) => (
     worker.instanceId === id && worker.reachable !== false && worker.state !== 'DRAINING'
   )));
   const action = choosePreparationAction({
@@ -1523,6 +1531,13 @@ async function synthesize(event) {
   const model = body.voice_model || {};
   const existing = await scanState();
   await recordDemand(modelKey, model.voiceProfileId, now);
+  // Use keeps a reservation fresh: a reply in this voice refreshes whoever
+  // reserved the GPU holding it (a lecture used for an hour stays protected
+  // even though its page opened, and prepared it, only once).
+  await Promise.all(existing
+    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey && item.modelKey === modelKey
+      && now - Number(item.at || 0) >= 60_000)
+    .map((item) => recordGpuOwner(item.instanceId, item.ownerKey, modelKey, now)));
   const refreshed = await refreshFleet(existing, now);
   const { group } = refreshed;
   const initiallyLockedWorkers = lockedFleet(existing, refreshed.workers, now);

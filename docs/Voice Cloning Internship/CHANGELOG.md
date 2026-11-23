@@ -2821,3 +2821,8 @@
   mid-reply instead of adding one (MODEL_REASSIGN_IDLE_MS / MODEL_PREFLIGHT_REASSIGN_IDLE_MS = 0 dev + staging; an
   explicit 0 no longer falls back to 10 min in model-coordinator/index.js). Reserved Studio GPUs still never switch.
   Coordinator 88/88. Deployed coordinators + main Lambdas.
+- Same day (owner): every site's GPU is hard-reserved by its owner (shared/modelCoordinator.js siteOwnerOption):
+  Studio per person, TTS one owner (reserved:tts, single GPU), training per account (reserved:train-), Faculty per
+  lecturer (reserved:faculty-), lectures/GI/MC/other per voice (reserved:voice-). Only the owner switches it; others
+  get a GPU of their own. Per-voice owners still overflow when busy (no own-GPU wait). Every reply refreshes the
+  reservation of the GPU holding that voice (35 min after last use). Lambda 450/450, coordinator 88/88.

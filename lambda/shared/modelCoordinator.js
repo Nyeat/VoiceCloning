@@ -259,6 +259,43 @@ export async function trainingOwnerOption(event, authGuard, env = process.env) {
   return ownerKey ? { ownerKey } : {};
 }
 
+// Every site's GPU has an owner, and only that owner switches it (owner
+// 2026-11-23): no other site, person or voice can take a GPU in use, and the
+// owner's own voice picks switch it at once. Reserved until 35 min after last
+// use (replies keep it fresh), then ordinary capacity again.
+//  - Voice Studio: per person (studioGpuAccess) — passed in as studioOwner;
+//  - admin Text to Speech: one owner, one GPU;
+//  - training site: per signed-in account;
+//  - Faculty: per signed-in lecturer;
+//  - lectures, GI, Live MC and anything else: per voice (many students share
+//    a lecture's GPU; a busy one still overflows to another GPU).
+export const TTS_GPU_OWNER = 'reserved:tts';
+function ownerHash(prefix, value) {
+  return `${prefix}${crypto.createHash('sha256').update(`vcs-owner:${value}`).digest('hex').slice(0, 24)}`;
+}
+export async function siteOwnerOption(event, {
+  authGuard = null, studioOwner = '', voiceProfileId = '', env = process.env,
+} = {}) {
+  if (studioOwner) return { ownerKey: studioOwner };
+  const origin = requestOrigin(event);
+  if (isStudioOrigin(origin, env)) return {};
+  const tts = ttsSiteOption(event, env);
+  if (tts.singleGpu) return { ...tts, ownerKey: TTS_GPU_OWNER };
+  if (isTrainingSiteRequest(event, env)) {
+    const key = await trainingOwnerKey(event, authGuard, env);
+    return key ? { ownerKey: `reserved:train-${key}` } : {};
+  }
+  const { isFacultyRequest } = await import('./liveAuth.js');
+  if (isFacultyRequest(event) && authGuard) {
+    try {
+      const identity = await authGuard.authorize(event);
+      if (identity?.oid && !identity.synthetic) return { ownerKey: ownerHash('reserved:faculty-', identity.oid) };
+    } catch { /* not signed in: falls through to the voice */ }
+  }
+  const id = String(voiceProfileId || '').trim();
+  return id ? { ownerKey: ownerHash('reserved:voice-', id) } : {};
+}
+
 export async function prepareCoordinatedModel(body = {}, {
   allowScale = false,
   source = 'preflight',

@@ -72,7 +72,10 @@ test('models select prepares the exact saved voice through the coordinator when 
     assert.equal(payload.message, 'Voice capacity is preparing');
     assert.equal(calls[0].voice_model.gptRef, 'g.ckpt');
     assert.equal(calls[0].ref_audio_path, 'refs/dean.wav');
-    assert.deepEqual(options, [{ allowScale: true, source: 'models-select' }]);
+    // A lecture/other-site GPU is owned by its voice: no other voice or site switches it.
+    assert.equal(options.length, 1);
+    assert.match(options[0].ownerKey, /^reserved:voice-[0-9a-f]{24}$/u);
+    assert.deepEqual({ ...options[0], ownerKey: undefined }, { allowScale: true, source: 'models-select', ownerKey: undefined });
   });
 });
 

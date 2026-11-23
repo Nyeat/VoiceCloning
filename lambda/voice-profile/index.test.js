@@ -349,7 +349,10 @@ test('an authenticated lecture capacity preflight resolves the pinned model befo
     text: 'Lecture voice capacity preflight.',
   }]);
   assert.equal(prepared[0].voice_model.voiceProfileId, 'deanvoice-v1');
-  assert.deepEqual(prepareOptions, [{ allowScale: true, source: 'lecture-preflight' }]);
+  // A lecture/other-site GPU is owned by its voice: no other voice or site switches it.
+    assert.equal(prepareOptions.length, 1);
+    assert.match(prepareOptions[0].ownerKey, /^reserved:voice-[0-9a-f]{24}$/u);
+    assert.deepEqual({ ...prepareOptions[0], ownerKey: undefined }, { allowScale: true, source: 'lecture-preflight', ownerKey: undefined });
   assert.deepEqual(JSON.parse(response.body), {
     state: 'STARTING',
     canStartConversation: false,

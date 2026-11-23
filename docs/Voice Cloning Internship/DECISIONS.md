@@ -364,3 +364,5 @@ These live in runtime configuration and will not appear in any branch diff:
 - No GPU kept on between a person's slots (no 1 h bridge): released at slot end; a deleted/moved slot's GPU at once.
 - 2026-11-23 (owner): no idle protection before a voice switch on ANY site — a GPU not mid-reply switches at once
   (supersedes the 11-19 10-min rule). Accepts the RISK above: a TTS/training pick can take a lecture GPU between replies.
+- 2026-11-23 (owner, supersedes the line above's RISK): every GPU in use is owned and hard-reserved — no site, person
+  or voice switches another's; the owner switches its own at once. Lectures are owned per voice. Cost: more GPUs.

@@ -4,7 +4,7 @@ import { inferencePost, inferenceGet } from '../shared/gpuWorker.js';
 import { loadModelPair, useGpuWorkerModels } from '../shared/modelSelection.js';
 import { createVoiceProfileResolver } from '../shared/voiceProfileRuntime.js';
 import {
-  prepareCoordinatedModel, studioOwnerOption, trainingOwnerOption, ttsSiteOption,
+  prepareCoordinatedModel, siteOwnerOption,
 } from '../shared/modelCoordinator.js';
 import { studioRequestAccess } from '../shared/studioGpuGuard.js';
 import { createLiveAuthGuard } from '../shared/liveAuth.js';
@@ -135,9 +135,8 @@ export function createHandler({
           const coordinatorCapacity = await prepareModel(synthesisBody, {
             allowScale: true,
             source: 'models-select',
-            ...await trainingOwnerOption(event, authGuard),
-            ...ttsSiteOption(event),
-            ...studioOwnerOption(studioOwner),
+            // Every site's GPU has an owner; only that owner switches it.
+            ...await siteOwnerOption(event, { authGuard, studioOwner, voiceProfileId }),
           });
           return ok({
             message: coordinatorCapacity.canStartConversation
