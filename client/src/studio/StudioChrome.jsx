@@ -1,7 +1,7 @@
 // Shared pieces of the two Voice Studio sites: brand header, sign-in screen
 // (Google, Microsoft, email + password) and small UI atoms.
 import React, { useEffect, useRef, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { HelpCircle, Loader2, LogOut, X } from 'lucide-react';
 import ntuLogo from '@/assets/ntu-logo.png';
 import campusPhoto from '@/assets/lkc-campus.jpg';
@@ -87,6 +87,43 @@ function FaqDialog({ onClose, children }) {
 }
 
 
+const providerButton = 'inline-flex h-11 w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60';
+
+// Staff (NTU) sign in with Microsoft: NTU addresses are not Google accounts.
+function MicrosoftLogo() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" /><rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" /><rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
+
+function MicrosoftSignIn({ from }) {
+  const auth = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function signIn() {
+    setBusy(true);
+    setError('');
+    try {
+      await auth.signIn(from);
+    } catch (err) {
+      setBusy(false);
+      setError(err instanceof Error ? err.message : 'Microsoft sign-in could not be started.');
+    }
+  }
+  return (
+    <div>
+      <button type="button" onClick={signIn} disabled={busy || auth.isLoading} className={providerButton}>
+        {busy || auth.isLoading ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <MicrosoftLogo />}
+        Continue with Microsoft
+      </button>
+      {(error || auth.error) && <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error || auth.error}</p>}
+    </div>
+  );
+}
+
 // "Sign in with Google" through Google Identity Services: Google's own button
 // (account chooser) plus One Tap, which offers the Gmail accounts already
 // signed in on this browser. Shown only when VITE_GOOGLE_CLIENT_ID is set.
@@ -170,15 +207,17 @@ function FaqHalo({ onOpen }) {
 }
 
 /**
- * Sign-in page: "Continue with Google" only (owner decision 2026-11-23; no
- * passwords, no Microsoft). faq: content for the FAQ call-out.
+ * Sign-in page: "Continue with Google" for lecturers' Gmail and "Continue with
+ * Microsoft" for NTU staff (owner 2026-11-23; no passwords). faq: FAQ call-out.
  */
 export function SignInScreen({
   product, headline, lines, accent = 'from-[#0f1b3d] to-[#16285a]', onGoogleSignIn = null, faq = null,
 }) {
   const auth = useAuth();
+  const location = useLocation();
   const [faqOpen, setFaqOpen] = useState(false);
   if (auth.isAuthenticated) return <Navigate to="/" replace />;
+  const from = typeof location.state?.from === 'string' ? location.state.from : '/';
   const google = Boolean(onGoogleSignIn && GOOGLE_CLIENT_ID);
 
   return (
@@ -207,11 +246,12 @@ export function SignInScreen({
         <div className="mx-auto w-full max-w-sm">
           <Brand product={product} />
           <h2 className="mt-8 text-2xl sm:mt-10 font-semibold tracking-tight text-slate-900">Welcome</h2>
-          <p className="mt-1 text-sm text-slate-500">Sign in with your Gmail account.</p>
+          <p className="mt-1 text-sm text-slate-500">Sign in with your Gmail account, or Microsoft if you are NTU staff.</p>
           <div className="mt-6 space-y-2.5">
             {google
               ? <GoogleSignIn onSignIn={onGoogleSignIn} />
-              : <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">Google sign-in is not set up on this site yet. Please contact the Voice Studio team.</p>}
+              : <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">Google sign-in is not set up on this site yet. NTU staff can use Microsoft below.</p>}
+            <MicrosoftSignIn from={from} />
           </div>
           {faq && <div className="mt-8 border-t border-slate-100 pt-5"><FaqHalo onOpen={() => setFaqOpen(true)} /></div>}
           <p className="mt-6 text-xs leading-5 text-slate-500">

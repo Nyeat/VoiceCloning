@@ -355,8 +355,8 @@ These live in runtime configuration and will not appear in any branch diff:
 
 ## 2026-11-23 — Voice Studio: super users run it; Google sign-in; one person, one GPU (owner decisions)
 
-- Sign-in is Google only (no passwords, no Microsoft button). Super users = STUDIO_SUPERUSERS / in-app list matched on
-  the Google-verified address.
+- Sign-in: Google for lecturers' Gmail, Microsoft for NTU staff (button restored same day: NTU addresses are not
+  Google accounts); no passwords. Super users = STUDIO_SUPERUSERS / in-app list on the verified address.
 - Recording sessions are booked by super users for a named person (time agreed in person); lecturers never book.
 - Each tester gets their own hard-reserved GPU (lecturer per person, super users one shared); no other site or person
   switches it while used. Test slots 20 min, several people may share a time. Lecturers may test outside a slot (cold

@@ -2809,3 +2809,5 @@
   (live studio chunks contain the Google-only sign-in). Studio sign-in is unusable until VITE_GOOGLE_CLIENT_ID /
   STUDIO_GOOGLE_CLIENT_ID are set; email fails until the LKC mailbox has SMTP AUTH and EMAIL_PASS is reset. Gateway
   studioSession.js copy not redeployed (only adds the via field; old copy still accepts the tokens).
+- Same day: "Continue with Microsoft" restored on the Studio sign-in page beside Google (staff have NTU addresses, which
+  Google sign-in refuses). client/src/studio/StudioChrome.jsx; client 562/562, studio build OK; studio client redeployed.
