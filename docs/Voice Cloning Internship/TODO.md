@@ -1,11 +1,8 @@
 # Active TODO
 
-- [ ] Staff availability + Upload for anyone (2026-11-23, committed): deploy studio Lambda + client to dev AND staging
-  (fixes friend's recording lock on staging), re-seed dummies (`node scripts/seed-studio-fixtures.mjs --env dev|staging`), live-test with two staff
-  super users (names set on Super users page): both free 3-4 -> one books -> other sees Overridden + email after Publish.
-- [ ] Staging Voice Studio (2026-11-23): a teammate deployed staging Lambda + studio site at 16:33 SGT from an unpushed
-  tree ("To record" list). His work (93b7b9c) is now merged (5acac14, Lambda 454/454); redeploy staging from it (brings
-  back 2fe956e open recording + ff1c58e edit-moves-GPU). Then live-test: change a published slot's person -> Publish -> their GPU warms.
+- [ ] Staff availability (2026-11-23, deployed dev+staging): live-test with two staff super users (names on Super users
+  page): both free 3-4 -> one books -> other sees Overridden + email on Publish; Undo -> "free again" email. Fast-forward
+  codex/staging-multi-user-scaling to 32f6e35 (owner OK).
 - [ ] Voice Studio redesign (2026-11-23, DEPLOYED; sign-in down meanwhile): owner creates a Google OAuth web client
   (origins https://d271zk8d8curic.cloudfront.net + https://d1zffrwq7b2rri.cloudfront.net), set VITE_GOOGLE_CLIENT_ID
   (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID (lambda/.env.deployment*), redeploy studio client + Lambdas. Then live-test: book recording session ->

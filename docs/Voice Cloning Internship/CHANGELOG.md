@@ -2872,3 +2872,7 @@
   not yet on the GPU. It withdraws the set (admin/jobs/:id/cancel): gone from all lists, never trains, audio kept on
   S3, "Restore set" on its review page undoes it; the person can record/upload again. Files: LineStages.jsx,
   StudioApp.jsx, index.test.js (+1 test). Studio API 18/18, client studio 27/27, build OK. Not deployed.
+- Same day 17:25 SGT: DEPLOYED 32f6e35 to dev + staging (main Lambdas + coordinators via deploy-lambda, studio
+  sites via deploy-client -Mode studio); live bundles checked (open recording, Staff availability, Upload for anyone,
+  Delete); /api/studio/me 401 on both. Dummies re-seeded on both (12 people, 9 jobs, 8 slots). Staging branch pointer
+  codex/staging-multi-user-scaling NOT moved (push needs owner OK; it is a fast-forward).
