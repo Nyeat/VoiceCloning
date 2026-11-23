@@ -557,7 +557,11 @@ function foreignOwnedWorkerIds(items, workers, ownerKey) {
 // after 10 min unused (decision.HELD_IDLE_MS).
 const RESERVED_OWNER_PREFIX = 'reserved:';
 const HELD_OWNER_PREFIX = 'held:';
-const RESERVED_OWNER_FRESH_MS = 35 * 60_000;
+// How long after its last use an owned GPU stays its owner's. Staging: for as
+// long as the GPU lives (owner 2026-11-23: no site ever takes another's GPU; an
+// unused one is scaled in, never handed over). Dev has fixed GPUs and cannot
+// add one, so there ownership lapses after 35 min or a second person would wait forever.
+const RESERVED_OWNER_FRESH_MS = envMs('MODEL_RESERVED_OWNER_FRESH_MS', 35 * 60_000);
 function isReservedOwner(ownerKey) {
   return String(ownerKey || '').startsWith(RESERVED_OWNER_PREFIX);
 }

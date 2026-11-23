@@ -2826,3 +2826,5 @@
   lecturer (reserved:faculty-), lectures/GI/MC/other per voice (reserved:voice-). Only the owner switches it; others
   get a GPU of their own. Per-voice owners still overflow when busy (no own-GPU wait). Every reply refreshes the
   reservation of the GPU holding that voice (35 min after last use). Lambda 450/450, coordinator 88/88.
+- Same day (owner): an owned GPU is never handed to another owner on staging (MODEL_RESERVED_OWNER_FRESH_MS=24 h, was
+  35 min); unused ones are scaled in instead. Dev keeps 35 min (fixed GPUs, cannot add). Deployed coordinators.

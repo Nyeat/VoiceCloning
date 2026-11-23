@@ -366,3 +366,5 @@ These live in runtime configuration and will not appear in any branch diff:
   (supersedes the 11-19 10-min rule). Accepts the RISK above: a TTS/training pick can take a lecture GPU between replies.
 - 2026-11-23 (owner, supersedes the line above's RISK): every GPU in use is owned and hard-reserved — no site, person
   or voice switches another's; the owner switches its own at once. Lectures are owned per voice. Cost: more GPUs.
+- 2026-11-23 (owner): ownership does not lapse on staging — an unused owned GPU is scaled in, never handed over.
+  Depends on per-GPU scale-in (Lambda role still lacks TerminateInstanceInAutoScalingGroup: see TODO).
