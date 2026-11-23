@@ -44,14 +44,17 @@ const authToken = String(process.env.MODEL_COORDINATOR_AUTH_TOKEN || '').trim();
 // that deliberately wants short-lived model residency, but staging uses zero
 // so scale-out is reserved for genuinely overlapping work.
 const reassignIdleMs = Math.max(0, Number(process.env.MODEL_REASSIGN_IDLE_MS) || 0);
-// Selecting a voice only switches a GPU whose last message (or switch) was at
-// least this long ago; a GPU used more recently than this is someone's and a
-// new GPU is added instead (autoscaled staging). Fixed-GPU Dev cannot add, so
-// there the grace only delays the switch. Real synthesis uses reassignIdleMs.
-const preflightReassignIdleMs = Math.max(
-  reassignIdleMs,
-  Number(process.env.MODEL_PREFLIGHT_REASSIGN_IDLE_MS) || 10 * 60_000,
-);
+// Selecting a voice switches any GPU that is not mid-reply (owner 2026-11-23:
+// no "used in the last 10 min" protection on any site; reserved Voice Studio
+// GPUs and busy GPUs are still never switched). A positive value brings back a
+// grace: a GPU used more recently than it gets a new GPU added instead.
+// An explicit 0 means 0 (it used to fall back to 10 min).
+function envMs(name, fallback) {
+  const raw = process.env[name];
+  const value = Number(raw);
+  return raw !== undefined && raw !== '' && Number.isFinite(value) ? Math.max(0, value) : fallback;
+}
+const preflightReassignIdleMs = Math.max(reassignIdleMs, envMs('MODEL_PREFLIGHT_REASSIGN_IDLE_MS', 0));
 const bootEstimateSeconds = Math.max(60, Number(process.env.MODEL_BOOT_ESTIMATE_SECONDS) || 360);
 const requestTimeoutMs = Math.max(5_000, Number(process.env.MODEL_WORKER_TIMEOUT_MS) || 110_000);
 const assignmentTimeoutMs = Math.max(

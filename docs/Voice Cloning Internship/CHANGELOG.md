@@ -2817,3 +2817,7 @@
 - Same day (owner): no GPU bridge between test slots — each person's GPU is released when their slot ends and the
   next slot warms its own 20 min early (SLOT_BRIDGE_MINUTES removed). Editing or deleting a test slot whose GPU was
   already warming releases that GPU at once (wf.gpuToRelease). Lambda 449/449. Deployed Lambdas + studio client.
+- Same day (owner): 10-min switch protection removed on every site — picking a voice switches any GPU that is not
+  mid-reply instead of adding one (MODEL_REASSIGN_IDLE_MS / MODEL_PREFLIGHT_REASSIGN_IDLE_MS = 0 dev + staging; an
+  explicit 0 no longer falls back to 10 min in model-coordinator/index.js). Reserved Studio GPUs still never switch.
+  Coordinator 88/88. Deployed coordinators + main Lambdas.
