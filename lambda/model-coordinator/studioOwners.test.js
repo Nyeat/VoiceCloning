@@ -23,3 +23,22 @@ test('slot and QC GPUs are kept apart', () => {
   // Other sites: the slot GPU is off limits; the QC GPU falls to the 10 min held rule.
   assert.deepEqual(reservedWorkerIds(items, workers, '', now), ['i-slot']);
 });
+
+// Voice Studio, one person one GPU: two people's reserved GPUs never take each
+// other, and other sites take neither while they are in use.
+test('two people testing keep their own reserved GPUs', () => {
+  const now = Date.now();
+  const workers = [
+    { instanceId: 'i-amy', modelKey: 'amy-voice' },
+    { instanceId: 'i-ben', modelKey: 'ben-voice' },
+  ];
+  const items = [
+    { entity: 'OWNER', coordinatorScope, instanceId: 'i-amy', ownerKey: 'reserved:studio-p-amy', modelKey: 'amy-voice', at: now },
+    { entity: 'OWNER', coordinatorScope, instanceId: 'i-ben', ownerKey: 'reserved:studio-p-ben', modelKey: 'ben-voice', at: now },
+  ];
+  assert.deepEqual(reservedWorkerIds(items, workers, 'reserved:studio-p-amy', now), ['i-ben']);
+  assert.deepEqual(reservedWorkerIds(items, workers, 'reserved:studio-p-ben', now), ['i-amy']);
+  assert.deepEqual(reservedWorkerIds(items, workers, '', now).sort(), ['i-amy', 'i-ben']);
+  // Unused for 35 min: the reservation lapses and the GPU is ordinary capacity again.
+  assert.deepEqual(reservedWorkerIds(items, workers, '', now + 36 * 60_000), []);
+});

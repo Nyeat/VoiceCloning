@@ -34,3 +34,14 @@ test('today\'s window reaches a few hours past now, so the evening can be booked
   assert.deepEqual(dayHours([], { nowMinutes: 10 * 60 }), { start: 8 * 60, end: 20 * 60 });
   assert.deepEqual(dayHours([]), { start: 8 * 60, end: 20 * 60 });
 });
+
+test('overlapping slots get side-by-side lanes', async () => {
+  const { layoutLanes } = await import('./slotCalendar.js');
+  const lanes = layoutLanes([
+    { id: 'a', start: 0, end: 20 },
+    { id: 'b', start: 0, end: 20 },
+    { id: 'c', start: 10, end: 30 },
+    { id: 'd', start: 40, end: 60 },
+  ]);
+  assert.deepEqual(lanes, { a: { lane: 0, lanes: 3 }, b: { lane: 1, lanes: 3 }, c: { lane: 2, lanes: 3 }, d: { lane: 0, lanes: 1 } });
+});

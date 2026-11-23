@@ -11,12 +11,6 @@ export async function createSubmission({ label, name, consent = null, trainingCo
   return (await api.post('/studio/submissions', { label, name, ...(consent ? { consent } : {}), ...(trainingConfig ? { trainingConfig } : {}) })).data;
 }
 
-/** Email + password sign-in. mode: 'login' | 'register'. No token is needed (or sent if absent). */
-export async function passwordSignIn(mode, { email, password, name }) {
-  const path = mode === 'register' ? '/studio/auth/register' : '/studio/auth/login';
-  return (await api.post(path, { email, password, ...(name ? { name } : {}) }, { vcsOptionalAuth: true })).data;
-}
-
 /** "Sign in with Google": credential is the Google ID token from Google Identity Services. */
 export async function googleSignIn(credential) {
   return (await api.post('/studio/auth/google', { credential }, { vcsOptionalAuth: true })).data;
@@ -66,7 +60,7 @@ function putWithProgress(url, file, onLoaded) {
 }
 
 export const withdrawSubmission = (jobId) => api.post(`/studio/submissions/${enc(jobId)}/cancel`, {}).then((res) => res.data);
-// feedback: { rating, likeness, issues[], words, comment }
+// feedback: { rating, likeness, issues[], words, comment }. Sending it ends the lecturer's testing; returns their fresh view.
 export const sendFeedback = (jobId, feedback) => api.post(`/studio/submissions/${enc(jobId)}/feedback`, feedback).then((res) => res.data);
 
 export const getVoiceAccess = (voice) => api.get(`/studio/voices/${enc(voice)}/access`).then((res) => res.data);
@@ -78,17 +72,12 @@ export const applyPronunciations = (voice) => api.post(`/studio/voices/${enc(voi
 export const getOverview = () => api.get('/studio/admin/overview').then((res) => res.data);
 export const runTick = () => api.post('/studio/admin/tick', {}).then((res) => res.data);
 export const reviewJob = (jobId, body) => api.post(`/studio/admin/jobs/${enc(jobId)}/review`, body).then((res) => res.data);
-// Slots belong to people. Super users draft, edit and publish; lecturers pick open ones.
+// Slots belong to people. Super users draft, edit and publish; lecturers never book.
+// A test slot may carry assignees: [{ email, name }] — one slot (and GPU) each.
 export const addSlot = (slot) => api.post('/studio/admin/slots', slot).then((res) => res.data);
 export const editSlot = (id, changes) => api.put(`/studio/admin/slots/${enc(id)}`, changes).then((res) => res.data);
 export const deleteSlot = (id) => api.delete(`/studio/admin/slots/${enc(id)}`, { data: {} }).then((res) => res.data);
 export const publishSlots = () => api.post('/studio/admin/slots/publish', {}).then((res) => res.data);
-export const claimSlot = (id, name) => api.post(`/studio/slots/${enc(id)}/claim`, { name }).then((res) => res.data);
-export const releaseSlot = (id) => api.post(`/studio/slots/${enc(id)}/release`, {}).then((res) => res.data);
-// Change a booked recording session to another open one (atomic on the server).
-export const moveSlot = (id) => api.post(`/studio/slots/${enc(id)}/move`, {}).then((res) => res.data);
-/** The lecturer finished testing early: ends their test slot now (frees its GPU). */
-export const completeSlot = (id) => api.post(`/studio/slots/${enc(id)}/complete`, {}).then((res) => res.data);
 export const retryJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/retry`, {}).then((res) => res.data);
 export const cancelJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/cancel`, {}).then((res) => res.data);
 export const recordTestActivity = () => api.post('/studio/admin/test-activity', {}).then((res) => res.data);

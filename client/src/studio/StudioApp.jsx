@@ -1,9 +1,11 @@
 // Voice Studio: one site, two very different experiences.
-//  - Super users get a console: review trained voices, approve or send back
-//    for a retrain, book the single GPU's test slots (clashes refused), test
-//    any voice, read lecturer feedback and manage other super users.
-//  - Lecturers get one simple page: their approved voice, usable only inside
-//    the slot booked for them, with its own pronunciation list and feedback.
+//  - Super users get a console: book each person's recording session (times
+//    agreed in person), review trained voices, approve or send back, book test
+//    slots (several people may share one; each gets their own GPU), test any
+//    voice, read lecturer feedback and manage other super users.
+//  - Lecturers get one simple page: the recorder during their session, then
+//    their voice's progress, then testing (in their slot, or any time with a
+//    cold start) until they send feedback.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -26,8 +28,8 @@ import {
   dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
 } from './slotCalendar.js';
 import {
-  addSlot, addSuperuser, cancelJob, claimSlot, completeSlot, restoreJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
-  googleSignIn, moveSlot, passwordSignIn, publishSlots, relativeFromNow, releaseSlot, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob,
+  addSlot, addSuperuser, cancelJob, restoreJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
+  googleSignIn, publishSlots, relativeFromNow, removeSuperuser, renameSuperuser, requestRecordings, retryJob, reviewJob,
   runTick, sendFeedback,
 } from './studioApi.js';
 import {
@@ -127,9 +129,9 @@ function Overview({ overview, onAction }) {
         <Notice tone="warn">Email is not configured on the server yet, so nobody is emailed. Everything still shows here — check this page for reviews.</Notice>
       )}
       {overview.emailConfigured && <TestEmail />}
-      {overview.currentSlot && (
+      {(overview.currentSlots || []).some((slot) => slot.phase === 'slot') && (
         <Notice tone="info">
-          Training waits while <b>{overview.currentSlot.assigneeName || overview.currentSlot.assigneeEmail}</b> tests until {formatSgt(overview.currentSlot.end, { withDate: false })} SGT.
+          Training waits while <b>{overview.currentSlots.filter((slot) => slot.phase === 'slot').map((slot) => slot.assigneeName || slot.assigneeEmail).join(', ')}</b> test.
         </Notice>
       )}
 
@@ -386,7 +388,7 @@ function SlotHint({ job, overview }) {
       <h3 className="font-semibold text-slate-900">Test time</h3>
       {slot
         ? <p className="mt-1 text-sm text-slate-600">{who(job)} has {formatRange(slot.start, slot.end)} ({slot.status}). In it they can use all their approved voices.</p>
-        : <p className="mt-1 text-sm text-slate-600">{who(job)} has no slot yet. They can pick an open published time, or you can give them one.</p>}
+        : <p className="mt-1 text-sm text-slate-600">{who(job)} has no test time yet. Book one (each person gets their own GPU), or they can test any time with a cold start.</p>}
       <Button variant="outline" size="sm" className="mt-3" onClick={() => navigate(`/schedule?person=${encodeURIComponent(job.ownerEmail)}`)}><CalendarClock size={13} /> Open the schedule</Button>
     </Card>
   );
@@ -506,7 +508,8 @@ function JobDetail({ overview, onAction }) {
 
 // ── Super user: schedule (calendar; draft → edit → Publish) ───────────────
 
-const LENGTHS = [30, 45, 60, 90, 120, 180, 240];
+const LENGTHS = [20, 30, 45, 60, 90, 120, 180, 240];
+const DEFAULT_MINUTES = { test: 20, recording: 60 };
 const START_STEPS = Array.from({ length: 96 }, (_, i) => i * 15);
 
 function slotTone(slot, now) {
@@ -515,26 +518,55 @@ function slotTone(slot, now) {
   return slot.assigneeEmail ? 'booked' : 'open';
 }
 
-function PersonField({ kind, people, person, onPerson }) {
-  const known = people.find((entry) => entry.email === person);
-  const typing = !known && person !== '';
+const fieldClass = 'mt-1 block h-10 w-full rounded-lg border border-slate-300 px-3 text-sm';
+
+// Recording session: the person it is booked for (time agreed in person).
+function RecordingPersonFields({ draft, setDraft }) {
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-medium text-slate-600">Their email (Gmail)
+        <input value={draft.person || ''} onChange={(event) => setDraft({ ...draft, person: event.target.value })} type="email" placeholder="name@gmail.com" className={fieldClass} />
+      </label>
+      <label className="block text-xs font-medium text-slate-600">Their name
+        <input value={draft.name || ''} onChange={(event) => setDraft({ ...draft, name: event.target.value })} maxLength={80} placeholder="e.g. Dr Lim" className={fieldClass} />
+      </label>
+      <p className="text-[11px] text-slate-500">They get an email when you publish, the day before, and on the day. Their recording page opens during the session.</p>
+    </div>
+  );
+}
+
+// Test slot: one or more people at the same time, each on a GPU of their own.
+function TestPeopleField({ draft, setDraft, people }) {
+  const editing = Boolean(draft.id);
+  const chosen = editing ? [draft.person].filter(Boolean) : (draft.persons || []);
+  const [typed, setTyped] = useState('');
+  function toggle(email) {
+    if (editing) { setDraft({ ...draft, person: email }); return; }
+    setDraft({ ...draft, persons: chosen.includes(email) ? chosen.filter((item) => item !== email) : [...chosen, email] });
+  }
+  function addTyped() {
+    const emails = typed.split(/[\s,;]+/u).map((value) => value.trim().toLowerCase()).filter((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value));
+    if (emails.length === 0) return;
+    if (editing) setDraft({ ...draft, person: emails[0] });
+    else setDraft({ ...draft, persons: [...new Set([...chosen, ...emails])] });
+    setTyped('');
+  }
+  const listed = [...people, ...chosen.filter((email) => !people.some((entry) => entry.email === email)).map((email) => ({ email, name: '', approvedVoices: [] }))];
   return (
     <div className="text-xs font-medium text-slate-600">
-      {kind === 'recording' ? 'Who (optional)' : 'Who'}
-      <select
-        value={known ? person : typing ? '__typed' : ''}
-        onChange={(event) => { const value = event.target.value; onPerson(value === '__typed' ? ' ' : value); }}
-        className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm"
-      >
-        <option value="">{kind === 'recording' ? 'Open — a lecturer picks it' : 'Choose a person…'}</option>
-        {people.map((entry) => (
-          <option key={entry.email} value={entry.email}>{entry.name || entry.email}{entry.approvedVoices.length ? ` · ${entry.approvedVoices.length} approved voice(s)` : ' · not approved yet'}</option>
+      {editing ? 'Who' : 'Who (pick one or more)'}
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {listed.map((entry) => (
+          <button key={entry.email} type="button" onClick={() => toggle(entry.email)} aria-pressed={chosen.includes(entry.email)} className={cn('min-h-8 rounded-full px-3 py-1 text-xs font-semibold', chosen.includes(entry.email) ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')} title={entry.email}>
+            {entry.name || entry.email}{entry.approvedVoices.length ? '' : ' · not approved yet'}
+          </button>
         ))}
-        <option value="__typed">Someone else (type email)…</option>
-      </select>
-      {typing && (
-        <input value={person.trim()} onChange={(event) => onPerson(event.target.value || ' ')} placeholder="their email" type="email" autoFocus className="mt-2 block h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" />
-      )}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <input value={typed} onChange={(event) => setTyped(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addTyped(); } }} placeholder="or type an email" type="email" className="block h-9 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-sm" />
+        <Button size="sm" variant="outline" onClick={addTyped} disabled={!typed.trim()}>Add</Button>
+      </div>
+      {!editing && chosen.length > 1 && <p className="mt-1 text-[11px] text-slate-500">{chosen.length} people: one slot and one GPU each, all warmed 20 min before.</p>}
     </div>
   );
 }
@@ -549,8 +581,9 @@ function rememberHost(name) {
 
 function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCancel }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const person = draft.person || '';
-  const canSave = kind !== 'test' || person.trim();
+  const canSave = kind === 'recording'
+    ? Boolean(String(draft.person || '').trim() && String(draft.name || '').trim())
+    : Boolean(draft.id ? draft.person : (draft.persons || []).length);
   const end = draft.start + draft.minutes;
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -575,7 +608,7 @@ function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCance
           ))}
         </div>
       </div>
-      <PersonField kind={kind} people={people} person={person} onPerson={(value) => setDraft({ ...draft, person: value })} />
+      {kind === 'recording' ? <RecordingPersonFields draft={draft} setDraft={setDraft} /> : <TestPeopleField draft={draft} setDraft={setDraft} people={people} />}
       {kind === 'recording' && (
         <label className="block text-xs font-medium text-slate-600">Run by (staff name)
           <input
@@ -601,16 +634,16 @@ function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCance
 const SCHEDULE_COPY = {
   recording: {
     title: 'Recording sessions',
-    help: 'In-person sessions (no GPU). Click a time on the day to add one; leave "Who" open so a lecturer can pick it. Sessions may run in parallel. New and edited sessions stay drafts until you publish.',
-    footer: 'Lecturers sign in and pick one open session each (they can change it before it starts). The recording page unlocks for them only during it.',
+    help: 'Book each person\'s in-person session at the time you agreed with them. Click a time on the day, enter their Gmail and name. Sessions may run in parallel. New and edited sessions stay drafts until you publish.',
+    footer: 'Only you see this calendar. Publishing emails the person; they are reminded the day before and on the day. Their recording page opens only during their session.',
     list: 'Upcoming recording sessions',
-    open: 'Open — lecturers can pick',
-    tones: ['open', 'booked', 'draft', 'live'],
+    open: '—',
+    tones: ['booked', 'draft', 'live'],
   },
   test: {
     title: 'GPU test slots',
-    help: 'After QC, give a lecturer GPU time to test their voices. Click a time on the day to add one. One person per slot, never overlapping. New and edited slots stay drafts until you publish.',
-    footer: 'Publishing emails the person their time. The GPU starts 15 minutes before, loads their voice and emails them that it starts soon.',
+    help: 'After QC, give lecturers 20 minutes to test their voice. Pick several people for the same time if you like: each gets a GPU of their own. New and edited slots stay drafts until you publish.',
+    footer: 'Publishing emails each person their time. Their GPU starts 20 minutes before with their voice loaded. Outside a slot they can still test with a cold start; sending feedback ends their testing.',
     list: 'Upcoming test slots',
     open: '—',
     tones: ['booked', 'draft', 'live'],
@@ -626,7 +659,9 @@ function Schedule({ overview, onAction, kind = 'test' }) {
   const slots = overview.slots.filter((slot) => (slot.kind === 'recording' ? 'recording' : 'test') === kind && Date.parse(slot.end) > nowMs);
   const [day, setDay] = useState(today);
   const [month, setMonth] = useState(monthOf(today));
-  const [draft, setDraft] = useState(() => (prefill ? { day: today, start: 13 * 60, minutes: 60, person: prefill, hostName: rememberedHost() } : null));
+  const minutesDefault = DEFAULT_MINUTES[kind];
+  const blankDraft = (fields) => ({ minutes: minutesDefault, person: '', name: '', persons: kind === 'test' && prefill ? [prefill] : [], hostName: rememberedHost(), ...fields });
+  const [draft, setDraft] = useState(() => (prefill ? blankDraft({ day: today, start: 13 * 60 }) : null));
   const people = overview.people || [];
   const drafts = overview.draftCount || 0;
   // Stacked layout (phones, tablets): the composer sits above the day timeline,
@@ -653,7 +688,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     start: slot.start,
     end: slot.end,
     tone: slotTone(slot, nowMs),
-    title: slot.assigneeEmail ? (slot.assigneeName || slot.assigneeEmail) : copy.open,
+    title: slot.assigneeName || slot.assigneeEmail || copy.open,
     subtitle: `${formatSgt(slot.start, { withDate: false })} – ${formatSgt(slot.end, { withDate: false })}${slot.status === 'draft' ? ' · draft' : ''}${slot.hostName ? ` · run by ${slot.hostName}` : ''}${slot.assigneeEmail && slot.assigneeName ? ` · ${slot.assigneeEmail}` : ''}`,
   }));
 
@@ -670,21 +705,28 @@ function Schedule({ overview, onAction, kind = 'test' }) {
     setDraft({
       id: original.id, day: key, start: sgtMinutes(original.start),
       minutes: Math.round((Date.parse(original.end) - Date.parse(original.start)) / 60000),
-      person: original.assigneeEmail || '', name: original.assigneeName || '', hostName: original.hostName || '',
+      person: original.assigneeEmail || '', originalPerson: original.assigneeEmail || '', name: original.assigneeName || '', hostName: original.hostName || '',
     });
   }
   async function save() {
     const start = sgtIso(draft.day, draft.start);
     const end = new Date(Date.parse(start) + draft.minutes * 60_000).toISOString();
-    const email = (draft.person || '').trim();
-    const known = people.find((entry) => entry.email === email);
+    const nameOf = (email) => people.find((entry) => entry.email === email)?.name || '';
     const hostName = kind === 'recording' ? String(draft.hostName || '').trim() : undefined;
     if (hostName) rememberHost(hostName);
-    const body = { kind, start, end, assigneeEmail: email, assigneeName: (known?.name || (email === draft.person ? draft.name : '') || '').trim(), ...(hostName !== undefined ? { hostName } : {}) };
+    let body;
+    if (kind === 'recording') {
+      body = { kind, start, end, assigneeEmail: String(draft.person || '').trim(), assigneeName: String(draft.name || '').trim(), hostName };
+    } else if (draft.id) {
+      const email = String(draft.person || '').trim();
+      body = { kind, start, end, assigneeEmail: email, assigneeName: email === draft.originalPerson ? draft.name : nameOf(email) };
+    } else {
+      body = { kind, start, end, assignees: (draft.persons || []).map((email) => ({ email, name: nameOf(email) })) };
+    }
     const done = await onAction(() => (draft.id ? editSlot(draft.id, body) : addSlot(body)));
     if (!done) return;
     // Adding a run of sessions: the composer moves on to the next free time.
-    setDraft(draft.id ? null : { day: draft.day, start: Math.min(23 * 60 + 45, draft.start + draft.minutes), minutes: draft.minutes, person: kind === 'test' ? draft.person : '', hostName: draft.hostName });
+    setDraft(draft.id ? null : blankDraft({ day: draft.day, start: Math.min(23 * 60 + 45, draft.start + draft.minutes), minutes: draft.minutes, hostName: draft.hostName }));
   }
 
   const upcomingDays = [...new Set(slots.map((slot) => sgtDayKey(slot.start)))].sort();
@@ -728,7 +770,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
             <h3 className="font-semibold text-slate-900">{formatDay(day)}</h3>
             <div className="flex gap-2">
               {day !== today && <Button size="sm" variant="ghost" onClick={() => { setDay(today); setMonth(monthOf(today)); }}>Today</Button>}
-              <Button size="sm" variant="outline" onClick={() => setDraft({ day, start: Math.max(hours.start, 9 * 60), minutes: draft?.minutes || 60, person: kind === 'test' ? prefill : '', hostName: draft?.hostName ?? rememberedHost() })}><CalendarClock size={13} /> Add on this day</Button>
+              <Button size="sm" variant="outline" onClick={() => setDraft(blankDraft({ day, start: Math.max(hours.start, 9 * 60), minutes: draft?.minutes || minutesDefault, hostName: draft?.hostName ?? rememberedHost() }))}><CalendarClock size={13} /> Add on this day</Button>
             </div>
           </div>
           <p className="mb-2 text-xs text-slate-500">Tap an empty time to add {kind === 'recording' ? 'a session' : 'a slot'} there; tap a block to edit it.</p>
@@ -741,7 +783,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
               selectedId={draft?.id}
               pending={draft && !draft.id && draft.day === day ? { start: draft.start, minutes: draft.minutes } : null}
               onSlotClick={edit}
-              onEmptyClick={(minutes) => setDraft({ day, start: minutes, minutes: draft?.minutes || 60, person: draft && !draft.id ? draft.person : (kind === 'test' ? prefill : ''), hostName: draft?.hostName ?? rememberedHost() })}
+              onEmptyClick={(minutes) => setDraft(draft && !draft.id ? { ...draft, day, start: minutes } : blankDraft({ day, start: minutes, hostName: draft?.hostName ?? rememberedHost() }))}
             />
           </div>
         </Card>
@@ -760,7 +802,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
                       <span className="font-medium text-slate-800 sm:w-44 sm:shrink-0">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
                       <span className="min-w-0 flex-1 truncate text-slate-700" title={slot.assigneeEmail || undefined}>
-                        {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeName ? slot.assigneeEmail : ''}{slot.claimedAt ? ' · picked it themselves' : ''}</span></> : <span className="text-sky-700">{copy.open}</span>}
+                        {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-400">{slot.assigneeName ? slot.assigneeEmail : ''}{slot.hostName ? ` · run by ${slot.hostName}` : ''}</span></> : <span className="text-sky-700">{copy.open}</span>}
                       </span>
                     </span>
                     <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', tone === 'draft' ? 'bg-amber-100 text-amber-800' : tone === 'live' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800')}>
@@ -917,7 +959,7 @@ function SlotHoldBanner({ slot, now }) {
       <Notice tone="warn" className="flex items-center gap-2">
         <ShieldCheck size={16} className="shrink-0" />
         <span>
-          {line} It runs on its own GPU; your voice testing uses a separate one, so nothing here is locked.
+          {line} It runs on their own GPU; yours is separate, so nothing here is locked.
           {warm && !ready && !late && warm.estimatedReadyAt && <> Their voice should be ready at about {formatSgt(warm.estimatedReadyAt, { withDate: false })}.</>}
           {ready && <> Their voice is loaded.</>}
         </span>
@@ -1017,7 +1059,7 @@ function SuperuserConsole() {
         <main className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 sm:py-6">
           {busy && <div role="status" className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs text-white shadow-lg lg:bottom-auto lg:left-auto lg:right-4 lg:top-4 lg:translate-x-0"><Loader2 size={13} className="animate-spin" /> Working…</div>}
           {error && <Notice tone="error">{error}</Notice>}
-          {data?.currentSlot && <SlotHoldBanner slot={data.currentSlot} now={Date.parse(data.now) || Date.now()} />}
+          {(data?.currentSlots || []).map((slot) => <SlotHoldBanner key={slot.id} slot={slot} now={Date.parse(data.now) || Date.now()} />)}
           {!data ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-slate-400" /></div> : (
             <Routes>
               <Route path="/" element={<Overview overview={data} onAction={onAction} />} />
@@ -1059,7 +1101,7 @@ function Chip({ active, onClick, children }) {
   );
 }
 
-function FeedbackForm({ job }) {
+function FeedbackForm({ job, onSent }) {
   const [rating, setRating] = useState(0);
   const [likeness, setLikeness] = useState('');
   const [issues, setIssues] = useState([]);
@@ -1071,17 +1113,17 @@ function FeedbackForm({ job }) {
     event.preventDefault();
     setState('saving');
     try {
-      await sendFeedback(job.id, { rating, likeness, issues, words: wordsWanted ? words : '', comment });
+      const view = await sendFeedback(job.id, { rating, likeness, issues, words: wordsWanted ? words : '', comment });
       setState('saved');
-      setRating(0); setLikeness(''); setIssues([]); setWords(''); setComment('');
+      onSent?.(view);
     } catch (err) {
       setState(errorText(err));
     }
   }
   return (
     <Card className="p-4 sm:p-5">
-      <h3 className="font-semibold text-slate-900">How does it sound?</h3>
-      <p className="mt-1 text-sm text-slate-600">About a minute. It goes straight to the Voice Studio team, who use it to retrain your voice.</p>
+      <h3 className="font-semibold text-slate-900">Done testing? Tell us how it sounds</h3>
+      <p className="mt-1 text-sm text-slate-600">About a minute. Sending it <b>finishes your testing</b> of this voice and closes the tester, so test as much as you like first.</p>
       <form onSubmit={submit} className="mt-4 space-y-4">
         <div>
           <p className="text-xs font-semibold text-slate-700">Overall</p>
@@ -1115,8 +1157,8 @@ function FeedbackForm({ job }) {
         <label className="block text-xs font-semibold text-slate-700">Anything else? <span className="font-normal text-slate-500">(optional)</span>
           <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} placeholder="What you liked, what felt wrong, where it happened…" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
         </label>
-        <Button type="submit" variant="dark" className="w-full sm:w-auto" disabled={!rating || state === 'saving'}>{rating ? 'Send feedback' : 'Pick a star rating to send'}</Button>
-        {state === 'saved' && <p className="text-sm text-emerald-700">Thank you — sent. You can send more any time.</p>}
+        <Button type="submit" variant="dark" className="w-full sm:w-auto" disabled={!rating || state === 'saving' || state === 'saved'}>{rating ? 'Send feedback and finish testing' : 'Pick a star rating to send'}</Button>
+        {state === 'saved' && <p className="text-sm text-emerald-700">Thank you — sent.</p>}
         {state && !['saving', 'saved'].includes(state) && <p className="text-sm text-rose-600">{state}</p>}
       </form>
     </Card>
@@ -1190,7 +1232,7 @@ function JourneySteps({ step, retrain = false }) {
   );
 }
 
-function VoiceJourney({ job, now, testSlot, testedSlot = null }) {
+function VoiceJourney({ job, now, testSlot }) {
   const step = journeyStep(job.status);
   const estimate = job.estimate;
   // A retrain after quality check goes round again: retraining → quality check → test.
@@ -1218,15 +1260,15 @@ function VoiceJourney({ job, now, testSlot, testedSlot = null }) {
   } else if (job.status === 'quality-check') {
     title = 'Our team is listening to your voice';
     body = <p>Training is done. Quality control is done by people, so it can take longer than training — sometimes we retrain to get it right. We email you when it passes.</p>;
+  } else if (job.status === 'ready' && job.testingClosedAt) {
+    title = 'You have tested your voice — thank you';
+    body = <p>We received your feedback on {formatSgt(job.testingClosedAt)} SGT. Our team reads it and emails you about next steps.</p>;
   } else if (job.status === 'ready' && testSlot) {
     title = 'Your test time is booked';
-    body = <p><b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}). We email you that morning; when it starts, this page opens your voice for you to test.</p>;
-  } else if (job.status === 'ready' && testedSlot) {
-    title = 'You have tested your voice — thank you';
-    body = <p>Your test on {formatSgt(testedSlot.completedAt || testedSlot.end)} SGT is finished. Our team reads your feedback and emails you about next steps.</p>;
+    body = <p><b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}). A GPU is warmed up just for you before it starts; we email you that morning.</p>;
   } else if (job.status === 'ready') {
-    title = 'Passed quality control — awaiting your test slot';
-    body = <p>Our team is choosing a time for you to test it. We email you the time, and it shows here too.</p>;
+    title = 'Passed quality control — awaiting your test time';
+    body = <p>Our team is booking a time for you to test it, and emails it to you. You can also test now: a GPU starts just for you, which takes about 5–15 minutes.</p>;
   }
   return (
     <Card className="p-4 sm:p-8">
@@ -1247,230 +1289,86 @@ function VoiceJourney({ job, now, testSlot, testedSlot = null }) {
   );
 }
 
-// Lecturer: pick ONE recording session on a calendar. Once booked, other
-// times can only be used to Change (move) it — never to book a second one.
-function SessionPicker({ me, onChanged }) {
-  const auth = useAuth();
-  const nowMs = Date.now();
-  const today = sgtDayKey(nowMs);
-  const sessions = me.sessions || [];
-  const mine = sessions.find((slot) => slot.mine) || null;
-  const mineStarted = mine ? Date.parse(mine.start) <= nowMs : false;
-  const firstOpen = sessions.find((slot) => slot.open);
-  const startDay = mine ? sgtDayKey(mine.start) : firstOpen ? sgtDayKey(firstOpen.start) : today;
-  const [day, setDay] = useState(startDay);
-  const [month, setMonth] = useState(monthOf(startDay));
-  const [confirming, setConfirming] = useState('');
-  const [busy, setBusy] = useState('');
-  const [error, setError] = useState('');
-  const [name, setName] = useState(auth.user?.name && auth.user.name !== auth.user.email ? auth.user.name : '');
-
-  const marks = new Map();
-  for (const slot of sessions) {
-    const key = sgtDayKey(slot.start);
-    marks.set(key, [...(marks.get(key) || []), slot.mine ? 'mine' : slot.open ? 'open' : 'taken']);
-  }
-  const daySessions = sessions.filter((slot) => sgtDayKey(slot.start) === day);
-  // Phones: the day's times are under the calendar — show them after a tap.
-  const timesRef = useRef(null);
-  function pickDay(key) {
-    setDay(key);
-    setConfirming('');
-    if (window.matchMedia?.('(max-width: 767px)').matches) {
-      window.requestAnimationFrame(() => timesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
-    }
-  }
-
-  async function act(id, call) {
-    setBusy(id);
-    setError('');
-    try {
-      onChanged(await call());
-      setConfirming('');
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy('');
-    }
-  }
-
-  return (
-    <Card>
-      <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
-        <h2 className="font-semibold text-slate-900">{mine ? 'Your recording session' : 'Book a recording session'}</h2>
-        <p className="text-xs text-slate-500">
-          {mine
-            ? (mineStarted ? 'Your session is on now.' : 'You have one session. To move it, pick another open time and choose "Change to this time".')
-            : 'Pick a day, then an open time. You book one session; you can change it later.'}
-        </p>
-      </div>
-      {mine && (
-        <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200 sm:mx-5">
-          <CheckCircle2 size={20} className="shrink-0 text-emerald-600" />
-          <div className="min-w-0 flex-1 basis-40">
-            <p className="font-semibold text-emerald-900">{formatRange(mine.start, mine.end)}</p>
-            <p className="text-xs text-emerald-800">{mineStarted ? 'Happening now' : relativeFromNow(mine.start, nowMs)}</p>
-          </div>
-          {!mineStarted && (
-            confirming === `release-${mine.id}`
-              ? <Button size="sm" variant="danger" disabled={busy === mine.id} onClick={() => act(mine.id, () => releaseSlot(mine.id))}>Confirm cancel</Button>
-              : <Button size="sm" variant="ghost" onClick={() => setConfirming(`release-${mine.id}`)}>Cancel booking</Button>
-          )}
-        </div>
-      )}
-      {error && <Notice tone="error" className="mx-4 mt-3 sm:mx-5">{error}</Notice>}
-      {sessions.length === 0 ? <p className="px-4 py-6 text-sm text-slate-500 sm:px-5">No sessions are published yet — please check back soon.</p> : (
-        <div className="grid grid-cols-1 gap-5 p-4 sm:p-5 md:grid-cols-[300px_minmax(0,1fr)]">
-          <div>
-            <MonthCalendar month={month} onMonth={setMonth} selected={day} onSelect={pickDay} marks={marks} today={today} />
-            <div className="mt-3"><Legend tones={['open', 'mine', 'taken']} /></div>
-          </div>
-          <div ref={timesRef} className="min-w-0 scroll-mt-20 border-t border-slate-100 pt-4 md:border-0 md:pt-0">
-            <p className="text-sm font-semibold text-slate-900">{formatDay(day)}</p>
-            {!mine && (
-              <label className="mt-3 block text-xs font-medium text-slate-600">Your name (shown to the Voice Studio team)
-                <input required value={name} onChange={(event) => setName(event.target.value)} maxLength={80} autoComplete="name" className="mt-1 block h-10 w-full rounded-lg border border-slate-300 px-3 text-sm sm:max-w-xs" />
-              </label>
-            )}
-            {daySessions.length === 0 ? <p className="mt-3 text-sm text-slate-500">No sessions on this day. Days with a blue dot have open times.</p> : (
-              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-                {daySessions.map((slot) => {
-                  const length = Math.round((Date.parse(slot.end) - Date.parse(slot.start)) / 60000);
-                  const isConfirming = confirming === slot.id;
-                  return (
-                    <li key={slot.id} className={cn('rounded-xl border p-3', slot.mine ? 'border-emerald-300 bg-emerald-50' : slot.open ? 'border-sky-200 bg-white' : 'border-slate-200 bg-slate-50')}>
-                      <p className="font-semibold text-slate-900">{formatSgt(slot.start, { withDate: false })} – {formatSgt(slot.end, { withDate: false })}</p>
-                      <p className="text-xs text-slate-500">{formatLength(length)} · {slot.mine ? 'your session' : slot.open ? 'open' : 'taken'}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {slot.mine && <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={13} /> Booked for you</span>}
-                        {slot.open && !mine && (isConfirming
-                          ? <>
-                            <Button size="sm" variant="success" className="flex-1 sm:flex-none" disabled={busy === slot.id || !name.trim()} onClick={() => act(slot.id, () => claimSlot(slot.id, name.trim()))}>{busy === slot.id ? <Loader2 size={13} className="animate-spin" /> : null}{name.trim() ? 'Confirm booking' : 'Enter your name first'}</Button>
-                            <Button size="sm" variant="ghost" onClick={() => setConfirming('')}>Back</Button>
-                          </>
-                          : <Button size="sm" variant="dark" className="flex-1 sm:flex-none" onClick={() => setConfirming(slot.id)}>Book this time</Button>)}
-                        {slot.open && mine && !mineStarted && (isConfirming
-                          ? <>
-                            <Button size="sm" variant="success" className="flex-1 sm:flex-none" disabled={busy === slot.id} onClick={() => act(slot.id, () => moveSlot(slot.id))}>{busy === slot.id ? <Loader2 size={13} className="animate-spin" /> : null}Confirm change</Button>
-                            <Button size="sm" variant="ghost" onClick={() => setConfirming('')}>Back</Button>
-                          </>
-                          : <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => setConfirming(slot.id)}>Change to this time</Button>)}
-                        {!slot.open && !slot.mine && <span className="text-xs text-slate-400">Not available</span>}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function LecturerHome({ me: initialMe, refresh }) {
   const now = useNow();
   const [me, setMe] = useState(initialMe);
   useEffect(() => setMe(initialMe), [initialMe]);
   const ready = me.jobs.filter((job) => job.status === 'ready');
+  const testable = ready.filter((job) => !job.testingClosedAt && job.voiceName);
   const submitted = me.jobs.filter((job) => !['uploading', 'cancelled'].includes(job.status));
-  const testing = me.activeSlot && Date.parse(me.activeSlot.end) > now ? me.activeSlot : null;
-  const testSlot = me.mySlot && !testing ? me.mySlot : null;
+  const slot = me.activeSlot && Date.parse(me.activeSlot.end) > now ? me.activeSlot : null;
+  const testSlot = me.mySlot && !slot ? me.mySlot : null;
   const recording = me.recording || {};
   const recordingOpen = recording.allowed && recording.reason === 'in-session';
   const booked = recording.slot && Date.parse(recording.slot.end) > now ? recording.slot : null;
-  const voiceNames = ready.map((job) => job.voiceName).filter(Boolean);
   const [feedbackJob, setFeedbackJob] = useState('');
-  const feedbackTarget = ready.find((job) => job.id === feedbackJob) || ready[0];
-  // "I'm done": ends the test slot now so its GPU shuts down instead of idling.
-  const [finishing, setFinishing] = useState('');
-  const [finishError, setFinishError] = useState('');
-  async function finishTesting() {
-    setFinishing('busy');
-    setFinishError('');
-    try {
-      setMe(await completeSlot(testing.id));
-      setFinishing('');
-    } catch (err) {
-      setFinishError(errorText(err, 'Could not end your test slot'));
-      setFinishing('confirm');
-    }
-  }
+  const feedbackTarget = testable.find((job) => job.id === feedbackJob) || testable[0];
+  // Outside a slot the GPU starts only when they ask (a cold start just for them).
+  const [testNow, setTestNow] = useState(false);
+  const testing = testable.length > 0 && (Boolean(slot) || testNow);
 
   // Re-read at session/slot boundaries so pages unlock and lock on time.
   useEffect(() => {
-    const times = [testing?.end, testSlot?.start, booked?.start, booked?.end].filter(Boolean).map((value) => Date.parse(value)).filter((value) => value > Date.now());
+    const times = [slot?.end, testSlot?.start, booked?.start, booked?.end].filter(Boolean).map((value) => Date.parse(value)).filter((value) => value > Date.now());
     if (times.length === 0) return undefined;
     const id = window.setTimeout(refresh, Math.max(1000, Math.min(...times) - Date.now() + 1500));
     return () => window.clearTimeout(id);
-  }, [testing, testSlot, booked, refresh]);
+  }, [slot, testSlot, booked, refresh]);
   useEffect(() => {
+    if (testing) return undefined;
     const id = window.setInterval(refresh, 60_000);
     return () => window.clearInterval(id);
-  }, [refresh]);
+  }, [refresh, testing]);
 
-  // One stage at a time: testing → recording → the voice's journey → booking.
+  // One stage at a time: testing → recording → the voice's journey → waiting for a session.
   let content;
   if (testing) {
     content = (
       <>
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-emerald-600 px-4 py-4 text-white sm:px-5">
-          <CheckCircle2 size={22} className="hidden shrink-0 sm:block" />
-          <div className="min-w-0 flex-1 basis-60">
-            <p className="text-base font-semibold sm:text-lg">Your test time — until {formatSgt(testing.end, { withDate: false })} SGT</p>
-            <p className="text-sm text-white/85">Paste some text to hear it read in your voice, or chat with it. Fix any word it says wrongly in the Pronunciation panel.</p>
-          </div>
-          {finishing === '' && (
-            <Button variant="outline" size="sm" className="w-full border-white/60 bg-white/10 text-white hover:bg-white/20 sm:w-auto" onClick={() => setFinishing('confirm')}>
-              I'm done testing
-            </Button>
-          )}
+        <div className="rounded-2xl bg-emerald-600 px-4 py-4 text-white sm:px-5">
+          <p className="text-base font-semibold sm:text-lg">{slot ? `Your test time — until ${formatSgt(slot.end, { withDate: false })} SGT` : 'Test your voice'}</p>
+          <p className="text-sm text-white/85">Paste some text to hear it read in your voice, or chat with it. Fix any word it says wrongly in the Pronunciation panel. When you are done, send your feedback below — that finishes your testing.</p>
         </div>
-        {finishing && (
-          <Notice tone="info" className="flex flex-wrap items-center justify-between gap-3">
-            <span className="min-w-0 flex-1 basis-64">End your test slot now? Please leave feedback below first if you have not. Your voice cannot be tested again in this slot afterwards.</span>
-            <span className="flex flex-wrap gap-2">
-              <Button variant="ghost" size="sm" disabled={finishing === 'busy'} onClick={() => { setFinishing(''); setFinishError(''); }}>Keep testing</Button>
-              <Button variant="dark" size="sm" disabled={finishing === 'busy'} onClick={finishTesting}>
-                {finishing === 'busy' ? <Loader2 size={13} className="animate-spin" /> : null} End my test
-              </Button>
-            </span>
-          </Notice>
-        )}
-        {finishError && <Notice tone="error">{finishError}</Notice>}
-        {voiceNames.length === 0
-          ? <Notice tone="warn">None of your voices has passed the quality check yet, so there is nothing to test in this slot.</Notice>
-          : <TestBench voiceNames={voiceNames} canApply audience="lecturer" slotWarm={testing.warm || null} />}
+        <TestBench voiceNames={testable.map((job) => job.voiceName)} canApply audience="lecturer" slotWarm={slot?.warm || null} />
         {feedbackTarget && (
           <div className="space-y-2">
-            {ready.length > 1 && (
+            {testable.length > 1 && (
               <select value={feedbackTarget.id} onChange={(event) => setFeedbackJob(event.target.value)} className="h-10 w-full max-w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto" aria-label="Feedback for which voice">
-                {ready.map((job) => <option key={job.id} value={job.id}>{job.label}</option>)}
+                {testable.map((job) => <option key={job.id} value={job.id}>{job.label}</option>)}
               </select>
             )}
-            <FeedbackForm key={feedbackTarget.id} job={feedbackTarget} />
+            <FeedbackForm key={feedbackTarget.id} job={feedbackTarget} onSent={(view) => { if (view?.jobs) setMe(view); setTestNow(false); }} />
           </div>
         )}
       </>
     );
   } else if (submitted.length > 0) {
     // Submitted (even while their session is still open): only what comes next.
-    content = submitted.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} testedSlot={job.status === 'ready' && !testSlot ? me.testedSlot : null} />);
+    content = (
+      <>
+        {submitted.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />)}
+        {testable.length > 0 && (
+          <Card className="flex flex-wrap items-center gap-3 p-4 sm:p-5">
+            <div className="min-w-0 flex-1 basis-64">
+              <p className="font-semibold text-slate-900">{testSlot ? 'Want to try it before your test time?' : 'Want to test it now?'}</p>
+              <p className="text-sm text-slate-600">A GPU starts just for you. The first time takes about 5–15 minutes; this page shows when it is ready.</p>
+            </div>
+            <Button variant="dark" className="w-full sm:w-auto" onClick={() => setTestNow(true)}>Start testing now</Button>
+          </Card>
+        )}
+      </>
+    );
   } else if (recordingOpen) {
     content = <RecordWorkspace embedded sessionEnd={recording.slot?.end} onSubmitted={(view) => setMe(view)} />;
   } else {
     content = (
-      <>
-        <Card className="p-5 text-center sm:p-8">
-          <CalendarClock size={30} className="mx-auto text-slate-400" />
-          <h1 className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">{booked ? 'Your recording session is booked' : 'Book a recording session'}</h1>
-          {booked
-            ? <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">We email you the day before and again just before it starts. The recording page opens here then.</p></>
-            : <p className="mt-2 text-slate-600">Pick an open time below. During your session this page becomes your recording studio.</p>}
-        </Card>
-        <SessionPicker me={me} onChanged={setMe} />
-      </>
+      <Card className="p-5 text-center sm:p-8">
+        <CalendarClock size={30} className="mx-auto text-slate-400" />
+        <h1 className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">{booked ? 'Your recording session is booked' : 'Your recording session'}</h1>
+        {booked
+          ? <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">We email you the day before and on the day. This page becomes your recording studio when it starts.</p></>
+          : <p className="mt-2 text-slate-600">Our team arranges a time with you and books it here. We email you the time; this page becomes your recording studio during it.</p>}
+      </Card>
     );
   }
 
@@ -1502,11 +1400,6 @@ function StudioHome() {
 
 function StudioSignIn() {
   const auth = useAuth();
-  async function onPasswordSignIn(mode, fields) {
-    const session = await passwordSignIn(mode, fields);
-    saveStudioSession(session);
-    await auth.refreshAuthState();
-  }
   async function onGoogleSignIn(credential) {
     saveStudioSession(await googleSignIn(credential));
     await auth.refreshAuthState();
@@ -1516,12 +1409,11 @@ function StudioSignIn() {
       product="Voice Studio"
       headline="Your teaching voice, recorded, trained and tested in one place."
       lines={[
-        ['Book a recording session', 'Pick a time on the calendar; the recording page opens for you then.'],
-        ['We train and check it', 'Follow its progress here; we email you when it passes quality control.'],
-        ['Test it in your slot', 'The GPU is yours: chat, have it read text aloud, fix pronunciations.'],
+        ['Record at your session', 'We agree a time with you; the recording page opens for you then.'],
+        ['We train and check it', 'Follow its progress here; we email you when training is done and when it passes quality control.'],
+        ['Test it, then tell us', 'A GPU of your own: chat, have it read text aloud, fix pronunciations, send feedback.'],
       ]}
       accent="from-[#052e2b] via-[#0f3d3a] to-[#1e1b4b]"
-      onPasswordSignIn={onPasswordSignIn}
       onGoogleSignIn={onGoogleSignIn}
       faq={<FaqList />}
     />

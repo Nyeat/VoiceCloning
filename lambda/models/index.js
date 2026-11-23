@@ -9,6 +9,7 @@ import {
 import { studioRequestAccess } from '../shared/studioGpuGuard.js';
 import { createLiveAuthGuard } from '../shared/liveAuth.js';
 import { ok, err, preflight, parseJsonBody } from '../shared/cors.js';
+import { readVoiceLabels } from '../shared/voiceLabels.js';
 
 function isWorkerUnavailableError(error) {
   const message = error?.message || '';
@@ -40,6 +41,7 @@ export function createHandler({
   prepareModel = prepareCoordinatedModel,
   authGuard = createLiveAuthGuard(),
   studioAccess = studioRequestAccess,
+  voiceLabels = readVoiceLabels,
 } = {}) {
   return async function handler(event) {
     if (event.requestContext?.http?.method === 'OPTIONS') {
@@ -51,9 +53,11 @@ export function createHandler({
 
     try {
       if (method === 'GET' && routePath.endsWith('/models')) {
+        // Saved voice names, so every voice picker shows "Lecture voice" rather than cs-name_7.
+        const labels = voiceLabels().catch(() => ({}));
         if (useGpuWorkerModels()) {
           try {
-            return ok(await inferenceGet('/models'));
+            return ok({ ...(await inferenceGet('/models')), labels: await labels });
           } catch (error) {
             if (!isWorkerUnavailableError(error)) throw error;
             return ok({
@@ -61,6 +65,7 @@ export function createHandler({
               sovits: [],
               workerAvailable: false,
               message: error.message,
+              labels: await labels,
             });
           }
         }
@@ -75,7 +80,7 @@ export function createHandler({
         const sovits = sovitsObjects
           .filter((object) => object.key.endsWith('.pth'))
           .map(toModelSummary);
-        return ok({ gpt, sovits });
+        return ok({ gpt, sovits, labels: await labels });
       }
 
       if (method === 'POST' && routePath.endsWith('/models/select')) {

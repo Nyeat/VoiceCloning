@@ -22,6 +22,8 @@ function harness({ realAuth = false, googleVerifier = null } = {}) {
   let worker = { status: 'idle', expName: '' };
   const started = [];
   const preloaded = [];
+  const released = [];
+  const preloadedOwners = [];
   const store = createMemoryStore();
   const env = {
     STUDIO_SUPERUSERS: 'boss@ntu.edu.sg', STUDIO_PUBLIC_URL: 'https://studio.example', ...SESSION_KEYS,
@@ -44,7 +46,8 @@ function harness({ realAuth = false, googleVerifier = null } = {}) {
     readJson: async () => null,
     writeJson: async () => {},
     applyPronunciation: async () => ({ ready: true }),
-    preloadVoice: async (name) => { preloaded.push(name); },
+    preloadVoice: async (name, ownerKey) => { preloaded.push(name); preloadedOwners.push(ownerKey); },
+    releaseSlotGpu: async (ownerKey) => { released.push(ownerKey); },
   });
   const handler = createHandler({
     service,
@@ -63,7 +66,7 @@ function harness({ realAuth = false, googleVerifier = null } = {}) {
     return { status: res.statusCode, body: JSON.parse(res.body) };
   };
   return {
-    call, sent, started, store, trained, preloaded,
+    call, sent, started, store, trained, preloaded, preloadedOwners, released,
     advance: (minutes) => { now += minutes * MIN; },
     finishWorker: (expName, status = 'complete') => { worker = { status, expName }; if (status === 'complete') trained.add(expName); },
   };
@@ -86,20 +89,17 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   const bob = 'bob@ntu.edu.sg';
   const boss = 'boss@ntu.edu.sg';
 
-  // Recording sessions: super user publishes open sessions; lecturers sign in and pick one.
+  // Recording sessions: a super user books each person's time (agreed in person); lecturers never book.
   const carol = 'carol@ntu.edu.sg';
   const at0 = (m) => new Date(T0 + m * MIN).toISOString();
   assert.equal((await h.call(carol, 'POST', 'submissions', { label: 'x', consent: { accepted: true, version: 'v' } })).status, 403, 'no session, no recording');
-  for (let i = 0; i < 2; i += 1) {
-    assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100) })).status, 200);
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100), assigneeEmail: alice })).status, 400, 'name required');
+  for (const [email, name] of [[alice, 'Alice'], [bob, 'Bob']]) {
+    assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100), assigneeEmail: email, assigneeName: name })).status, 200);
   }
-  const sessions = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
-  assert.equal((await h.call(alice, 'POST', `slots/${sessions[0].id}/claim`, {})).status, 400, 'name required');
-  const claimed = await h.call(alice, 'POST', `slots/${sessions[0].id}/claim`, { name: 'Alice' });
-  assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
-  assert.equal(claimed.body.recording.allowed, true);
-  assert.equal((await h.call(bob, 'POST', `slots/${sessions[0].id}/claim`, { name: 'Bob' })).status, 409, 'one person per session');
-  assert.equal((await h.call(bob, 'POST', `slots/${sessions[1].id}/claim`, { name: 'Bob' })).status, 200);
+  await h.call(boss, 'POST', 'admin/slots/publish', {});
+  assert.equal((await h.call(alice, 'GET', 'me')).body.recording.allowed, true);
+  assert.equal((await h.call(alice, 'POST', 'slots/x/claim', { name: 'Alice' })).status, 404, 'lecturers cannot book');
   assert.ok(h.sent.some((m) => m.to.includes(alice) && /recording session/u.test(m.subject)));
 
   const a1 = await submit(h, alice, 'Lecture voice');
@@ -153,46 +153,56 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   assert.equal(after.jobs.find((j) => j.id === a1).status, 'review');
   assert.equal(h.started.find((s) => s.expName === retry.expName).config.sourceExpName, 'alice');
 
-  // Approve -> lecturer emailed. Super user allocates GPU test slots (no overlaps) and publishes.
+  // Approve -> lecturer emailed. Super user books ONE test time for both (one GPU each) and publishes.
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${a1}/review`, { decision: 'approve' })).status, 200);
   assert.ok(h.sent.some((m) => m.to.includes(alice) && /passed quality control/u.test(m.subject)));
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${b1}/review`, { decision: 'approve' })).status, 200);
   const at = (m) => new Date(T0 + m * MIN).toISOString();
-  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(300), end: at(360) })).status, 400, 'test slot needs a person');
-  const added = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(300), end: at(360), assigneeEmail: alice, assigneeName: 'Alice' });
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(300), end: at(320) })).status, 400, 'test slot needs a person');
+  const added = await h.call(boss, 'POST', 'admin/slots', {
+    kind: 'test', start: at(300), end: at(320), assignees: [{ email: alice, name: 'Alice' }, { email: bob, name: 'Bob' }],
+  });
   assert.equal(added.status, 200, JSON.stringify(added.body));
-  const clash = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(330), end: at(400), assigneeEmail: bob });
-  assert.equal(clash.status, 409);
+  assert.equal(added.body.slots.filter((slot) => slot.kind === 'test').length, 2, 'one slot per person');
+  const clash = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(310), end: at(330), assigneeEmail: bob });
+  assert.equal(clash.status, 409, 'bob cannot be in two slots at once');
   assert.equal(clash.body.code, 'SLOT_CLASH');
   assert.equal((await h.call(bob, 'GET', 'me')).body.mySlot, null, 'drafts are invisible to lecturers');
   const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
   assert.equal(published.status, 200, JSON.stringify(published.body));
-  assert.deepEqual(published.body.published.map((p) => [p.email, p.kind]), [[alice, 'slotBooked']]);
+  assert.deepEqual(published.body.published.map((p) => [p.email, p.kind]).sort(), [[alice, 'slotBooked'], [bob, 'slotBooked']]);
   // Editing Alice's test slot keeps it a draft until published again; republishing emails the change.
   const aliceSlot = published.body.slots.find((slot) => slot.assigneeEmail === alice && slot.kind === 'test');
-  assert.equal((await h.call(boss, 'PUT', `admin/slots/${aliceSlot.id}`, { start: at(290), end: at(360) })).status, 200);
+  assert.equal((await h.call(boss, 'PUT', `admin/slots/${aliceSlot.id}`, { start: at(290), end: at(310) })).status, 200);
   const republished = await h.call(boss, 'POST', 'admin/slots/publish', {});
   assert.ok(republished.body.published.some((p) => p.email === alice && p.kind === 'slotBooked'));
   // Recording is closed again once the session is over.
   assert.equal((await h.call(bob, 'GET', 'me')).body.recording.allowed, false);
 
-  // Alice's voice is visible but not usable before her slot.
+  // Before her slot Alice may already test (cold start on her own GPU).
   const voice = retry.expName;
-  assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.reason, 'too-early');
+  assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.reason, 'on-demand');
   assert.equal((await h.call(bob, 'GET', `voices/${voice}/access`)).status, 404);
-  h.advance(290 - 124 - 10); // 10 min before Alice's slot: GPU wanted, her voice preloaded
+  h.advance(290 - 124 - 10); // 10 min before Alice's slot: her GPU warms with her voice
   await h.call(boss, 'POST', 'admin/tick');
-  assert.deepEqual(h.preloaded, [voice]);
+  assert.deepEqual([...h.preloaded].sort(), [voice, 'bob'].sort(), 'Alice and Bob share the time: both GPUs warm');
+  assert.equal(new Set(h.preloadedOwners).size, 2, 'one reserved GPU each');
+  assert.ok(h.preloadedOwners.every((owner) => /^reserved:studio-p-/u.test(owner)));
   assert.ok(h.sent.some((m) => m.to.includes(alice) && /starts soon/u.test(m.subject)), 'reminder as the GPU warms');
   h.advance(11);
-  // Super users keep testing on their own QC GPU while Alice's slot runs.
   assert.equal((await h.call(boss, 'GET', `voices/${voice}/access`)).body.allowed, true);
-  assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.allowed, true);
+  assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.reason, 'in-slot');
   assert.equal((await h.call(alice, 'POST', `voices/${voice}/pronunciations`, { word: 'cohesin', soundsLike: 'koh hee sin' })).status, 200);
   assert.equal((await h.call(alice, 'POST', `voices/${voice}/pronunciations/apply`, {})).status, 200);
 
-  // Feedback is stored and visible to super users.
-  assert.equal((await h.call(alice, 'POST', `submissions/${a1}/feedback`, { rating: 4, comment: 'Close!' })).status, 200);
+  // Feedback ends her testing: stored for super users, her GPU released, testing closed.
+  const fed = await h.call(alice, 'POST', `submissions/${a1}/feedback`, { rating: 4, comment: 'Close!' });
+  assert.equal(fed.status, 200, JSON.stringify(fed.body));
+  assert.equal(h.released.length, 1);
+  assert.match(h.released[0], /^reserved:studio-p-/u);
+  assert.ok(h.sent.some((m) => m.to.includes(boss) && /Feedback received/u.test(m.subject)));
+  assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.reason, 'tested');
+  assert.equal((await h.call(alice, 'POST', `submissions/${a1}/feedback`, { rating: 5 })).status, 409, 'one feedback closes testing');
   const final = (await h.call(boss, 'GET', 'admin/overview')).body;
   assert.equal(final.jobs.find((j) => j.id === a1).feedback[0].comment, 'Close!');
 });
@@ -232,39 +242,22 @@ test('worker refusing a dispatch leaves the job queued', async () => {
   assert.ok(h);
 });
 
-test('email + password accounts: register, sign in, use the studio, never a super user', async () => {
+test('password sign-in is gone: its routes are closed and old password sessions must use Google', async () => {
   const h = harness({ realAuth: true });
-  const anon = (path, body) => h.call('', 'POST', path, body);
-  assert.equal((await anon('auth/register', { email: 'x@ntu.edu.sg', password: 'longenough', name: 'X' })).status, 400, 'NTU uses Microsoft');
-  assert.equal((await anon('auth/register', { email: 'boss@ntu.edu.sg', password: 'longenough', name: 'B' })).status, 400);
-  assert.equal((await anon('auth/register', { email: 'dee@gmail.com', password: 'short', name: 'Dee' })).status, 400, 'password length');
-  const registered = await anon('auth/register', { email: 'Dee@Gmail.com', password: 'longenough', name: 'Dee' });
-  assert.equal(registered.status, 200, JSON.stringify(registered.body));
-  assert.equal((await anon('auth/register', { email: 'dee@gmail.com', password: 'longenough2', name: 'Dee' })).status, 409, 'one account per address');
-  assert.equal((await anon('auth/login', { email: 'dee@gmail.com', password: 'wrong-password' })).status, 401);
-  const autoCreated = await anon('auth/login', { email: 'new.person@gmail.com', password: 'whatever1' });
-  assert.equal(autoCreated.status, 200, 'unknown address is signed up on the spot');
-  assert.equal(autoCreated.body.created, true);
-  assert.equal(autoCreated.body.name, 'new person');
-  assert.equal((await anon('auth/login', { email: 'new.person@gmail.com', password: 'whatever2' })).status, 401);
-  assert.equal((await anon('auth/login', { email: 'short@gmail.com', password: 'abc' })).status, 400, 'new account still needs 8+ chars');
-  const login = await anon('auth/login', { email: 'dee@gmail.com', password: 'longenough' });
-  assert.equal(login.status, 200);
-  const auth = { 'x-vcs-entra-token': login.body.token };
-  const me = await h.call('', 'GET', 'me', undefined, auth);
-  assert.equal(me.status, 200, JSON.stringify(me.body));
-  assert.equal(me.body.email, 'dee@gmail.com');
-  assert.equal(me.body.role, 'lecturer');
-  assert.equal(me.body.account, 'password');
-  assert.equal((await h.call('', 'GET', 'admin/overview', undefined, auth)).status, 403);
-  assert.equal((await h.call('', 'GET', 'me', undefined, { 'x-vcs-entra-token': `${login.body.token}x` })).status, 401);
+  assert.equal((await h.call('', 'POST', 'auth/register', { email: 'dee@gmail.com', password: 'longenough', name: 'Dee' })).status, 401);
+  assert.equal((await h.call('', 'POST', 'auth/login', { email: 'dee@gmail.com', password: 'longenough' })).status, 401);
+  const { signStudioSession } = await import('../shared/studioSession.js');
+  const old = signStudioSession({ email: 'dee@gmail.com', name: 'Dee' }, { env: SESSION_KEYS, now: Date.now() });
+  const me = await h.call('', 'GET', 'me', undefined, { 'x-vcs-entra-token': old });
+  assert.equal(me.status, 401);
+  assert.match(me.body.error, /Google/u);
 });
 
-test('a password identity is never a super user, even with a super user address', async () => {
+test('a password identity is never let in, even with a super user address', async () => {
   const h = harness();
   assert.equal((await h.call('boss@ntu.edu.sg', 'GET', 'me')).body.role, 'superuser');
-  assert.equal((await h.call('boss@ntu.edu.sg', 'GET', 'me', undefined, { 'x-password': '1' })).body.role, 'lecturer');
-  assert.equal((await h.call('boss@ntu.edu.sg', 'GET', 'admin/overview', undefined, { 'x-password': '1' })).status, 403);
+  assert.equal((await h.call('boss@ntu.edu.sg', 'GET', 'me', undefined, { 'x-password': '1' })).status, 401);
+  assert.equal((await h.call('boss@ntu.edu.sg', 'GET', 'admin/overview', undefined, { 'x-password': '1' })).status, 401);
 });
 
 test('super users record without the lecturer consent; lecturers still need it', async () => {
@@ -273,28 +266,21 @@ test('super users record without the lecturer consent; lecturers still need it',
   assert.equal(created.status, 200, JSON.stringify(created.body));
 });
 
-test('a lecturer holds one recording session and can change it, not add another', async () => {
+test('a recording session is booked for a named person; they see only their own', async () => {
   const h = harness();
   const boss = 'boss@ntu.edu.sg';
   const at0 = (m) => new Date(T0 + m * MIN).toISOString();
-  for (const start of [60, 180, 300]) {
-    assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(start), end: at0(start + 60) })).status, 200);
-  }
-  const sessions = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
-  const [s1, s2, s3] = sessions.map((slot) => slot.id);
-  assert.equal((await h.call('amy@gmail.com', 'POST', `slots/${s1}/claim`, { name: 'Amy' })).status, 200);
-  assert.equal((await h.call('amy@gmail.com', 'POST', `slots/${s2}/claim`, { name: 'Amy' })).status, 409, 'no second booking');
-  const moved = await h.call('amy@gmail.com', 'POST', `slots/${s3}/move`, {});
-  assert.equal(moved.status, 200, JSON.stringify(moved.body));
-  const mine = moved.body.sessions.filter((slot) => slot.mine).map((slot) => slot.id);
-  assert.deepEqual(mine, [s3]);
-  assert.equal(moved.body.sessions.find((slot) => slot.id === s1).open, true, 'old session is free again');
-  // The console sees the booking with the person's name.
-  const admin = (await h.call(boss, 'GET', 'admin/overview')).body;
-  assert.equal(admin.slots.find((slot) => slot.id === s3).assigneeName, 'Amy');
-  // Once it has started it cannot be changed.
-  h.advance(301);
-  assert.equal((await h.call('amy@gmail.com', 'POST', `slots/${s2}/move`, {})).status, 409);
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), assigneeEmail: 'amy@gmail.com', assigneeName: 'Amy' })).status, 200);
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), assigneeEmail: 'ben@gmail.com', assigneeName: 'Ben' })).status, 200, 'parallel sessions for different people');
+  const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
+  assert.deepEqual(published.body.published.map((p) => p.kind), ['recordingBooked', 'recordingBooked']);
+  const amy = (await h.call('amy@gmail.com', 'GET', 'me')).body;
+  assert.equal(amy.recording.reason, 'too-early');
+  assert.equal(amy.recording.slot.assigneeEmail, 'amy@gmail.com');
+  assert.equal(amy.sessions, undefined, 'no booking table for lecturers');
+  h.advance(61);
+  assert.equal((await h.call('amy@gmail.com', 'GET', 'me')).body.recording.allowed, true);
+  assert.equal((await h.call('cat@gmail.com', 'GET', 'me')).body.recording.reason, 'no-session');
 });
 
 test('feedback keeps the structured answers', async () => {
@@ -325,6 +311,18 @@ test('Google sign-in: verified Gmail gets a session; bad token and NTU addresses
   const me = await h.call('', 'GET', 'me', undefined, { 'x-vcs-entra-token': signedIn.body.token });
   assert.equal(me.body.email, 'gee@gmail.com');
   assert.equal(me.body.role, 'lecturer');
+  assert.equal(me.body.account, 'google');
   assert.equal((await h.call('', 'POST', 'auth/google', { credential: 'forged' })).status, 401);
   assert.equal((await h.call('', 'POST', 'auth/google', { credential: 'ntu' })).status, 400);
+});
+
+test('a Google-verified super user address is a super user', async () => {
+  const googleVerifier = { verify: async () => ({ email: 'boss@gmail.com', name: 'Boss' }) };
+  const h = harness({ realAuth: true, googleVerifier });
+  const { store } = h;
+  const { updateState } = await import('./store.js');
+  await updateState(store, (state) => { state.superusers.push({ email: 'boss@gmail.com', name: 'Boss' }); return null; });
+  const signedIn = await h.call('', 'POST', 'auth/google', { credential: 'good' });
+  const me = await h.call('', 'GET', 'me', undefined, { 'x-vcs-entra-token': signedIn.body.token });
+  assert.equal(me.body.role, 'superuser');
 });

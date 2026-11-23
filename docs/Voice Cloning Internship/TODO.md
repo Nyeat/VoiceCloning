@@ -1,6 +1,12 @@
 # Active TODO
 
-- [ ] Email: owner creates a Gmail app password for liutengyufish@gmail.com and runs scripts/set-email-password.ps1 -Env staging (and dev); then "Send me a test email" on the Voice Studio overview. Later switch to the lkcmedicine mailbox.
+- [ ] Voice Studio redesign (2026-11-23, not deployed): owner creates a Google OAuth web client (origins
+  https://d271zk8d8curic.cloudfront.net + https://d1zffrwq7b2rri.cloudfront.net), set VITE_GOOGLE_CLIENT_ID
+  (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID (both main Lambdas); then deploy Lambdas + studio + default
+  clients together (Google-only would lock everyone out without it). Then live-test: book recording session ->
+  reminders, two people in one 20-min test slot get two GPUs at -20 min, feedback releases the GPU.
+- [ ] Email: after the redeploy (nodemailer now packaged) press "Send me a test email"; if Gmail says 535, create a
+  Gmail app password (16 letters) and run scripts/set-email-password.ps1 -Env staging / dev.
 
 
 - [ ] Live test 7d1b06f: book a test slot ~25 min ahead; super user tests at the same time on a separate GPU (no lock,

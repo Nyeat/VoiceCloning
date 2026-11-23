@@ -3,8 +3,9 @@
 //   Read aloud — paste text, hear it in the voice (Live Fast, sentence by
 //                sentence), and scan it for words the dictionary does not know.
 //   Right      — the one pronunciation dictionary for the picked voice.
-// Picking a voice gets the GPU ready with it (on this site: one GPU, switched
-// to the picked voice at once).
+// Picking a voice gets the GPU ready with it. One person, one GPU: each person
+// tests on their own (switched to the picked voice at once), reserved so no
+// other site or person switches it while this page uses it.
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -66,6 +67,9 @@ function useVoiceReady(voiceName) {
         if (cancelled) return;
         if (data?.canStartConversation) {
           setState({ status: 'ready', capacity: data, error: '' });
+          // Keep-alive: asking again marks the GPU as still in use, so its
+          // reservation (35 min from last use) never lapses while the page is open.
+          timer = window.setTimeout(check, KEEP_ALIVE_MS);
           return;
         }
         setState({ status: 'starting', capacity: data, error: '' });
@@ -90,6 +94,7 @@ function useVoiceReady(voiceName) {
 }
 
 const BOOT_MINUTES = 15;
+const KEEP_ALIVE_MS = 5 * 60_000;
 const SWITCH_MINUTES = 2;
 
 // The same popup every other site shows while a GPU starts or switches. Its
@@ -596,7 +601,8 @@ export default function VoiceTestBench({
           ))}
         </div>
       </Card>
-      {audience === 'superuser' && <GpuWaitDialog wait={wait} />}
+      {/* The cold-start popup, for everyone: shown while this person's GPU starts or switches. */}
+      <GpuWaitDialog wait={wait} />
       {gpu.status === 'error' && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{gpu.error}</p>}
       {gpu.status !== 'error' && gpu.error && audience === 'superuser' && <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">Still trying: {gpu.error}</p>}
       {audience === 'lecturer' && !ready ? <WarmingCard gpu={gpu} slotWarm={slotWarm} /> : (

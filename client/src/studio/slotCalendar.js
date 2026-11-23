@@ -91,3 +91,33 @@ export function dayHours(slots, { from = 8, to = 20, nowMinutes = null } = {}) {
   }
   return { start, end };
 }
+
+/**
+ * Side-by-side lanes for blocks that overlap in time (several people at once).
+ * blocks: [{ id, start, end }] (ISO or ms). Returns { [id]: { lane, lanes } }.
+ */
+export function layoutLanes(blocks) {
+  const time = (value) => (typeof value === 'number' ? value : Date.parse(value));
+  const sorted = [...blocks].sort((a, b) => time(a.start) - time(b.start) || time(a.end) - time(b.end));
+  const result = {};
+  let cluster = [];
+  let clusterEnd = -Infinity;
+  const close = () => {
+    const lanes = Math.max(1, ...cluster.map((id) => result[id].lane + 1));
+    for (const id of cluster) result[id].lanes = lanes;
+    cluster = [];
+  };
+  let laneEnds = [];
+  for (const block of sorted) {
+    const start = time(block.start);
+    if (start >= clusterEnd) { close(); laneEnds = []; clusterEnd = -Infinity; }
+    let lane = laneEnds.findIndex((end) => end <= start);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = time(block.end);
+    result[block.id] = { lane, lanes: 1 };
+    cluster.push(block.id);
+    clusterEnd = Math.max(clusterEnd, time(block.end));
+  }
+  close();
+  return result;
+}

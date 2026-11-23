@@ -84,17 +84,23 @@ test('attempts are capped unless forced', () => {
   assert.throws(() => wf.reviewJob(a, { decision: 'reject', nextExpName: 'x', now: T0 }), /attempts/u);
 });
 
-test('slots cannot overlap, drafts included; edits and publish email only real changes', () => {
+test('one person cannot hold two overlapping slots; different people can share a time', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   const s1 = wf.addSlot(state, { id: 's1', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', actor: 'su', now: T0 });
-  // Recording sessions may overlap test slots and each other: they do not use the GPU.
-  wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), now: T0 });
-  assert.throws(() => wf.addSlot(state, { id: 's2', start: at(90), end: at(150), assigneeEmail: 'b@ntu.edu.sg', now: T0 }), (e) => e.code === 'SLOT_CLASH');
-  wf.addSlot(state, { id: 's2', start: at(120), end: at(180), assigneeEmail: 'c@ntu.edu.sg', now: T0 });
+  // Two people at the same time each get a GPU of their own.
+  wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
+  assert.throws(() => wf.addSlot(state, { id: 's3', start: at(90), end: at(150), assigneeEmail: 'A@staff.main.ntu.edu.sg', now: T0 }), (e) => e.code === 'SLOT_CLASH');
+  // Recording sessions are booked for a named person by a super user.
+  assert.throws(() => wf.addSlot(state, { id: 'r0', kind: 'recording', start: at(60), end: at(120), now: T0 }), /email/u);
+  assert.throws(() => wf.addSlot(state, { id: 'r0', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'r@gmail.com', now: T0 }), /name/u);
+  wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', now: T0 });
+  wf.addSlot(state, { id: 'r2', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'r@gmail.com', assigneeName: 'R', now: T0 });
   assert.equal(s1.status, 'draft');
   let sent = wf.publishSlots(state, T0);
-  assert.deepEqual(sent.map((n) => [n.kind, n.email]), [['slotBooked', 'a@ntu.edu.sg'], ['slotBooked', 'c@ntu.edu.sg']]);
+  assert.deepEqual(sent.map((n) => [n.kind, n.email]), [
+    ['slotBooked', 'a@ntu.edu.sg'], ['slotBooked', 'b@ntu.edu.sg'], ['recordingBooked', 'a@ntu.edu.sg'], ['recordingBooked', 'r@gmail.com'],
+  ]);
   // Re-publishing with no change emails nobody.
   wf.editSlot(state, 's1', {}, T0);
   assert.equal(s1.status, 'draft', 'an edited slot goes back to draft');
@@ -103,77 +109,65 @@ test('slots cannot overlap, drafts included; edits and publish email only real c
   wf.editSlot(state, 's1', { start: at(30), end: at(90) }, T0);
   sent = wf.publishSlots(state, T0);
   assert.equal(sent[0].moved, true);
-  wf.editSlot(state, 's1', { assigneeEmail: 'b@ntu.edu.sg', assigneeName: 'B' }, T0);
+  wf.editSlot(state, 's1', { assigneeEmail: 'c@ntu.edu.sg', assigneeName: 'C' }, T0);
   sent = wf.publishSlots(state, T0);
-  assert.deepEqual(sent.map((n) => [n.kind, n.email]), [['slotCancelled', 'a@ntu.edu.sg'], ['slotBooked', 'b@ntu.edu.sg']]);
+  assert.deepEqual(sent.map((n) => [n.kind, n.email]), [['slotCancelled', 'a@ntu.edu.sg'], ['slotBooked', 'c@ntu.edu.sg']]);
   // Deleting a slot someone was told about returns them for an email.
-  assert.equal(wf.removeSlot(state, 's1').notify.assigneeEmail, 'b@ntu.edu.sg');
+  assert.equal(wf.removeSlot(state, 's1').notify.assigneeEmail, 'c@ntu.edu.sg');
 });
 
-test('lecturers pick open published recording sessions, one upcoming each', () => {
+test('recording opens only during the session a super user booked for that person', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
-  job(state, 'a1', 'a@ntu.edu.sg', 0).status = 'uploading';
-  wf.addSlot(state, { id: 'open1', kind: 'recording', start: at(60), end: at(120), now: T0 });
-  wf.addSlot(state, { id: 'open2', kind: 'recording', start: at(120), end: at(180), now: T0 });
-  assert.throws(() => wf.claimSlot(state, 'open1', { email: 'a@ntu.edu.sg', now: T0 }), /not available/u, 'drafts cannot be picked');
+  wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', now: T0 });
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'no-session', 'a draft is not a session yet');
   wf.publishSlots(state, T0);
-  assert.throws(() => wf.claimSlot(state, 'open1', { email: 'a@ntu.edu.sg', now: T0 }), /name/u);
-  wf.claimSlot(state, 'open1', { email: 'a@ntu.edu.sg', name: 'A', now: T0 });
-  assert.throws(() => wf.claimSlot(state, 'open2', { email: 'a@ntu.edu.sg', name: 'A', now: T0 }), /already have/u);
   assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).reason, 'too-early');
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).allowed, true);
+  assert.equal(wf.recordingAccess(state, { email: 'A@staff.main.ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).allowed, true);
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 121 * MIN, superuser: false }).reason, 'no-session');
   assert.equal(wf.recordingAccess(state, { email: 'b@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'no-session');
-  const table = wf.publicSlots(state, 'A@staff.main.ntu.edu.sg', T0);
-  assert.deepEqual(table.map((row) => [row.id, row.mine, row.open]), [['open1', true, false], ['open2', false, true]]);
-  wf.releaseSlot(state, 'open1', { email: 'a@ntu.edu.sg', now: T0 });
-  assert.equal(wf.publicSlots(state, 'a@ntu.edu.sg', T0)[0].open, true);
 });
 
-test('in their slot a lecturer uses all their approved voices; super users keep their own GPU', () => {
+test('a lecturer tests their approved voices on their own GPU, in their slot or on demand, until feedback', () => {
   const state = wf.emptyState();
   const a = job(state, 'a1', 'a@ntu.edu.sg', 0);
   const a2 = job(state, 'a2', 'a@ntu.edu.sg', 1);
   a.status = 'approved'; a.approvedExpName = 'a';
   a2.status = 'approved'; a2.approvedExpName = 'a_2';
   a2.reviews.push({ at: new Date(T0 + MIN).toISOString() });
-  wf.addSlot(state, { id: 's1', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 120 * MIN).toISOString(), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
-  // A draft does not hold the GPU.
-  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'x', now: T0 + 61 * MIN, superuser: true }).allowed, true);
+  wf.addSlot(state, { id: 's1', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 80 * MIN).toISOString(), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 's2', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 80 * MIN).toISOString(), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
   wf.publishSlots(state, T0);
   const asA = (voiceName, now) => wf.voiceAccess(state, { email: 'A@staff.main.ntu.edu.sg', voiceName, now, superuser: false });
-  assert.equal(asA('a', T0).reason, 'too-early');
-  assert.equal(asA('a', T0 + 61 * MIN).allowed, true);
+  assert.deepEqual([asA('a', T0).allowed, asA('a', T0).reason], [true, 'on-demand'], 'before the slot: cold start on demand');
+  assert.equal(asA('a', T0).slot.id, 's1');
+  assert.equal(asA('a', T0 + 61 * MIN).reason, 'in-slot');
   assert.equal(asA('a_2', T0 + 61 * MIN).allowed, true);
-  assert.equal(asA('a', T0 + 121 * MIN).reason, 'no-slot');
+  assert.equal(asA('a', T0 + 90 * MIN).reason, 'on-demand', 'after the slot: still on demand');
   assert.equal(wf.voiceAccess(state, { email: 'b@ntu.edu.sg', voiceName: 'a', now: T0 + 61 * MIN, superuser: false }).allowed, false);
-  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 61 * MIN, superuser: true }).allowed, true, 'super users test on their QC GPU during a slot');
-  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0, superuser: true }).allowed, true);
+  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 61 * MIN, superuser: true }).allowed, true);
   assert.equal(wf.gpuDemand(state, T0 + 41 * MIN), 'slot', 'GPU is wanted 20 min early');
   assert.equal(wf.gpuDemand(state, T0 + 39 * MIN), '');
-  assert.equal(wf.gpuHold(state, T0 + 41 * MIN).slot.id, 's1');
-  assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 41 * MIN, superuser: true }).allowed, true, 'no lockout during the warm-up');
+  assert.deepEqual(wf.gpuHolds(state, T0 + 41 * MIN).map((hold) => hold.slot.id).sort(), ['s1', 's2'], 'one GPU each for two people at 1:40');
   assert.equal(wf.preloadVoiceFor(state, state.slots[0]), 'a_2', 'most recently approved voice is preloaded');
+  // Feedback closes testing for that voice.
+  wf.addFeedback(a, { email: 'a@ntu.edu.sg', rating: 4, now: T0 + 70 * MIN });
+  assert.equal(asA('a', T0 + 71 * MIN).reason, 'tested');
+  assert.equal(asA('a_2', T0 + 71 * MIN).allowed, true);
+  assert.equal(wf.lecturerJob(a, null).testingClosedAt, new Date(T0 + 70 * MIN).toISOString());
 });
 
-test('a lecturer can finish their test slot early; its GPU is then released', () => {
+test('a finished slot releases that person\'s GPU, unless their next slot follows within the hour', () => {
   const state = wf.emptyState();
-  const a = job(state, 'a1', 'a@ntu.edu.sg', 0);
-  a.status = 'approved'; a.approvedExpName = 'a';
-  wf.addSlot(state, { id: 's1', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 120 * MIN).toISOString(), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  wf.addSlot(state, { id: 's1', start: at(60), end: at(80), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 's3', start: at(110), end: at(130), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
   wf.publishSlots(state, T0);
-  state.slots[0].warm = { state: 'READY' };
-  assert.throws(() => wf.completeSlot(state, { slotId: 's1', email: 'a@ntu.edu.sg', now: T0 + 50 * MIN }), /not started/u);
-  assert.throws(() => wf.completeSlot(state, { slotId: 's1', email: 'b@ntu.edu.sg', now: T0 + 70 * MIN }), /not found/u);
-  wf.completeSlot(state, { slotId: 's1', email: 'A@staff.main.ntu.edu.sg', now: T0 + 70 * MIN });
-  assert.equal(wf.gpuHold(state, T0 + 71 * MIN), null, 'no hold after finishing');
-  assert.equal(wf.voiceAccess(state, { email: 'a@ntu.edu.sg', voiceName: 'a', now: T0 + 71 * MIN, superuser: false }).allowed, false);
-  assert.deepEqual(wf.slotsToRelease(state, T0 + 71 * MIN).map((slot) => slot.id), ['s1']);
-  assert.throws(() => wf.completeSlot(state, { slotId: 's1', email: 'a@ntu.edu.sg', now: T0 + 72 * MIN }), /already ended/u);
-  // A slot starting within the hour after the early finish keeps the GPU on (bridge).
-  wf.addSlot(state, { id: 's2', start: new Date(T0 + 125 * MIN).toISOString(), end: new Date(T0 + 150 * MIN).toISOString(), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
-  wf.publishSlots(state, T0);
-  assert.equal(wf.gpuHold(state, T0 + 75 * MIN)?.phase, 'bridge');
+  for (const slot of state.slots) slot.warm = { state: 'READY' };
+  assert.deepEqual(wf.slotsToRelease(state, T0 + 81 * MIN).map((slot) => slot.id), ['s1'], 'b keeps their GPU for s3');
+  wf.completeSlot(state, { slotId: 's3', email: 'b@ntu.edu.sg', now: T0 + 115 * MIN });
+  assert.deepEqual(wf.slotsToRelease(state, T0 + 116 * MIN).map((slot) => slot.id).sort(), ['s1', 's2', 's3']);
 });
 
 test('slot warm-up uses the coordinator wait start', () => {
@@ -213,31 +207,24 @@ test('test fixtures show up but never reach the GPU or real lecturers', () => {
   realJob.status = 'cancelled';
   assert.equal(wf.gpuDemand(state, T0), '', 'a queued fixture does not start the GPU');
   state.slots.push({ id: 'ts', kind: 'test', fixture: true, status: 'published', assigneeEmail: 'ready@voice-studio.test', start: new Date(T0).toISOString(), end: new Date(T0 + 60 * MIN).toISOString() });
-  assert.equal(wf.currentSlot(state, T0 + MIN), null, 'a fixture test slot never locks the GPU');
-  assert.equal(wf.gpuHold(state, T0), null);
-  state.slots.push({ id: 'rs', kind: 'recording', fixture: true, status: 'published', assigneeEmail: '', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 120 * MIN).toISOString() });
-  assert.equal(wf.publicSlots(state, 'real@ntu.edu.sg', T0).length, 0, 'real lecturers do not see fixture sessions');
-  assert.equal(wf.publicSlots(state, 'new@voice-studio.test', T0).length, 1);
-  assert.throws(() => wf.claimSlot(state, 'rs', { email: 'real@ntu.edu.sg', name: 'R', now: T0 }), { statusCode: 404 });
+  assert.equal(wf.currentSlot(state, T0 + MIN), null, 'a fixture test slot never holds a GPU');
+  assert.deepEqual(wf.gpuHolds(state, T0), []);
 });
 
-test('one recording session per person: a submitted voice cannot book again', () => {
+test('one submission per person: withdrawn or unsent sets do not count', () => {
   const state = wf.emptyState();
-  const at = (min) => new Date(T0 + min * MIN).toISOString();
   const a = job(state, 'a1', 'a@ntu.edu.sg', 0);
-  wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), now: T0 });
-  wf.publishSlots(state, T0);
-  assert.throws(() => wf.claimSlot(state, 'r1', { email: 'a@ntu.edu.sg', name: 'A', now: T0 }), /already in/u);
+  assert.equal(wf.hasSubmittedVoice(state, 'A@staff.main.ntu.edu.sg'), true);
   a.status = 'cancelled'; // sent back for new recordings
-  wf.claimSlot(state, 'r1', { email: 'a@ntu.edu.sg', name: 'A', now: T0 });
+  assert.equal(wf.hasSubmittedVoice(state, 'a@ntu.edu.sg'), false);
 });
 
-test('session reminders: recording day-before + soon, test slot on the day, each once per booking', () => {
+test('session reminders: recording the day before and on the day, test slot on the day, each once per booking', () => {
   const state = wf.emptyState();
   const start = Date.parse('2026-12-02T06:00:00Z'); // 14:00 SGT
   const iso = (value) => new Date(value).toISOString();
   const now0 = start - 3 * 24 * 60 * MIN;
-  wf.addSlot(state, { id: 'rec', kind: 'recording', start: iso(start), end: iso(start + 60 * MIN), assigneeEmail: 'a@ntu.edu.sg', now: now0 });
+  wf.addSlot(state, { id: 'rec', kind: 'recording', start: iso(start), end: iso(start + 60 * MIN), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', now: now0 });
   wf.addSlot(state, { id: 'tst', kind: 'test', start: iso(start + 2 * 60 * MIN), end: iso(start + 3 * 60 * MIN), assigneeEmail: 'b@ntu.edu.sg', now: now0 });
   wf.publishSlots(state, now0);
   const due = (now) => wf.sessionRemindersDue(state, now).map((item) => `${item.slot.id}:${item.kind}`).sort();
@@ -247,10 +234,10 @@ test('session reminders: recording day-before + soon, test slot on the day, each
   mark(start - 23 * 60 * MIN);
   assert.deepEqual(due(start - 22 * 60 * MIN), [], 'sent once');
   // 07:00 SGT on the day = 23:00 UTC the day before.
-  assert.deepEqual(due(Date.parse('2026-12-01T23:30:00Z')), ['tst:today']);
-  assert.deepEqual(due(start - 30 * MIN), ['rec:soon', 'tst:today']);
+  assert.deepEqual(due(Date.parse('2026-12-01T23:30:00Z')), ['rec:today', 'tst:today']);
+  mark(Date.parse('2026-12-01T23:30:00Z'));
+  assert.deepEqual(due(start - 30 * MIN), []);
   // Moving the recording session re-arms its reminders.
-  mark(start - 30 * MIN);
   wf.findSlot(state, 'rec').start = iso(start + 24 * 60 * MIN);
   assert.deepEqual(due(start + 60 * MIN), ['rec:day'], '23 h before the new time');
 });
@@ -258,38 +245,35 @@ test('session reminders: recording day-before + soon, test slot on the day, each
 test('fixtures: only fixture accounts and listed testers see them; other super users see real work only', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
-  wf.addSlot(state, { id: 'real', kind: 'recording', start: at(60), end: at(120), hostName: 'Dr Tan', now: T0 });
-  wf.addSlot(state, { id: 'fake', kind: 'recording', start: at(60), end: at(120), now: T0 });
+  wf.addSlot(state, { id: 'real', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'r@gmail.com', assigneeName: 'R', hostName: 'Dr Tan', now: T0 });
+  wf.addSlot(state, { id: 'fake', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'f@voice-studio.test', assigneeName: 'F', now: T0 });
   wf.findSlot(state, 'fake').fixture = true;
   job(state, 'f1', 'queued@voice-studio.test', 0).fixture = true;
   wf.publishSlots(state, T0);
   const env = { STUDIO_FIXTURE_VIEWERS: 'Tester@Gmail.com' };
   assert.equal(wf.findSlot(state, 'real').hostName, 'Dr Tan');
-  assert.deepEqual(wf.publicSlots(state, 'someone@gmail.com', T0, env).map((slot) => slot.id), ['real']);
-  assert.deepEqual(wf.publicSlots(state, 'tester@gmail.com', T0, env).map((slot) => slot.id).sort(), ['fake', 'real']);
-  assert.throws(() => wf.claimSlot(state, 'fake', { email: 'someone@gmail.com', name: 'S', now: T0, env }), /not available/u);
-  wf.claimSlot(state, 'fake', { email: 'tester@gmail.com', name: 'T', now: T0, env });
   const boss = wf.viewFor(state, 'boss@ntu.edu.sg', env);
   assert.deepEqual([boss.jobs.length, boss.slots.map((slot) => slot.id)], [0, ['real']]);
   assert.equal(wf.viewFor(state, 'tester@gmail.com', env).slots.length, 2);
 });
 
-test('GPU hold: 20 min warm-up, whole slot, bridged across a gap under an hour', () => {
+test('GPU holds: per person, 20 min warm-up, whole slot, bridged across a gap under an hour', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   const add = (id, start, end, who) => wf.addSlot(state, { id, start: at(start), end: at(end), assigneeEmail: who, now: T0 });
   add('a', 60, 120, 'a@ntu.edu.sg');
-  add('b', 150, 210, 'b@ntu.edu.sg'); // 30 min gap: bridged
-  add('c', 330, 390, 'c@ntu.edu.sg'); // 2 h gap: GPU may stop
+  add('a2', 150, 210, 'a@ntu.edu.sg'); // 30 min gap: bridged
+  add('a3', 330, 390, 'a@ntu.edu.sg'); // 2 h gap: GPU may stop
+  add('b', 60, 80, 'b@ntu.edu.sg');
   wf.publishSlots(state, T0);
-  const hold = (min) => { const h = wf.gpuHold(state, T0 + min * MIN); return h ? `${h.slot.id}:${h.phase}` : null; };
-  assert.equal(hold(39), null);
-  assert.equal(hold(41), 'a:warmup');
-  assert.equal(hold(90), 'a:slot');
-  assert.equal(hold(125), 'b:bridge');
-  assert.equal(hold(135), 'b:warmup');
-  assert.equal(hold(215), null, 'long gap: released');
-  assert.equal(hold(315), 'c:warmup');
+  const holds = (min) => wf.gpuHolds(state, T0 + min * MIN).map((h) => `${h.slot.id}:${h.phase}`).sort();
+  assert.deepEqual(holds(39), []);
+  assert.deepEqual(holds(41), ['a:warmup', 'b:warmup']);
+  assert.deepEqual(holds(90), ['a:slot']);
+  assert.deepEqual(holds(125), ['a2:bridge']);
+  assert.deepEqual(holds(135), ['a2:warmup']);
+  assert.deepEqual(holds(215), [], 'long gap: released');
+  assert.deepEqual(holds(315), ['a3:warmup']);
 });
 
 test('slot warm-up state: estimate from the coordinator answer, READY once it speaks', () => {

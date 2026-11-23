@@ -1,5 +1,8 @@
 # Bugs
 
+- Fixed 2026-11-23 (in code, NOT deployed): every Voice Studio email failed "Cannot find package 'nodemailer'" — the
+  live Lambda zip lacked it. Packaging now verifies dependencies. After redeploy, check EMAIL_PASS: it is 19 chars on
+  both Lambdas (a Gmail app password is 16 letters), so it may be the account password and fail Gmail auth (535).
 - Fixed 2026-11-21 (0ebdad4, f95c8d6 deployed): echoey/robotic cloned voices — training denoise (FRCRN) wrote every
   clip and reference at 16 kHz (nothing above 8 kHz, measured). Denoise now off by default; old voices need a retrain.
 - Fixed 2026-11-21 (7d1b06f deployed): Voice Studio GPU wait timer restarted at 0 on each poll/reload — it read a

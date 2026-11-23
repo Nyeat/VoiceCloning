@@ -352,3 +352,12 @@ These live in runtime configuration and will not appear in any branch diff:
   lecturer presses "I'm done", unless another slot starts within 1 h) and super users' QC GPU `held:studio-qc` (any
   voice, any time, picks switch at once; other sites may take it after 10 min unused). No super-user lockout. A
   reserved owner never takes another owner's held GPU. Owner follows the signed-in role (studioGpuAccess).
+
+## 2026-11-23 — Voice Studio: super users run it; Google sign-in; one person, one GPU (owner decisions)
+
+- Sign-in is Google only (no passwords, no Microsoft button). Super users = STUDIO_SUPERUSERS / in-app list matched on
+  the Google-verified address.
+- Recording sessions are booked by super users for a named person (time agreed in person); lecturers never book.
+- Each tester gets their own hard-reserved GPU (lecturer per person, super users one shared); no other site or person
+  switches it while used. Test slots 20 min, several people may share a time. Lecturers may test outside a slot (cold
+  start). Sending feedback ends a lecturer's testing. Supersedes the 2026-11-21 two-GPU slot/QC split.

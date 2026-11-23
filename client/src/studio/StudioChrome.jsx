@@ -1,7 +1,7 @@
 // Shared pieces of the two Voice Studio sites: brand header, sign-in screen
 // (Google, Microsoft, email + password) and small UI atoms.
 import React, { useEffect, useRef, useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { HelpCircle, Loader2, LogOut, X } from 'lucide-react';
 import ntuLogo from '@/assets/ntu-logo.png';
 import campusPhoto from '@/assets/lkc-campus.jpg';
@@ -86,41 +86,6 @@ function FaqDialog({ onClose, children }) {
   );
 }
 
-const providerButton = 'inline-flex h-11 w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60';
-
-function MicrosoftLogo() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
-      <rect x="1" y="1" width="9" height="9" fill="#f25022" /><rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" /><rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-    </svg>
-  );
-}
-
-function MicrosoftSignIn({ from }) {
-  const auth = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function signIn() {
-    setBusy(true);
-    setError('');
-    try {
-      await auth.signIn(from);
-    } catch (err) {
-      setBusy(false);
-      setError(err instanceof Error ? err.message : 'Microsoft sign-in could not be started.');
-    }
-  }
-  return (
-    <div>
-      <button type="button" onClick={signIn} disabled={busy || auth.isLoading} className={providerButton}>
-        {busy || auth.isLoading ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <MicrosoftLogo />}
-        Continue with Microsoft
-      </button>
-      {(error || auth.error) && <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error || auth.error}</p>}
-    </div>
-  );
-}
 
 // "Sign in with Google" through Google Identity Services: Google's own button
 // (account chooser) plus One Tap, which offers the Gmail accounts already
@@ -190,38 +155,6 @@ function GoogleSignIn({ onSignIn }) {
   );
 }
 
-// One form for everyone: an email with no account yet is signed up on the spot.
-function PasswordSignIn({ onSignIn }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const field = 'block h-11 w-full rounded-xl border border-slate-300 px-3.5 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
-  async function submit(event) {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      await onSignIn('login', { email: email.trim(), password });
-    } catch (err) {
-      setError(err?.response?.data?.error || err?.message || 'Could not sign in');
-      setBusy(false);
-    }
-  }
-  return (
-    <form onSubmit={submit} className="space-y-2.5">
-      <input required type="email" aria-label="Email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className={field} />
-      <input required type="password" aria-label="Password" placeholder="Password (8+ characters if new)" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" className={field} />
-      <button type="submit" disabled={busy} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60">
-        {busy && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
-        Continue
-      </button>
-      <p className="text-xs text-slate-500">No account yet? Just enter an email and a password and we create one.</p>
-      {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
-    </form>
-  );
-}
-
 function FaqHalo({ onOpen }) {
   return (
     <button type="button" onClick={onOpen} className="group flex w-full items-center gap-4 rounded-2xl p-2 text-left hover:bg-slate-50">
@@ -237,18 +170,15 @@ function FaqHalo({ onOpen }) {
 }
 
 /**
- * Sign-in page. With onPasswordSignIn it also offers email + password (any
- * address; a new one is signed up on the spot), with onGoogleSignIn "Continue
- * with Google". faq: content for the FAQ call-out.
+ * Sign-in page: "Continue with Google" only (owner decision 2026-11-23; no
+ * passwords, no Microsoft). faq: content for the FAQ call-out.
  */
 export function SignInScreen({
-  product, headline, lines, accent = 'from-[#0f1b3d] to-[#16285a]', onPasswordSignIn = null, onGoogleSignIn = null, faq = null,
+  product, headline, lines, accent = 'from-[#0f1b3d] to-[#16285a]', onGoogleSignIn = null, faq = null,
 }) {
   const auth = useAuth();
-  const location = useLocation();
   const [faqOpen, setFaqOpen] = useState(false);
   if (auth.isAuthenticated) return <Navigate to="/" replace />;
-  const from = typeof location.state?.from === 'string' ? location.state.from : '/';
   const google = Boolean(onGoogleSignIn && GOOGLE_CLIENT_ID);
 
   return (
@@ -277,19 +207,12 @@ export function SignInScreen({
         <div className="mx-auto w-full max-w-sm">
           <Brand product={product} />
           <h2 className="mt-8 text-2xl sm:mt-10 font-semibold tracking-tight text-slate-900">Welcome</h2>
-          <p className="mt-1 text-sm text-slate-500">Sign in, or create an account in one step.</p>
+          <p className="mt-1 text-sm text-slate-500">Sign in with your Gmail account.</p>
           <div className="mt-6 space-y-2.5">
-            {google && <GoogleSignIn onSignIn={onGoogleSignIn} />}
-            <MicrosoftSignIn from={from} />
+            {google
+              ? <GoogleSignIn onSignIn={onGoogleSignIn} />
+              : <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">Google sign-in is not set up on this site yet. Please contact the Voice Studio team.</p>}
           </div>
-          {onPasswordSignIn && (
-            <>
-              <div className="my-5 flex items-center gap-3 text-xs text-slate-400" aria-hidden="true">
-                <span className="h-px flex-1 bg-slate-200" />or use email<span className="h-px flex-1 bg-slate-200" />
-              </div>
-              <PasswordSignIn onSignIn={onPasswordSignIn} />
-            </>
-          )}
           {faq && <div className="mt-8 border-t border-slate-100 pt-5"><FaqHalo onOpen={() => setFaqOpen(true)} /></div>}
           <p className="mt-6 text-xs leading-5 text-slate-500">
             Your recordings are used only to build a private copy of your voice for LKCMedicine teaching tools. You can ask for them to be deleted at any time.

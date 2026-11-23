@@ -2778,3 +2778,28 @@
   feedback; no element past the screen edge. Not checked on a real iOS/Android device.
 - DEPLOYED 3a422c2 (2026-11-22): studio client dev (d1zffrwq7b2rri) + staging (d271zk8d8curic) via the
   Liu_Teng_Yu_Intern2026 role; live CSS contains .vs-root. Real-phone check still to do.
+
+## 2026-11-23 — Voice Studio redesign (Google-only, admin-booked sessions, one person one GPU) + email root cause
+
+- Sign-in: Google only (password + Microsoft buttons removed; /auth/register, /auth/login gone). Google sessions carry
+  `via: 'google'` (studioSession.js, lambda + gateway copies identical) and count as verified; old password sessions get
+  401 "sign in again with Google". The studio client shows a notice while VITE_GOOGLE_CLIENT_ID is unset.
+- Recording sessions: super users book each person's session (Gmail + name required); lecturer claim/move/release and
+  the booking calendar are removed. Reminders: day before + 07:00 SGT on the day. Lecturer page = recorder during the
+  session, else the status page.
+- Testing: one person, one GPU. Owner keys `reserved:studio-qc` (super users) and `reserved:studio-p-<hash>` per lecturer
+  (studioPersonOwner); hard-reserved, own voices switch at once. Test slots default 20 min, several people per time
+  (one slot + GPU each, all warmed 20 min before, per-person bridge/release). Lecturers may test any time after QC
+  (cold start + GPU popup); sending feedback closes their testing, ends their slot, releases their GPU, emails super
+  users. Tester keep-alive re-prepares every 5 min. "Approved" email now says wait for a test time or test now.
+- Voice names: /api/models returns `labels` (training-site names + studio "<label> · <person>"); LivePage voice picker
+  and labels show them (raw id dimmed beside). New lambda/shared/voiceLabels.js.
+- Email: live notifications all failed "Cannot find package 'nodemailer'" — the deployed staging zip (11-22 00:23 UTC)
+  had no nodemailer although package.json lists it. package-function-url.ps1 now runs npm ci when any dependency is
+  missing and fails if still missing.
+- Files: lambda/studio/{index,workflow,mailer}.js(+tests), lambda/shared/{modelCoordinator,studioGpuGuard,studioSession,
+  voiceLabels}.js, lambda/models/index.js, live-gateway/src/services/studioSession.js, lambda/scripts/package-function-url.ps1,
+  client/src/studio/{StudioApp,StudioChrome,VoiceTestBench,SlotCalendar}.jsx, slotCalendar.js, studioApi.js,
+  client/src/pages/LivePage.jsx.
+- Tests: lambda 447/447, coordinator 88/88, gateway 191/191, client 562/562; studio + default builds OK. NOT deployed,
+  not browser-checked, not run against a real GPU.

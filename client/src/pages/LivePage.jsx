@@ -420,6 +420,8 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     });
   }, [chatbotCategories, chatbotCategory]);
   const [gptModels, setGptModels] = useState([]);
+  // Saved voice names from the model list ({ cs-name_7: 'Lecture voice' }).
+  const [modelLabels, setModelLabels] = useState({});
   const [sovitsModels, setSovitsModels] = useState([]);
   const [modelsFetched, setModelsFetched] = useState(false);
   const [modelError, setModelError] = useState('');
@@ -652,7 +654,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
   // A trained voice's saved name ("francisco") wherever the page names it; the
   // id (cs-…_7) only when it has none.
   const voiceNameLabel = (voiceName) => (voiceName
-    ? myVoices.find((voice) => voice.displayName === voiceName)?.label || voiceName
+    ? myVoices.find((voice) => voice.displayName === voiceName)?.label || modelLabels[voiceName] || voiceName
     : '');
 
   const liveLanguage = normalizeLiveLanguage(selectedLanguage);
@@ -920,6 +922,7 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
     try {
       const res = await getModels();
       setGptModels(res.data.gpt || []);
+      setModelLabels(res.data.labels && typeof res.data.labels === 'object' ? res.data.labels : {});
       setSovitsModels(res.data.sovits || []);
       setModelError('');
       setModelsFetched(true);
@@ -4662,7 +4665,11 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
               </SelectTrigger>
               <SelectContent>
                 {availableProfiles.map((p) => (
-                  <SelectItem key={p.key} value={p.key}>{p.displayName}</SelectItem>
+                  <SelectItem key={p.key} value={p.key} title={p.displayName}>
+                    {voiceNameLabel(p.displayName) !== p.displayName
+                      ? <>{voiceNameLabel(p.displayName)} <span className="text-xs text-slate-400">{p.displayName}</span></>
+                      : p.displayName}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

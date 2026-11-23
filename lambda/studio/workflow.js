@@ -2,8 +2,9 @@
 // review/testing portal. No I/O lives here, so every rule (queue order, ETA,
 // retrain strategy, slot clashes, who may do what) is unit-tested directly.
 //
-// One GPU does everything. Training runs one job at a time in a fair queue,
-// and a tested voice gets the GPU only inside a slot a super user booked.
+// Training runs one job at a time in a fair queue. Testing is one person, one
+// GPU: each lecturer tests on a GPU of their own (in their booked slot, or any
+// time before they send feedback, with a cold start), and super users share one.
 
 import { normalizeEmail } from '../shared/voiceIdentity.js';
 
@@ -270,11 +271,11 @@ export function trainingMinutes(state, env = process.env) {
 // A slot holds the GPU only once it is published AND someone is assigned to it.
 // Drafts and open (unclaimed) slots never block training or super users.
 // Two kinds of slot:
-//   'recording' — an in-person recording session (no GPU). Super users publish
-//                 open sessions; a lecturer picks one, and the record page
-//                 unlocks for them only during it.
-//   'test'      — GPU time to test an approved voice. Super users allocate it to
-//                 one person after QC; test slots never overlap (one GPU).
+//   'recording' — an in-person recording session (no GPU). A super user books it
+//                 for one person (time agreed in person); the record page
+//                 unlocks for that person only during it.
+//   'test'      — GPU time to test an approved voice, for one person. Several
+//                 people may share a time: each gets a GPU of their own.
 export function slotKind(slot) {
   return slot?.kind === 'recording' ? 'recording' : 'test';
 }
@@ -293,6 +294,10 @@ export function slotEnd(slot) {
 
 function activeSlotAt(slots, time) {
   return slots.find((slot) => slotHoldsGpu(slot) && ms(slot.start) <= time && time < slotEnd(slot)) || null;
+}
+
+function slotsHoldingGpu(slots, time) {
+  return slots.filter((slot) => slotHoldsGpu(slot) && ms(slot.start) <= time && time < slotEnd(slot));
 }
 
 /**
@@ -492,16 +497,17 @@ export function addFeedback(job, { email, rating, comment, likeness = '', issues
   const wordList = cleanText(words, 500);
   if (wordList) entry.words = wordList;
   job.feedback.push(entry);
+  // The lecturer's own feedback ends their testing of this voice.
+  if (sameNtuPerson(entry.email, job.ownerEmail) && !job.testingClosedAt) job.testingClosedAt = iso(now);
   return job;
 }
 
 // ── Slots ────────────────────────────────────────────────────────────────
 //
-// A slot is GPU time for one PERSON (not one voice): inside it they can switch
-// between all of their approved voices. Super users add slots as drafts (date,
-// time, optionally a name), edit them, and Publish. Published slots with no
-// name are open; a lecturer can pick one from the table. One GPU means no two
-// slots may overlap, drafts included.
+// A slot is time for one PERSON (not one voice). Super users add slots as
+// drafts (date, time, person), edit them, and Publish. Lecturers never book:
+// times are agreed in person. One person's own slots of a kind may not
+// overlap; different people may share a time (one GPU each for testing).
 
 export function slotsOverlap(left, right) {
   return ms(left.start) < ms(right.end) && ms(right.start) < ms(left.end);
@@ -522,14 +528,14 @@ function validateTimes(start, end, now) {
   return { start: iso(startMs), end: iso(endMs) };
 }
 
-function assertNoClash(state, candidate, ignoreId = '', kind = 'test') {
-  // Recording sessions are in person and may run in parallel; GPU test slots may not.
-  if (kind !== 'test') return;
-  // Fixture slots never hold the GPU, so they never block a real one.
-  const clash = liveSlots(state).find((slot) => slot.id !== ignoreId && real(slot) && slotKind(slot) === 'test' && slotsOverlap(slot, candidate));
+function assertNoClash(state, candidate, ignoreId = '', kind = 'test', email = '') {
+  // One person cannot be in two sessions of a kind at once; different people can.
+  if (!normalizeEmail(email)) return;
+  const clash = liveSlots(state).find((slot) => slot.id !== ignoreId && real(slot) && slotKind(slot) === kind
+    && sameNtuPerson(slot.assigneeEmail, email) && slotsOverlap(slot, candidate));
   if (clash) {
-    const error = clientError(409, `That time overlaps ${clash.assigneeName || clash.assigneeEmail || 'another slot'} `
-      + `(${clash.start} – ${clash.end}). The GPU serves one person at a time.`);
+    const error = clientError(409, `${clash.assigneeName || clash.assigneeEmail} already has a ${kind === 'test' ? 'test slot' : 'recording session'} `
+      + `then (${clash.start} – ${clash.end}).`);
     error.code = 'SLOT_CLASH';
     error.clash = { id: clash.id, start: clash.start, end: clash.end };
     throw error;
@@ -545,8 +551,11 @@ export function addSlot(state, {
 }) {
   const slotType = kind === 'recording' ? 'recording' : 'test';
   const times = validateTimes(start, end, now);
-  if (slotType === 'test' && !normalizeEmail(assigneeEmail)) throw clientError(400, 'Choose who this test slot is for');
-  assertNoClash(state, times, '', slotType);
+  if (!normalizeEmail(assigneeEmail)) {
+    throw clientError(400, slotType === 'test' ? 'Choose who this test slot is for' : 'Enter the email of the person recording');
+  }
+  if (slotType === 'recording' && !cleanText(assigneeName, 80)) throw clientError(400, 'Enter the name of the person recording');
+  assertNoClash(state, times, '', slotType, assigneeEmail);
   const slot = {
     id,
     kind: slotType,
@@ -571,10 +580,11 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
   const slot = findSlot(state, id);
   if (!slot) throw clientError(404, 'Slot not found');
   const times = validateTimes(start ?? slot.start, end ?? slot.end, now);
-  if (slotKind(slot) === 'test' && assigneeEmail !== undefined && !normalizeEmail(assigneeEmail)) {
-    throw clientError(400, 'A test slot needs a person');
+  if (assigneeEmail !== undefined && !normalizeEmail(assigneeEmail)) throw clientError(400, 'A slot needs a person');
+  if (slotKind(slot) === 'recording' && assigneeName !== undefined && !cleanText(assigneeName, 80)) {
+    throw clientError(400, 'Enter the name of the person recording');
   }
-  assertNoClash(state, times, id, slotKind(slot));
+  assertNoClash(state, times, id, slotKind(slot), assigneeEmail ?? slot.assigneeEmail);
   Object.assign(slot, times, {
     ...(assigneeEmail !== undefined ? { assigneeEmail: normalizeEmail(assigneeEmail) } : {}),
     ...(assigneeName !== undefined ? { assigneeName: cleanText(assigneeName, 80) } : {}),
@@ -619,64 +629,6 @@ export function publishSlots(state, now) {
     slot.notified = after;
   }
   return toNotify;
-}
-
-/** A lecturer picks an open published recording session (one upcoming each). */
-export function claimSlot(state, id, { email, name = '', now, env = process.env }) {
-  const slot = findSlot(state, id);
-  if (!slot || slot.status !== 'published' || slotKind(slot) !== 'recording' || (!real(slot) && !isFixtureViewer(email, env))) {
-    throw clientError(404, 'That session is not available');
-  }
-  if (slot.assigneeEmail) throw clientError(409, 'Someone has just taken that session — pick another');
-  if (ms(slot.end) <= now) throw clientError(409, 'That session has already ended');
-  if (!cleanText(name, 80)) throw clientError(400, 'Enter your name');
-  const mine = liveSlots(state).find((item) => slotKind(item) === 'recording' && sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
-  if (mine) throw clientError(409, 'You already have a recording session booked. Use Change to move it to another time.');
-  if (hasSubmittedVoice(state, email)) {
-    throw clientError(409, 'Your recordings are already in. One recording session per person — we email you as your voice moves along.');
-  }
-  slot.assigneeEmail = normalizeEmail(email);
-  slot.assigneeName = cleanText(name, 80);
-  slot.claimedAt = iso(now);
-  slot.notified = { assigneeEmail: slot.assigneeEmail, start: slot.start, end: slot.end };
-  return slot;
-}
-
-/**
- * A lecturer changes their booked recording session to another open one, in
- * one step, so they never hold two and never end up with none. Only before
- * their current session starts.
- */
-export function moveSlot(state, toId, { email, now, env = process.env }) {
-  const current = liveSlots(state).find((item) => slotKind(item) === 'recording' && item.status === 'published'
-    && sameNtuPerson(item.assigneeEmail, email) && ms(item.end) > now);
-  if (!current) throw clientError(404, 'You have no booked session to change');
-  if (current.id === toId) throw clientError(409, 'That is already your session');
-  if (ms(current.start) <= now) throw clientError(409, 'Your session has already started and cannot be changed');
-  const target = findSlot(state, toId);
-  if (!target || target.status !== 'published' || slotKind(target) !== 'recording' || (!real(target) && !isFixtureViewer(email, env))) {
-    throw clientError(404, 'That session is not available');
-  }
-  if (target.assigneeEmail) throw clientError(409, 'Someone has just taken that session — pick another');
-  if (ms(target.end) <= now) throw clientError(409, 'That session has already ended');
-  const name = current.assigneeName;
-  Object.assign(target, {
-    assigneeEmail: current.assigneeEmail, assigneeName: name, claimedAt: iso(now),
-    notified: { assigneeEmail: current.assigneeEmail, start: target.start, end: target.end },
-  });
-  Object.assign(current, { assigneeEmail: '', assigneeName: '', notified: null, claimedAt: null });
-  return { from: { ...current }, to: target };
-}
-
-export function releaseSlot(state, id, { email, now }) {
-  const slot = findSlot(state, id);
-  if (!slot || slotKind(slot) !== 'recording' || !sameNtuPerson(slot.assigneeEmail, email)) throw clientError(404, 'That is not your session');
-  if (ms(slot.start) <= now) throw clientError(409, 'Your slot has already started');
-  slot.assigneeEmail = '';
-  slot.assigneeName = '';
-  slot.notified = null;
-  slot.claimedAt = null;
-  return slot;
 }
 
 export function currentSlot(state, now) {
@@ -732,8 +684,8 @@ export function hasSubmittedVoice(state, email) {
   return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && !['uploading', 'cancelled'].includes(job.status));
 }
 
-// Emails before a booked session. Recording: the day before, then shortly
-// before it starts. Test slot: on the morning of the day (the GPU "starts soon"
+// Emails before a booked session. Recording: the day before, then on the
+// morning of the day. Test slot: on the morning of the day (the GPU "starts soon"
 // email at warm-up is separate, see slotsToRemind).
 const SGT_OFFSET_MS = 8 * 60 * MINUTE;
 function sgtMorningOf(startMs, hour = 7) {
@@ -741,9 +693,10 @@ function sgtMorningOf(startMs, hour = 7) {
   return dayStart + hour * 60 * MINUTE;
 }
 export const SESSION_REMINDERS = Object.freeze({
+  // The day before, then on the morning of the day itself.
   recording: [
-    { kind: 'day', from: (start) => start - 24 * 60 * MINUTE, until: (start) => start - 2 * 60 * MINUTE },
-    { kind: 'soon', from: (start) => start - 60 * MINUTE, until: (start) => start },
+    { kind: 'day', from: (start) => start - 24 * 60 * MINUTE, until: (start) => Math.min(start, sgtMorningOf(start)) },
+    { kind: 'today', from: (start) => sgtMorningOf(start), until: (start) => start },
   ],
   test: [
     { kind: 'today', from: (start) => sgtMorningOf(start), until: (start) => start - SLOT_WARMUP_MINUTES * MINUTE },
@@ -789,23 +742,26 @@ function approvedVoicesOf(state, email) {
     .map((job) => job.approvedExpName);
 }
 
+/** Whether this person has finished testing (sent their feedback) for a voice. */
+export function testingClosed(state, email, voiceName) {
+  return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && job.approvedExpName === voiceName && job.testingClosedAt);
+}
+
 /**
  * Whether this person may load and speak with this voice right now.
- * Super users review any voice at any time, on their own QC GPU; a lecturer's
- * slot has a GPU of its own. A lecturer uses only their own approved voices,
- * only inside their own slot.
+ * Super users review any voice at any time, on their own GPU. A lecturer uses
+ * only their own approved voices, on a GPU of their own: warmed for their test
+ * slot, or started on demand (cold start) outside it — until they send their
+ * feedback, which closes testing.
  */
 export function voiceAccess(state, { email, voiceName, now, superuser }) {
-  const active = activeSlotAt(state.slots, now);
   const ownApproved = approvedVoicesOf(state, email).includes(voiceName);
-  if (active && sameNtuPerson(active.assigneeEmail, email) && ownApproved) {
-    return { allowed: true, reason: 'in-slot', slot: active };
-  }
-  if (superuser) return { allowed: true, reason: 'superuser', slot: null };
+  const active = slotsHoldingGpu(state.slots, now).find((slot) => sameNtuPerson(slot.assigneeEmail, email)) || null;
+  if (superuser) return { allowed: true, reason: 'superuser', slot: active };
   if (!ownApproved) return { allowed: false, reason: 'not-approved' };
-  const slot = upcomingSlotFor(state, email, now, 'test');
-  if (!slot) return { allowed: false, reason: 'no-slot' };
-  return { allowed: false, reason: 'too-early', slot };
+  if (testingClosed(state, email, voiceName)) return { allowed: false, reason: 'tested' };
+  if (active) return { allowed: true, reason: 'in-slot', slot: active };
+  return { allowed: true, reason: 'on-demand', slot: upcomingSlotFor(state, email, now, 'test') };
 }
 
 /** Voices this person may see in the testing portal at all. */
@@ -825,26 +781,37 @@ export function preloadVoiceFor(state, slot) {
 }
 
 /**
- * Whether a test slot holds the inference GPU now, and for whom: from
- * SLOT_WARMUP_MINUTES before it starts to its end, and across a gap shorter
- * than SLOT_BRIDGE_MINUTES to the next slot (the GPU then loads the next
- * person's voice instead of stopping and starting again). phase: 'warmup' |
- * 'slot' | 'bridge'.
+ * Test slots holding a GPU now, one entry per person (each has a GPU of their
+ * own): from SLOT_WARMUP_MINUTES before a slot to its end, and across a gap
+ * shorter than SLOT_BRIDGE_MINUTES to that same person's next slot. phase:
+ * 'warmup' | 'slot' | 'bridge'.
  */
-export function gpuHold(state, now) {
-  const slots = state.slots.filter(slotHoldsGpu).sort((a, b) => ms(a.start) - ms(b.start));
-  for (let index = 0; index < slots.length; index += 1) {
-    const slot = slots[index];
-    const from = ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE;
-    const end = slotEnd(slot);
-    if (from <= now && now < end) return { slot, phase: now < ms(slot.start) ? 'warmup' : 'slot' };
-    const next = slots[index + 1];
-    if (next && end <= now && now < ms(next.start) - SLOT_WARMUP_MINUTES * MINUTE
-      && ms(next.start) - end < SLOT_BRIDGE_MINUTES * MINUTE) {
-      return { slot: next, phase: 'bridge' };
+export function gpuHolds(state, now) {
+  const byPerson = new Map();
+  for (const slot of state.slots.filter(slotHoldsGpu)) {
+    const key = normalizeEmail(slot.assigneeEmail);
+    byPerson.set(key, [...(byPerson.get(key) || []), slot]);
+  }
+  const holds = [];
+  for (const slots of byPerson.values()) {
+    slots.sort((a, b) => ms(a.start) - ms(b.start));
+    for (let index = 0; index < slots.length; index += 1) {
+      const slot = slots[index];
+      const from = ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE;
+      const end = slotEnd(slot);
+      if (from <= now && now < end) {
+        holds.push({ slot, phase: now < ms(slot.start) ? 'warmup' : 'slot' });
+        break;
+      }
+      const next = slots[index + 1];
+      if (next && end <= now && now < ms(next.start) - SLOT_WARMUP_MINUTES * MINUTE
+        && ms(next.start) - end < SLOT_BRIDGE_MINUTES * MINUTE) {
+        holds.push({ slot: next, phase: 'bridge' });
+        break;
+      }
     }
   }
-  return null;
+  return holds;
 }
 
 /**
@@ -872,9 +839,14 @@ export function nextWarmState(previous, capacity, now) {
   };
 }
 
-/** Ended test slots whose GPU warm-up ran and has not been released yet. */
+/**
+ * Ended test slots whose GPU warm-up ran and has not been released yet, except
+ * for people whose GPU is still held (their next slot follows within the hour).
+ */
 export function slotsToRelease(state, now) {
-  return state.slots.filter((slot) => slotHoldsGpu(slot) && slot.warm && !slot.gpuReleasedAt && slotEnd(slot) <= now);
+  const held = gpuHolds(state, now).map((hold) => normalizeEmail(hold.slot.assigneeEmail));
+  return state.slots.filter((slot) => slotHoldsGpu(slot) && slot.warm && !slot.gpuReleasedAt && slotEnd(slot) <= now
+    && !held.includes(normalizeEmail(slot.assigneeEmail)));
 }
 
 // Super users testing keeps the fixed GPU (the live chat service) on until this
@@ -884,26 +856,9 @@ export const SUPERUSER_TEST_IDLE_MINUTES = 30;
 /** The fixed GPU must stay on (and be started) while any of this is true. */
 export function gpuDemand(state, now) {
   if (state.jobs.some((job) => real(job) && (job.status === 'training' || job.status === 'queued'))) return 'training';
-  if (gpuHold(state, now)) return 'slot';
+  if (gpuHolds(state, now).length > 0) return 'slot';
   if (now - ms(state.lastSuperuserTestAt) < SUPERUSER_TEST_IDLE_MINUTES * MINUTE) return 'testing';
   return '';
-}
-
-/** What a lecturer sees in the session table: published upcoming recording sessions. */
-export function publicSlots(state, email, now, env = process.env) {
-  const fixtureViewer = isFixtureViewer(email, env);
-  return liveSlots(state)
-    .filter((slot) => slotKind(slot) === 'recording' && slot.status === 'published' && ms(slot.end) > now)
-    .filter((slot) => real(slot) || fixtureViewer)
-    .sort((a, b) => ms(a.start) - ms(b.start))
-    .map((slot) => ({
-      id: slot.id,
-      start: slot.start,
-      end: slot.end,
-      open: !slot.assigneeEmail,
-      mine: sameNtuPerson(slot.assigneeEmail, email),
-      name: slot.assigneeEmail ? (slot.assigneeName || 'Booked') : '',
-    }));
 }
 
 // ── Views ────────────────────────────────────────────────────────────────
@@ -925,6 +880,7 @@ export function lecturerJob(job, estimate) {
     createdAt: job.createdAt,
     queuedAt: job.queuedAt,
     voiceName: ['approved', 'scheduled'].includes(job.status) ? job.approvedExpName : '',
+    testingClosedAt: job.testingClosedAt || null,
     estimate: estimate || null,
     feedback: job.feedback.filter((entry) => sameNtuPerson(entry.email, job.ownerEmail)),
   };

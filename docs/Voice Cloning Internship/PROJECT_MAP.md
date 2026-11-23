@@ -41,7 +41,8 @@
 - `src/lib/pronunciationCsv.js` — Pronunciation dictionary CSV import/export.
 - `vite.config.js` — dev server + proxy rules. `src/auth/tokenExpiry.js` — refresh expiring ID tokens.
 - `client/src/studio/` + `lambda/studio/` — Voice Studio (build `studio`; `record` forwards): /api/studio; rules `workflow.js` (gpuHold, reminders, fixtures);
-  tester `VoiceTestBench.jsx`; sign-in `studio/accounts.js`, `googleToken.js`, `shared/studioSession.js`; GPU lockout `shared/studioGpuGuard.js`; email pass `scripts/set-email-password.ps1`.
+  tester `VoiceTestBench.jsx`; Google sign-in `googleToken.js`, `shared/studioSession.js`; per-person GPU `shared/studioGpuGuard.js`; email pass `scripts/set-email-password.ps1`.
+- `lambda/shared/voiceLabels.js` — saved voice names, returned as `labels` by /api/models for every voice picker.
 ## Lambda REST Backend (`lambda/`)
 
 - `index.js` — Lambda entrypoint. `router.js` — maps `/api/*` routes to feature handlers.

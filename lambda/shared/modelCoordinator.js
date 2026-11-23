@@ -194,18 +194,22 @@ export function ttsSiteOption(event, env = process.env) {
   return origin && allowed.includes(origin) ? { singleGpu: true } : {};
 }
 
-// Voice Studio has two GPUs with two different owners, so they never take or
-// switch each other (owner decision 2026-11-21):
-//  - super users' QC GPU: a soft hold — inside it every voice pick switches at
-//    once (their own GPU); another site may switch it only after 10 min
-//    unused; it scales in after the usual idle time;
-//  - lecturers' test-slot GPU: a hard reservation — nobody else switches it
-//    (and, being reserved, it never takes the QC GPU either); it never idles
-//    out during a slot, and the studio releases it after the slot ends or the
-//    lecturer finishes early, unless another slot starts within the hour.
+// Voice Studio: one person, one GPU (owner decision 2026-11-23). Every key is a
+// hard reservation ("reserved:"), so no other site and no other person ever
+// switches it while it is in use (35 min since last use; the studio's slot
+// keep-alive and the tester's polling refresh it). Inside a key, the owner's
+// own voice picks switch at once (no 10 min idle wait).
+//  - super users (one shared account): STUDIO_GPU_OWNER;
+//  - each lecturer: studioPersonOwner(email) — warmed for their test slot,
+//    or cold-started when they test outside it; released after the slot or
+//    when they send their feedback.
 // Which one a request uses follows who is signed in (studioGpuGuard).
-export const STUDIO_GPU_OWNER = 'held:studio-qc';
-export const STUDIO_SLOT_OWNER = 'reserved:studio-slot';
+export const STUDIO_GPU_OWNER = 'reserved:studio-qc';
+export function studioPersonOwner(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return '';
+  return `reserved:studio-p-${crypto.createHash('sha256').update(`vcs-studio:${key}`).digest('hex').slice(0, 20)}`;
+}
 
 /** Gives an owner's GPUs back; each is removed as soon as nothing runs on it. */
 export async function releaseCoordinatedOwner(ownerKey) {

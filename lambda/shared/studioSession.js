@@ -40,19 +40,20 @@ export function studioPublicKey(env = process.env) {
   return privateKey ? createPublicKey(privateKey) : null;
 }
 
-export function signStudioSession({ email, name = '' }, { env = process.env, now = Date.now(), days = STUDIO_SESSION_DAYS } = {}) {
+// via: 'google' when Google verified the address (Voice Studio's only sign-in now).
+export function signStudioSession({ email, name = '', via = '' }, { env = process.env, now = Date.now(), days = STUDIO_SESSION_DAYS } = {}) {
   const privateKey = keyFromBase64(env.STUDIO_SESSION_PRIVATE_KEY, 'private');
   if (!privateKey) throw new StudioSessionError('misconfigured', 'Email sign-in is not configured on the server.');
   const iat = Math.floor(now / 1000);
   const payload = Buffer.from(JSON.stringify({
-    sub: String(email).trim().toLowerCase(), name: String(name || '').slice(0, 80), iat, exp: iat + days * 86400, typ: 'studio-password',
+    sub: String(email).trim().toLowerCase(), name: String(name || '').slice(0, 80), iat, exp: iat + days * 86400, typ: 'studio-password', ...(via === 'google' ? { via } : {}),
   })).toString('base64url');
   const signature = sign(null, Buffer.from(payload), privateKey).toString('base64url');
   return `${STUDIO_TOKEN_PREFIX}${payload}.${signature}`;
 }
 
 /**
- * @returns {{ oid: string, email: string, name: string, passwordAccount: true }}
+ * @returns {{ oid: string, email: string, name: string, passwordAccount: boolean, via?: 'google' }}
  * @throws {StudioSessionError}
  */
 export function verifyStudioSession(token, { env = process.env, now = Date.now() } = {}) {
@@ -78,5 +79,7 @@ export function verifyStudioSession(token, { env = process.env, now = Date.now()
     throw new StudioSessionError('malformed', 'Your sign-in is not valid. Please sign in again.');
   }
   if (!Number.isFinite(payload.exp) || payload.exp * 1000 <= now) throw new StudioSessionError('expired', 'Your sign-in has expired. Please sign in again.');
-  return { oid: `studio-pw:${payload.sub}`, email: payload.sub, name: payload.name || payload.sub, passwordAccount: true };
+  // Google-verified sessions are verified addresses; older password sessions are not.
+  const google = payload.via === 'google';
+  return { oid: `studio-pw:${payload.sub}`, email: payload.sub, name: payload.name || payload.sub, passwordAccount: !google, ...(google ? { via: 'google' } : {}) };
 }

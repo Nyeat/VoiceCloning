@@ -18,7 +18,7 @@ import { listTrainedVoiceNames, bestModelsForVoice } from '../shared/trainedVoic
 import * as wf from './workflow.js';
 import { createS3StateStore, updateState } from './store.js';
 import {
-  ACCOUNTS_KEY, findAccount, hashPassword, normalizeAccounts, passwordMatches, requiresMicrosoft, validateRegistration,
+  ACCOUNTS_KEY, findAccount, normalizeAccounts, requiresMicrosoft,
 } from './accounts.js';
 import { createGoogleVerifier } from './googleToken.js';
 import { signStudioSession, STUDIO_SESSION_DAYS } from '../shared/studioSession.js';
@@ -47,28 +47,30 @@ async function defaultStartGpu() {
   return startGpuInstance();
 }
 
-// Gets a lecturer's voice ready for their test slot, and keeps asking for it
-// through the slot (each ask counts as use, so the GPU is never idled out under
-// them). As Voice Studio's GPU owner: the studio's own GPU (the super users'
-// one; they are locked out from the warm-up on) switches at once — no idle
-// wait — and a GPU is added only when the studio has none usable (e.g. its GPU
-// is being removed). No other site can switch it meanwhile.
+// Gets a lecturer's voice ready for their test slot on a GPU of their own
+// (ownerKey: studioPersonOwner), and keeps asking for it through the slot (each
+// ask counts as use, so the GPU is never idled out or switched under them).
 // Returns the coordinator's answer (state, canStartConversation, …).
-async function defaultPreloadVoice(voiceName) {
-  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel, STUDIO_SLOT_OWNER }, { buildVoiceProfileId }] = await Promise.all([
+async function defaultPreloadVoice(voiceName, ownerKey) {
+  const [{ createVoiceProfileResolver }, { prepareCoordinatedModel }, { buildVoiceProfileId }] = await Promise.all([
     import('../shared/voiceProfileRuntime.js'),
     import('../shared/modelCoordinator.js'),
     import('../shared/voiceIdentity.js'),
   ]);
   const body = await createVoiceProfileResolver()({ voiceProfileId: buildVoiceProfileId(voiceName), text: 'Voice Studio slot warm-up.' });
-  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey: STUDIO_SLOT_OWNER });
+  return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey });
 }
 
-// The slot's GPU after its last slot (no other slot within the hour): released
-// so it shuts down now rather than after the idle timer.
-async function defaultReleaseSlotGpu() {
-  const { releaseCoordinatedOwner, STUDIO_SLOT_OWNER } = await import('../shared/modelCoordinator.js');
-  return releaseCoordinatedOwner(STUDIO_SLOT_OWNER);
+// A person's GPU once they are done (slot over with none within the hour, or
+// feedback sent): released so it shuts down now rather than after the idle timer.
+async function defaultReleaseSlotGpu(ownerKey) {
+  const { releaseCoordinatedOwner } = await import('../shared/modelCoordinator.js');
+  return releaseCoordinatedOwner(ownerKey);
+}
+
+async function personOwner(email) {
+  const { studioPersonOwner } = await import('../shared/modelCoordinator.js');
+  return studioPersonOwner(email);
 }
 
 async function readJsonObject(key) {
@@ -248,16 +250,18 @@ export function createStudioService({
       await mailer.send(slot.assigneeEmail, message);
     }
 
-    // A test slot holds the GPU from 20 min before it to its end (and across a
-    // short gap to the next): ask for the person's voice on every tick, and
-    // keep the warm-up state on the slot for the lecturer and super users.
+    // Each test slot holds a GPU of its person's own from 20 min before it to
+    // its end (and across a short gap to their next): ask for their voice on
+    // every tick, and keep the warm-up state on the slot for everyone to see.
+    // Several people in one slot each get their own GPU, warmed in parallel.
     const preloaded = [];
-    const hold = wf.gpuHold(state, now);
-    const voiceName = hold ? wf.preloadVoiceFor(state, hold.slot) : '';
-    if (voiceName) {
+    const holds = wf.gpuHolds(state, now).filter((hold) => !testingDone(state, hold.slot.assigneeEmail));
+    await Promise.all(holds.map(async (hold) => {
+      const voiceName = wf.preloadVoiceFor(state, hold.slot);
+      if (!voiceName) return;
       let capacity = null;
       try {
-        capacity = await preloadVoice(voiceName);
+        capacity = await preloadVoice(voiceName, await personOwner(hold.slot.assigneeEmail));
         preloaded.push(voiceName);
       } catch (error) {
         capacity = { state: 'ERROR', message: error.message };
@@ -270,15 +274,15 @@ export function createStudioService({
         if (current.warm.state === 'READY' && !current.preloadedAt) current.preloadedAt = new Date(now).toISOString();
         return null;
       });
-    }
+    }));
 
-    // Slot over and no slot soon after: give its GPU back (shuts down now).
+    // A person's slot is over and none follows soon: give their GPU back (shuts down now).
     const finished = wf.slotsToRelease(state, now);
-    if (!hold && finished.length > 0) {
+    for (const email of [...new Set(finished.map((slot) => slot.assigneeEmail))]) {
       try {
-        await releaseSlotGpu();
+        await releaseSlotGpu(await personOwner(email));
         await updateState(store, (draft) => {
-          for (const slot of finished) {
+          for (const slot of finished.filter((item) => wf.sameNtuPerson(item.assigneeEmail, email))) {
             const current = wf.findSlot(draft, slot.id);
             if (current) current.gpuReleasedAt = new Date(now).toISOString();
           }
@@ -301,7 +305,30 @@ export function createStudioService({
     return { skipped: false, demand, dispatched, preloaded, workerReachable: Boolean(worker), gpuStart };
   }
 
-  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices };
+  // Sent feedback on every approved voice: no GPU is warmed for them any more.
+  function testingDone(state, email) {
+    const approved = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && ['approved', 'scheduled'].includes(job.status));
+    return approved.length > 0 && approved.every((job) => job.testingClosedAt);
+  }
+
+  // A lecturer finished testing: end their running slot and give their GPU back now.
+  async function finishTesting(email) {
+    const now = clock();
+    await updateState(store, (draft) => {
+      const slots = draft.slots.filter((slot) => wf.slotHoldsGpu(slot) && wf.sameNtuPerson(slot.assigneeEmail, email)
+        && Date.parse(slot.start) - wf.SLOT_WARMUP_MINUTES * 60_000 <= now && now < wf.slotEnd(slot));
+      if (slots.length === 0) return { skipWrite: true };
+      for (const slot of slots) slot.completedAt = new Date(now).toISOString();
+      return null;
+    });
+    try {
+      await releaseSlotGpu(await personOwner(email));
+    } catch (error) {
+      console.warn(`[studio] GPU release after feedback failed (it idles off instead): ${error.message}`);
+    }
+  }
+
+  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices, finishTesting, testingDone };
 }
 
 // ── HTTP ─────────────────────────────────────────────────────────────────
@@ -346,10 +373,12 @@ export function createHandler({
     try {
       identity = await authGuard.authorize(event);
     } catch {
-      throw wf.clientError(401, 'Please sign in with your Microsoft account');
+      throw wf.clientError(401, 'Please sign in with Google');
     }
     if (identity?.synthetic || !identity?.email) throw wf.clientError(403, 'A signed-in account is required');
-    return { email: String(identity.email).trim().toLowerCase(), passwordAccount: identity.passwordAccount === true };
+    // Password sign-in was removed (owner decision 2026-11-23): old password sessions must sign in with Google.
+    if (identity.passwordAccount === true) throw wf.clientError(401, 'Please sign in again with Google');
+    return { email: String(identity.email).trim().toLowerCase(), passwordAccount: false, via: identity.via === 'google' ? 'google' : 'microsoft' };
   }
 
   // Email + password addresses are not verified, so they are never super users.
@@ -361,39 +390,6 @@ export function createHandler({
     if (!superuserOf(state, email, passwordAccount)) throw wf.clientError(403, 'Super users only');
   }
 
-  async function register(body) {
-    const { email, name } = validateRegistration(body, env);
-    const { state } = await store.read();
-    // A Microsoft user's studio work stays theirs: nobody can take over that address with a password.
-    if (wf.isSuperuser(state, email, env)
-      || state.jobs.some((job) => wf.sameNtuPerson(job.ownerEmail, email))
-      || state.slots.some((slot) => slot.status !== 'cancelled' && wf.sameNtuPerson(slot.assigneeEmail, email))) {
-      throw wf.clientError(409, 'This address already uses Voice Studio with Microsoft sign-in. Please sign in with Microsoft.');
-    }
-    const passwordHash = await hashPassword(body.password);
-    await updateState(service.accountStore, (accounts) => {
-      if (findAccount(accounts, email)) throw wf.clientError(409, 'An account with this email already exists — sign in instead');
-      accounts.accounts.push({ email, name, passwordHash, createdAt: new Date(clock()).toISOString() });
-      return null;
-    });
-    return { ...session({ email, name }), created: true };
-  }
-
-  // One form: an address with no account yet is signed up on the spot, its
-  // name taken from the address unless one is given.
-  async function login(body) {
-    const { state: accounts } = await service.accountStore.read();
-    const account = findAccount(accounts, body.email);
-    if (!account) {
-      const local = String(body.email || '').split('@')[0].replace(/[._+-]+/gu, ' ').trim();
-      return register({ ...body, name: String(body.name || '').trim() || local });
-    }
-    if (!(await passwordMatches(String(body.password || ''), account.passwordHash))) {
-      throw wf.clientError(401, 'Wrong password for this email');
-    }
-    return session(account);
-  }
-
   // "Sign in with Google": the address is verified by Google, so no password.
   async function googleLogin(body) {
     let verified;
@@ -402,16 +398,16 @@ export function createHandler({
     } catch (error) {
       throw wf.clientError(error.code === 'misconfigured' ? 503 : 401, error.message || 'Google sign-in failed');
     }
-    if (requiresMicrosoft(verified.email, env)) throw wf.clientError(400, 'NTU addresses sign in with Microsoft');
+    if (requiresMicrosoft(verified.email, env)) throw wf.clientError(400, 'Please sign in with a Gmail account');
     const { state: accounts } = await service.accountStore.read();
     const name = verified.name || findAccount(accounts, verified.email)?.name || verified.email.split('@')[0];
-    return session({ email: verified.email, name });
+    return session({ email: verified.email, name, via: 'google' });
   }
 
-  function session({ email, name }) {
+  function session({ email, name, via }) {
     const now = clock();
     try {
-      return { token: signStudioSession({ email, name }, { env, now }), email, name, expiresAt: new Date(now + STUDIO_SESSION_DAYS * 86400_000).toISOString() };
+      return { token: signStudioSession({ email, name, via }, { env, now }), email, name, expiresAt: new Date(now + STUDIO_SESSION_DAYS * 86400_000).toISOString() };
     } catch (error) {
       throw wf.clientError(503, error.message);
     }
@@ -432,7 +428,7 @@ export function createHandler({
     }
   }
 
-  async function lecturerView(state, email, passwordAccount = false) {
+  async function lecturerView(state, email, passwordAccount = false, via = 'google') {
     const now = clock();
     const superuser = superuserOf(state, email, passwordAccount);
     const estimates = new Map(wf.estimateQueue(state, { now, env }).map((entry) => [entry.jobId, entry]));
@@ -443,7 +439,7 @@ export function createHandler({
     return {
       email,
       role: superuser ? 'superuser' : 'lecturer',
-      account: passwordAccount ? 'password' : 'microsoft',
+      account: via,
       jobs,
       queueLength: wf.orderQueue(state.jobs.filter((job) => !job.fixture)).length + (state.jobs.some((job) => job.status === 'training' && !job.fixture) ? 1 : 0),
       trainingMinutes: wf.trainingMinutes(state, env),
@@ -451,8 +447,7 @@ export function createHandler({
         voiceName,
         access: wf.voiceAccess(state, { email, voiceName, now, superuser: false }),
       })),
-      // Recording sessions: the table they pick from, and whether recording is open now.
-      sessions: wf.publicSlots(state, email, now, env),
+      // Their recording session (booked for them by the team) and whether recording is open now.
       recording: wf.recordingAccess(state, { email, now, superuser }),
       // GPU test slot (allocated by a super user after QC).
       mySlot: wf.upcomingSlotFor(state, email, now, 'test'),
@@ -494,10 +489,8 @@ export function createHandler({
         name: job.ownerName,
         approvedVoices: state.jobs.filter((other) => other.ownerEmail === job.ownerEmail && ['approved', 'scheduled'].includes(other.status)).map((other) => other.approvedExpName),
       }])).values()],
-      currentSlot: (() => {
-        const hold = wf.gpuHold(state, now);
-        return hold ? { ...hold.slot, phase: hold.phase } : null;
-      })(),
+      // Test slots holding a GPU now (one per person).
+      currentSlots: wf.gpuHolds(state, now).map((hold) => ({ ...hold.slot, phase: hold.phase })),
       superusers: wf.listSuperusers(state, env),
       trainingMinutes: wf.trainingMinutes(state, env),
       maxAttempts: wf.MAX_TRAINING_ATTEMPTS,
@@ -536,12 +529,11 @@ export function createHandler({
     }
 
     try {
-      // Email + password sign-in (no Microsoft account): the only routes without a token.
-      if (method === 'POST' && parts.length === 2 && parts[0] === 'auth' && ['register', 'login', 'google'].includes(parts[1])) {
-        const handlers = { register, login, google: googleLogin };
-        return ok(await handlers[parts[1]](body), {}, event);
+      // "Sign in with Google": the only route without a token.
+      if (method === 'POST' && parts.length === 2 && parts[0] === 'auth' && parts[1] === 'google') {
+        return ok(await googleLogin(body), {}, event);
       }
-      const { email, passwordAccount } = await identify(event);
+      const { email, passwordAccount, via } = await identify(event);
       const now = clock();
       const route = `${method} ${parts.map((part, index) => (index > 0 && part !== 'publish' && ['submissions', 'jobs', 'voices', 'superusers', 'slots'].includes(parts[index - 1]) ? ':id' : part)).join('/')}`;
 
@@ -549,7 +541,7 @@ export function createHandler({
       if (route === 'GET me') {
         await maybeTick();
         const { state } = await store.read();
-        return ok(await lecturerView(state, email, passwordAccount), {}, event);
+        return ok(await lecturerView(state, email, passwordAccount, via), {}, event);
       }
 
       if (route === 'POST submissions') {
@@ -631,7 +623,7 @@ export function createHandler({
         await service.notify(submitted.id, 'submissionReceived', submitted.ownerEmail, templates.submissionReceived({
           job: submitted, estimate, minutes: wf.trainingMinutes(state, env), env,
         }));
-        return ok(await lecturerView((await store.read()).state, email, passwordAccount), {}, event);
+        return ok(await lecturerView((await store.read()).state, email, passwordAccount, via), {}, event);
       }
 
       if (route === 'POST submissions/:id/cancel') {
@@ -642,19 +634,26 @@ export function createHandler({
           return null;
         });
         const { state } = await store.read();
-        return ok(await lecturerView(state, email, passwordAccount), {}, event);
+        return ok(await lecturerView(state, email, passwordAccount, via), {}, event);
       }
 
+      // The lecturer's feedback is the end of their testing: testing that voice
+      // closes, their slot ends and their GPU is given back.
       if (route === 'POST submissions/:id/feedback') {
-        await updateState(store, (state) => {
+        const { result } = await updateState(store, (state) => {
           const job = ownJob(state, parts[1], email);
           if (!['scheduled', 'approved'].includes(job.status)) throw wf.clientError(409, 'Feedback opens once your voice is ready to test');
+          if (job.testingClosedAt) throw wf.clientError(409, 'You already sent your feedback for this voice — thank you');
           wf.addFeedback(job, {
             email, rating: body.rating, comment: body.comment, likeness: body.likeness, issues: body.issues, words: body.words, now,
           });
-          return null;
+          return { done: service.testingDone(state, email), jobId: job.id };
         });
-        return ok({ saved: true }, {}, event);
+        if (result.done) await service.finishTesting(email);
+        const { state } = await store.read();
+        const job = wf.findJob(state, result.jobId);
+        await service.notify(job.id, 'feedbackReceived', service.superuserEmails(state), templates.feedbackReceived({ job, env }));
+        return ok({ saved: true, ...(await lecturerView(state, email, passwordAccount, via)) }, {}, event);
       }
 
       if (route === 'GET voices/:id/access') {
@@ -692,43 +691,6 @@ export function createHandler({
         if (!access.allowed) throw wf.clientError(409, 'The GPU is not yours right now; changes apply when your slot starts');
         const result = await service.applyPronunciation(parts[1]);
         return ok({ applied: true, restarted: Boolean(result?.restarted), ready: result?.ready !== false }, {}, event);
-      }
-
-      if (route === 'POST slots/:id/move') {
-        const { result } = await updateState(store, (state) => ({ moved: wf.moveSlot(state, parts[1], { email, now, env }) }));
-        const { state } = await store.read();
-        await service.mailer.send(email, templates.recordingBooked({ slot: result.moved.to, moved: true, env }));
-        await service.mailer.send(wf.listSuperusers(state, env).map((entry) => entry.email), templates.slotPicked({ slot: result.moved.to, email, claiming: true, env }));
-        return ok(await lecturerView(state, email, passwordAccount), {}, event);
-      }
-
-      if (route === 'POST slots/:id/claim' || route === 'POST slots/:id/release') {
-        const claiming = route.endsWith('claim');
-        const { result } = await updateState(store, (state) => {
-          const slot = claiming
-            ? wf.claimSlot(state, parts[1], { email, name: body.name, now, env })
-            : wf.releaseSlot(state, parts[1], { email, now });
-          return { slot: { ...slot } };
-        });
-        const { state } = await store.read();
-        if (claiming) {
-          await service.mailer.send(email, templates.recordingBooked({ slot: result.slot, moved: false, env }));
-        }
-        const people = wf.listSuperusers(state, env).map((entry) => entry.email);
-        await service.mailer.send(people, templates.slotPicked({ slot: result.slot, email, claiming, env }));
-        return ok(await lecturerView(state, email, passwordAccount), {}, event);
-      }
-
-      // The lecturer finished testing early: the slot ends now, and its GPU is
-      // released straight away unless another slot starts within the hour.
-      if (route === 'POST slots/:id/complete') {
-        await updateState(store, (state) => {
-          wf.completeSlot(state, { slotId: parts[1], email, now });
-          return null;
-        });
-        await maybeTick();
-        const { state } = await store.read();
-        return ok(await lecturerView(state, email, passwordAccount), {}, event);
       }
 
       // ── Super users ──
@@ -770,11 +732,17 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
+        // Test slots may name several people at once (one slot, and one GPU, each).
         if (route === 'POST admin/slots') {
+          const people = body.kind !== 'recording' && Array.isArray(body.assignees) && body.assignees.length > 0
+            ? body.assignees.slice(0, 20)
+            : [{ email: body.assigneeEmail, name: body.assigneeName }];
           await updateState(store, (state) => {
-            wf.addSlot(state, {
-              id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName, actor: email, now,
-            });
+            for (const person of people) {
+              wf.addSlot(state, {
+                id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: person?.email, assigneeName: person?.name, hostName: body.hostName, actor: email, now,
+              });
+            }
             return null;
           });
           return ok(await adminView((await store.read()).state, email), {}, event);
@@ -963,4 +931,18 @@ export async function studioVoiceScope(email, {
   return {
     superuser, allVoices, voiceNames, labels, owners: Object.fromEntries(voiceNames.map((name) => [name, owners[name] || ''])), studioOwners: owners,
   };
+}
+
+/** Readable names for every trained Voice Studio voice: "<label> · <person> (try n)". */
+export async function studioVoiceLabels({ store = sharedService().store } = {}) {
+  if (!process.env.S3_BUCKET) return {};
+  const { state } = await store.read();
+  const labels = {};
+  for (const job of state.jobs) {
+    if (job.fixture) continue;
+    for (const attempt of job.attempts) {
+      if (attempt.result === 'trained') labels[attempt.expName] = `${job.label} · ${job.ownerName || job.ownerEmail}${attempt.attempt > 1 ? ` (try ${attempt.attempt})` : ''}`;
+    }
+  }
+  return labels;
 }

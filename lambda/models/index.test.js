@@ -174,6 +174,8 @@ test('models handler returns an empty library when GPU worker models are unreach
         sovits: [],
         workerAvailable: false,
         message: 'fetch failed',
+        // No storage in this test: no saved names, never an error.
+        labels: {},
       });
     });
   } finally {
@@ -521,4 +523,20 @@ test('models select with no voice and no model paths is a 400, not a 500', async
     body: '{}',
   });
   assert.equal(response.statusCode, 400);
+});
+
+test('the model list carries saved voice names so pickers show them', async () => {
+  const { createHandler: create } = await import('./index.js');
+  const handler = create({ voiceLabels: async () => ({ 'cs-tengyu-liu_9': 'Lecture voice' }) });
+  const previous = process.env.MODEL_SOURCE;
+  process.env.MODEL_SOURCE = 'gpu-worker';
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError('fetch failed'); };
+  try {
+    const response = await handler({ requestContext: { http: { method: 'GET' } }, rawPath: '/api/models' });
+    assert.deepEqual(JSON.parse(response.body).labels, { 'cs-tengyu-liu_9': 'Lecture voice' });
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previous === undefined) delete process.env.MODEL_SOURCE; else process.env.MODEL_SOURCE = previous;
+  }
 });

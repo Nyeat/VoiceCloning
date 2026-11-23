@@ -1,16 +1,16 @@
 // Voice Studio GPU access, in one place for every route that can load, switch
 // or speak a voice (capacity, model select, Live Fast, full inference).
 //
-// Two GPUs, two owners: super users test any trained voice on their QC GPU at
-// any time; a lecturer uses only their own approved voices, only during their
-// test slot, on the slot GPU. Neither ever takes the other's GPU.
+// One person, one GPU: super users test any trained voice on their shared GPU at
+// any time; a lecturer uses only their own approved voices, on a GPU of their
+// own (until they send feedback). Nobody takes anyone else's GPU.
 // Voice Studio decides (studioVoiceScope); this only applies its answer.
 import { isStudioRequest } from './liveAuth.js';
 import { buildVoiceProfileId } from './voiceIdentity.js';
-import { STUDIO_GPU_OWNER, STUDIO_SLOT_OWNER } from './modelCoordinator.js';
+import { STUDIO_GPU_OWNER, studioPersonOwner } from './modelCoordinator.js';
 
 export const STUDIO_GPU_RESERVED = 'This voice is not one Voice Studio can test.';
-export const STUDIO_VOICE_NOT_NOW = 'This voice can be tested only during your test slot.';
+export const STUDIO_VOICE_NOT_NOW = 'This voice cannot be tested now (testing closes once you send your feedback).';
 
 async function defaultStudioScope(email, options) {
   return (await import('../studio/index.js')).studioVoiceScope(email, options);
@@ -19,7 +19,7 @@ async function defaultStudioScope(email, options) {
 /**
  * For an already signed-in caller: { refusal, ownerKey }. refusal is null when
  * allowed, else { status, message }; ownerKey is the Voice Studio GPU this
- * caller uses (super users: QC GPU; lecturers: slot GPU), '' for other callers.
+ * caller uses (super users: their shared GPU; lecturers: their own), '' for other callers.
  * voiceProfileId '' (a raw model load) is allowed only when every voice is.
  */
 export async function studioGpuAccess({ identity, voiceProfileId = '', studioScope = defaultStudioScope }) {
@@ -30,7 +30,7 @@ export async function studioGpuAccess({ identity, voiceProfileId = '', studioSco
   } catch (error) {
     return { refusal: { status: 503, message: `Voice Studio is unavailable: ${error.message}` }, ownerKey: '' };
   }
-  const ownerKey = scope.superuser ? STUDIO_GPU_OWNER : STUDIO_SLOT_OWNER;
+  const ownerKey = scope.superuser ? STUDIO_GPU_OWNER : studioPersonOwner(identity.email);
   const id = String(voiceProfileId || '').trim();
   // A named voice must be one Voice Studio lists for this person now (super users:
   // voices trained through Voice Studio only); a raw model load needs a free GPU.

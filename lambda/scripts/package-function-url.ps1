@@ -6,8 +6,15 @@ $ZipPath = Join-Path $OutDir 'voice-cloning-function-url.zip'
 
 Push-Location $Root
 try {
-  if (-not (Test-Path 'node_modules')) {
+  # Every runtime dependency must be in the zip (2026-11-23: a package built
+  # without nodemailer made every Voice Studio email fail on the live Lambda).
+  $deps = @((Get-Content 'package.json' -Raw | ConvertFrom-Json).dependencies.PSObject.Properties.Name)
+  $missing = @($deps | Where-Object { -not (Test-Path (Join-Path 'node_modules' $_)) })
+  if (-not (Test-Path 'node_modules') -or $missing.Count -gt 0) {
     npm ci
+    if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
+    $missing = @($deps | Where-Object { -not (Test-Path (Join-Path 'node_modules' $_)) })
+    if ($missing.Count -gt 0) { throw "Missing dependencies after npm ci: $($missing -join ', ')" }
   }
 
   if (-not (Test-Path $OutDir)) {

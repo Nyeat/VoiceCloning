@@ -5,7 +5,7 @@ import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  addMonths, formatMinutes, formatMonth, monthGrid, monthOf, sgtDayKey, sgtMinutes,
+  addMonths, formatMinutes, formatMonth, layoutLanes, monthGrid, monthOf, sgtDayKey, sgtMinutes,
 } from './slotCalendar.js';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -93,6 +93,7 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onEmptyClick, sele
   for (let minutes = hours.start; minutes < hours.end; minutes += 30) rows.push(minutes);
   const top = (minutes) => ((minutes - hours.start) / 30) * ROW_PX;
   const nowMinutes = nowMs && sgtDayKey(nowMs) === day ? sgtMinutes(nowMs) : null;
+  const laneOf = layoutLanes(slots);
   return (
     <div className="relative" style={{ height: rows.length * ROW_PX }}>
       {rows.map((minutes) => {
@@ -126,6 +127,7 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onEmptyClick, sele
         </div>
       )}
       {slots.map((slot) => {
+        const { lane, lanes } = laneOf[slot.id] || { lane: 0, lanes: 1 };
         const startMinutes = sgtDayKey(slot.start) === day ? sgtMinutes(slot.start) : 0;
         const endMinutes = sgtDayKey(slot.end) === day ? sgtMinutes(slot.end) : 24 * 60;
         const tone = TONES[slot.tone] || TONES.open;
@@ -137,13 +139,19 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onEmptyClick, sele
             type={onSlotClick ? 'button' : undefined}
             onClick={onSlotClick ? () => onSlotClick(slot) : undefined}
             className={cn(
-              'absolute left-16 right-1 z-10 overflow-hidden rounded-lg border px-2 text-left shadow-sm transition',
+              'absolute z-10 overflow-hidden rounded-lg border px-2 text-left shadow-sm transition',
               tone.block,
               short ? 'flex items-center gap-2 py-0' : 'py-1',
               onSlotClick && 'hover:shadow-md',
               selectedId === slot.id && 'ring-2 ring-slate-900 ring-offset-1',
             )}
-            style={{ top: top(startMinutes) + 1, height: Math.max(ROW_PX - 2, ((endMinutes - startMinutes) / 30) * ROW_PX - 2) }}
+            style={{
+              top: top(startMinutes) + 1,
+              height: Math.max(ROW_PX - 2, ((endMinutes - startMinutes) / 30) * ROW_PX - 2),
+              // Several people at the same time sit side by side (4rem = time labels).
+              left: `calc(4rem + (100% - 4.25rem) * ${lane / lanes})`,
+              width: `calc((100% - 4.25rem) / ${lanes} - 2px)`,
+            }}
           >
             <p className="truncate text-xs font-semibold">{slot.title}</p>
             {slot.subtitle && <p className={cn('truncate text-[11px] opacity-80', short && 'hidden sm:block')}>{slot.subtitle}</p>}
