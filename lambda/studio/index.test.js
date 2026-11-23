@@ -348,6 +348,19 @@ test('staff availability: the booker can hand the session to another free staff 
   assert.equal(published.body.slots.find((slot) => slot.id === adam.id).overriddenBy.slotId, teng.id);
 });
 
+test('a super user can delete a stale upload (withdrawn, restorable)', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const created = await h.call('amy@gmail.com', 'POST', 'submissions', { label: 'Half done', consent: { accepted: true, version: 'test-1' } });
+  const id = created.body.jobId;
+  const deleted = await h.call(boss, 'POST', `admin/jobs/${id}/cancel`, {});
+  assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
+  assert.equal(deleted.body.jobs.find((job) => job.id === id)?.status, 'cancelled');
+  assert.equal((await h.call('amy@gmail.com', 'GET', 'me')).body.recording.allowed, true, 'they can record and upload again');
+  assert.equal((await h.call(boss, 'POST', `admin/jobs/${id}/cancel`, {})).status, 409, 'already deleted');
+  assert.equal((await h.call(boss, 'POST', `admin/jobs/${id}/restore`, {})).status, 200, 'undo');
+});
+
 test('feedback keeps the structured answers', async () => {
   const h = harness();
   const { updateState } = await import('./store.js');

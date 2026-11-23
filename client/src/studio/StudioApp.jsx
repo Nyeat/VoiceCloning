@@ -1022,7 +1022,7 @@ function SuperuserConsole() {
             <Routes>
               <Route path="/" element={<LineMap line={line} now={now} />} />
               <Route path="/sessions" element={<Stage stopKey="book"><Schedule key="recording" overview={data} onAction={onAction} kind="recording" /></Stage>} />
-              <Route path="/recording" element={<Stage stopKey="record"><RecordingStage overview={data} line={line} /></Stage>} />
+              <Route path="/recording" element={<Stage stopKey="record"><RecordingStage overview={data} line={line} onAction={onAction} /></Stage>} />
               <Route path="/record" element={<UploadForSomeone />} />
               <Route path="/training" element={<Stage stopKey="train"><TrainingStage overview={data} onAction={onAction} /></Stage>} />
               <Route path="/quality" element={<Stage stopKey="qc"><QualityCheck overview={data} onAction={onAction} line={line} /></Stage>} />

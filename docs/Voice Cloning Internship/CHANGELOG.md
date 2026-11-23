@@ -2868,3 +2868,7 @@
   would hold the real queue); no password accounts (Google-only) and old ones deleted. Friend locked out of
   recording = STAGING runs teammate's tree without 2fe956e (bundle checked); fix = redeploy. Lambda 457/457 +
   studio 44/44, client studio 27/27, build OK. Not deployed (AWS creds expired); dummies not re-seeded yet.
+- Same day: Stop 2 "Delete" (click + confirm) on half-finished uploads in "To record" and on every submitted set
+  not yet on the GPU. It withdraws the set (admin/jobs/:id/cancel): gone from all lists, never trains, audio kept on
+  S3, "Restore set" on its review page undoes it; the person can record/upload again. Files: LineStages.jsx,
+  StudioApp.jsx, index.test.js (+1 test). Studio API 18/18, client studio 27/27, build OK. Not deployed.

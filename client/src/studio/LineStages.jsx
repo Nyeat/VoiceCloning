@@ -1,12 +1,12 @@
 // The super-user pages for the line's stops that are new with the train-line
 // console: Recording (stop 2), Training (stop 3), the quality-check list
 // (stop 4) and who is testing (stop 6). Stops 1 and 5 reuse the schedule.
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Clock, Cpu, Loader2, RefreshCw, Upload } from 'lucide-react';
+import { CheckCircle2, Clock, Cpu, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { STOPS } from './superLine.js';
-import { formatSgt, relativeFromNow, runTick } from './studioApi.js';
+import { cancelJob, formatSgt, relativeFromNow, runTick } from './studioApi.js';
 import { Button, Card } from './StudioChrome.jsx';
 import { riderNote } from './LineMap.jsx';
 
@@ -37,8 +37,28 @@ function latestRecordingSlot(slots, email) {
     .sort((a, b) => b.start.localeCompare(a.start))[0] || null;
 }
 
+/**
+ * Delete a stale upload (click, then confirm). It withdraws the set: it leaves
+ * every list and never trains, but the audio stays on S3 and "Restore set" on
+ * its review page brings it back. A set already on the GPU cannot be deleted.
+ */
+function DeleteSet({ job, onAction }) {
+  const [confirming, setConfirming] = useState(false);
+  if (!onAction || !job || ['training', 'cancelled'].includes(job.status)) return null;
+  return confirming ? (
+    <span className="inline-flex items-center gap-1">
+      <Button size="sm" variant="danger" onClick={() => onAction(() => cancelJob(job.id)).then(() => setConfirming(false))}>Delete?</Button>
+      <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>Keep</Button>
+    </span>
+  ) : (
+    <Button size="sm" variant="ghost" onClick={() => setConfirming(true)} aria-label={`Delete ${who(job)}'s upload`} title="Delete this upload">
+      <Trash2 size={14} aria-hidden="true" /> Delete
+    </Button>
+  );
+}
+
 /** Stop 2: who is booked to record (upload once they have), and what has gone on to training. */
-export function RecordingStage({ overview, line }) {
+export function RecordingStage({ overview, line, onAction }) {
   const now = Date.parse(overview.now) || Date.now();
   const toRecord = [...line.stops.record.people, ...line.stops.book.people]
     .map((rider) => ({ rider, slot: latestRecordingSlot(overview.slots, rider.email) }))
@@ -47,6 +67,8 @@ export function RecordingStage({ overview, line }) {
     .filter((job) => job.queuedAt && !['uploading', 'cancelled'].includes(job.status) && now - Date.parse(job.queuedAt) < WEEK_MS)
     .sort((a, b) => b.queuedAt.localeCompare(a.queuedAt));
   const riderOf = new Map(line.riders.map((rider) => [rider.email, rider]));
+  // A half-finished upload in "To record" can be deleted too.
+  const uploadingOf = (email) => overview.jobs.find((job) => job.status === 'uploading' && String(job.ownerEmail).toLowerCase() === email);
   return (
     <div className="space-y-5">
       {/* Owner 2026-11-23: audio can be uploaded for anyone at any time, not only after a session. */}
@@ -83,6 +105,7 @@ export function RecordingStage({ overview, line }) {
               >
                 <Upload size={15} aria-hidden="true" /> Upload audio
               </Link>
+              <DeleteSet job={uploadingOf(rider.email)} onAction={onAction} />
             </li>
           );
         })}
@@ -98,6 +121,7 @@ export function RecordingStage({ overview, line }) {
                 <span className="text-xs text-slate-600">· uploaded {formatSgt(job.queuedAt)} · {job.files.length} file{job.files.length === 1 ? '' : 's'}</span>
               </span>
               {rider && <Link to={rider.href} className="text-[13px] font-semibold text-primary hover:underline">{STOP_LABEL[rider.stop]}</Link>}
+              <DeleteSet job={job} onAction={onAction} />
             </li>
           );
         })}
