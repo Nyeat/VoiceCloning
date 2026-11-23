@@ -2848,3 +2848,7 @@
   now `ensureVoiceProfileRecord()` in lambda/voice-profile, also called by the studio warm-up (409854a). Lambda
   452/452. All deployed to staging + dev (Lambda + studio client); staging "man" slot went ERROR -> STARTING on the
   next tick.
+- Same day: studio admin overview now sends only slots not yet over (wf.slotEnd > now; was ended up to 7 days ago),
+  so finished recording sessions / test slots vanish from every list (93835dd, Lambda 453/453). Deployed dev Lambda
+  only: staging Lambda + studio site were redeployed at 16:33 SGT from a teammate's unpushed tree ("To record" list
+  with Upload audio; lacks 2fe956e/ff1c58e) — staging waits until that work is pushed and merged.
