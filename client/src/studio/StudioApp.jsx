@@ -1303,7 +1303,8 @@ function LecturerHome({ me: initialMe, refresh }) {
   const slot = me.activeSlot && Date.parse(me.activeSlot.end) > now ? me.activeSlot : null;
   const testSlot = me.mySlot && !slot ? me.mySlot : null;
   const recording = me.recording || {};
-  const recordingOpen = recording.allowed && recording.reason === 'in-session';
+  // Open in their session, and any time before they have sent their recordings.
+  const recordingOpen = Boolean(recording.allowed);
   const booked = recording.slot && Date.parse(recording.slot.end) > now ? recording.slot : null;
   const [feedbackJob, setFeedbackJob] = useState('');
   const feedbackTarget = testable.find((job) => job.id === feedbackJob) || testable[0];
@@ -1363,7 +1364,14 @@ function LecturerHome({ me: initialMe, refresh }) {
       </>
     );
   } else if (recordingOpen) {
-    content = <RecordWorkspace embedded sessionEnd={recording.slot?.end} onSubmitted={(view) => setMe(view)} />;
+    content = (
+      <>
+        {recording.reason === 'open' && booked && (
+          <p className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900">Your recording session is booked for <b>{formatRange(booked.start, booked.end)}</b>. You can also record here on your own now.</p>
+        )}
+        <RecordWorkspace embedded sessionEnd={recording.reason === 'in-session' ? recording.slot?.end : undefined} onSubmitted={(view) => setMe(view)} />
+      </>
+    );
   } else {
     content = (
       <Card className="p-5 text-center sm:p-8">

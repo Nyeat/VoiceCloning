@@ -116,16 +116,20 @@ test('one person cannot hold two overlapping slots; different people can share a
   assert.equal(wf.removeSlot(state, 's1').notify.assigneeEmail, 'c@ntu.edu.sg');
 });
 
-test('recording opens only during the session a super user booked for that person', () => {
+test('recording: open in a booked session, and any time before the person has submitted', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', now: T0 });
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'no-session', 'a draft is not a session yet');
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'open', 'a draft is not a session, but they may record on their own');
   wf.publishSlots(state, T0);
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).reason, 'too-early');
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).reason, 'open');
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'in-session');
   assert.equal(wf.recordingAccess(state, { email: 'A@staff.main.ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).allowed, true);
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 121 * MIN, superuser: false }).reason, 'no-session');
-  assert.equal(wf.recordingAccess(state, { email: 'b@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'no-session');
+  assert.equal(wf.recordingAccess(state, { email: 'b@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'open');
+  // Once their recordings are sent, recording closes (one voice per person).
+  const sent = job(state, 'a1', 'a@ntu.edu.sg', 0);
+  sent.status = 'queued';
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 121 * MIN, superuser: false }).allowed, false);
 });
 
 test('a lecturer tests their approved voices on their own GPU, in their slot or on demand, until feedback', () => {

@@ -677,14 +677,17 @@ export function recordingAccess(state, { email, now, superuser }) {
   const next = mine.find((slot) => ms(slot.end) > now) || null;
   if (superuser) return { allowed: true, reason: 'superuser', slot: active || next };
   if (active) return { allowed: true, reason: 'in-session', slot: active };
+  // Owner 2026-11-23: anyone who has not sent their recordings yet may record
+  // on their own, session or not (a booked session is still shown to them).
+  if (!hasSubmittedVoice(state, email)) return { allowed: true, reason: 'open', slot: next };
   return { allowed: false, reason: next ? 'too-early' : 'no-session', slot: next };
 }
 
-/** Uploads to a set created in a session may finish shortly after it. */
+/** Uploads to a set created in a session may finish shortly after it; sets made outside one stay open. */
 export function uploadWindowOpen(state, job, { now, superuser }) {
-  if (superuser) return true;
+  if (superuser || !job.recordingSlotId) return true;
   const slot = state.slots.find((item) => item.id === job.recordingSlotId);
-  if (!slot) return false;
+  if (!slot) return true;
   return now < ms(slot.end) + RECORDING_GRACE_MINUTES * MINUTE;
 }
 

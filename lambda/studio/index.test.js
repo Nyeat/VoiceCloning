@@ -92,7 +92,7 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   // Recording sessions: a super user books each person's time (agreed in person); lecturers never book.
   const carol = 'carol@ntu.edu.sg';
   const at0 = (m) => new Date(T0 + m * MIN).toISOString();
-  assert.equal((await h.call(carol, 'POST', 'submissions', { label: 'x', consent: { accepted: true, version: 'v' } })).status, 403, 'no session, no recording');
+  assert.equal((await h.call(carol, 'GET', 'me')).body.recording.reason, 'open', 'anyone not yet submitted may record without a session');
   assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100), assigneeEmail: alice })).status, 400, 'name required');
   for (const [email, name] of [[alice, 'Alice'], [bob, 'Bob']]) {
     assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(-5), end: at0(100), assigneeEmail: email, assigneeName: name })).status, 200);
@@ -275,12 +275,12 @@ test('a recording session is booked for a named person; they see only their own'
   const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
   assert.deepEqual(published.body.published.map((p) => p.kind), ['recordingBooked', 'recordingBooked']);
   const amy = (await h.call('amy@gmail.com', 'GET', 'me')).body;
-  assert.equal(amy.recording.reason, 'too-early');
+  assert.equal(amy.recording.reason, 'open', 'before her session she may already record on her own');
   assert.equal(amy.recording.slot.assigneeEmail, 'amy@gmail.com');
   assert.equal(amy.sessions, undefined, 'no booking table for lecturers');
   h.advance(61);
   assert.equal((await h.call('amy@gmail.com', 'GET', 'me')).body.recording.allowed, true);
-  assert.equal((await h.call('cat@gmail.com', 'GET', 'me')).body.recording.reason, 'no-session');
+  assert.equal((await h.call('cat@gmail.com', 'GET', 'me')).body.recording.reason, 'open', 'someone with no session may still record on their own');
 });
 
 test('feedback keeps the structured answers', async () => {
