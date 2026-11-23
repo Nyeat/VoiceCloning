@@ -19,7 +19,7 @@ Last updated: 2026-11-23
   "reserved:studio" (hard) / "held:studio" (soft 10 min); fixed GPU demand for slots, training, 30 min after super-user
   testing. Fixed: /voice-profile/ensure never saved new profiles. Next: live slot warm-up -> release; chat/mic check.
 - 11-23 Voice Studio redesign + later fixes (CHANGELOG 11-23, through 93835dd): approved voice before test slot, upload for someone, open recording, edit moves slot GPU, warm-up ensures profile, past slots hidden.
-  Dev has all; STAGING was overwritten 16:33 SGT by a teammate's unpushed tree ("To record" list) -> merge his work, then redeploy staging. Email needs the LKC mailbox (TODO).
+  Dev has all; STAGING was overwritten 16:33 SGT by a teammate's unpushed tree ("To record" list) -> his work merged in 5acac14; redeploy staging next. Email needs the LKC mailbox (TODO).
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).

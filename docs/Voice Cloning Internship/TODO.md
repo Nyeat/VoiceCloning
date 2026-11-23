@@ -1,8 +1,8 @@
 # Active TODO
 
 - [ ] Staging Voice Studio (2026-11-23): a teammate deployed staging Lambda + studio site at 16:33 SGT from an unpushed
-  tree ("To record" list). He pushes; merge into separate-containers-new; redeploy staging (brings back 2fe956e open
-  recording + ff1c58e edit-moves-GPU). Then live-test: change a published slot's person -> Publish -> their GPU warms.
+  tree ("To record" list). His work (93b7b9c) is now merged (5acac14, Lambda 454/454); redeploy staging from it (brings
+  back 2fe956e open recording + ff1c58e edit-moves-GPU). Then live-test: change a published slot's person -> Publish -> their GPU warms.
 - [ ] Voice Studio redesign (2026-11-23, DEPLOYED; sign-in down meanwhile): owner creates a Google OAuth web client
   (origins https://d271zk8d8curic.cloudfront.net + https://d1zffrwq7b2rri.cloudfront.net), set VITE_GOOGLE_CLIENT_ID
   (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID (lambda/.env.deployment*), redeploy studio client + Lambdas. Then live-test: book recording session ->
