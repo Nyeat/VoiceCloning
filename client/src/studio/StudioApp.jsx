@@ -631,7 +631,7 @@ function SlotComposer({ kind, draft, setDraft, people, onSave, onDelete, onCance
           ? <Button variant="danger" onClick={onDelete}>Confirm delete</Button>
           : <Button variant="ghost" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete</Button>)}
       </div>
-      {draft.id && <p className="text-[11px] text-slate-500">Saving a published one makes it a draft again until you publish.</p>}
+      {draft.id && <p className="text-[11px] text-slate-500">{kind === 'recording' ? 'Saving a published one makes it a draft again until you publish.' : 'Saving a published one makes it a draft again until you publish (that emails the new time). For the same person, their GPU follows the new time right away: on 20 min before the new start, off at the new end.'}</p>}
     </div>
   );
 }

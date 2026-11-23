@@ -349,3 +349,27 @@ test('super-user training settings are sanitized and honoured', () => {
   assert.equal(wf.retrainConfig({}, [], { skipDenoise: false, batchSize: 1 }).skipDenoise, false);
   assert.equal(wf.retrainConfig({}, [], { batchSize: 1 }).batchSize, 1);
 });
+
+test('editing a published test slot moves its GPU to the new times at once (no republish needed)', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  wf.addSlot(state, { id: 's1', start: at(60), end: at(80), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.publishSlots(state, T0);
+  // Live at 70 min: extend to 120. It is a draft again, but the GPU keeps going to the new end.
+  const before = { ...wf.findSlot(state, 's1'), warm: { state: 'READY' } };
+  wf.editSlot(state, 's1', { end: at(120) }, T0 + 70 * MIN);
+  assert.equal(wf.findSlot(state, 's1').status, 'draft');
+  assert.equal(wf.gpuToRelease(state, before, T0 + 70 * MIN), '', 'extending a live slot keeps its GPU');
+  assert.equal(wf.gpuHolds(state, T0 + 100 * MIN).length, 1, 'still held after the old end');
+  assert.equal(wf.gpuHolds(state, T0 + 121 * MIN).length, 0);
+  // Moved to later: released now, warms 20 min before the new start.
+  wf.editSlot(state, 's1', { start: at(300), end: at(330) }, T0 + 70 * MIN);
+  assert.equal(wf.gpuToRelease(state, before, T0 + 70 * MIN), 'a@ntu.edu.sg');
+  assert.equal(wf.gpuHolds(state, T0 + 279 * MIN).length, 0);
+  assert.equal(wf.gpuHolds(state, T0 + 281 * MIN).length, 1, 'warms 20 min before the new start');
+  // Handed to someone not yet told: their GPU waits for Publish.
+  wf.editSlot(state, 's1', { assigneeEmail: 'b@ntu.edu.sg' }, T0 + 70 * MIN);
+  assert.equal(wf.gpuHolds(state, T0 + 290 * MIN).length, 0);
+  wf.publishSlots(state, T0 + 71 * MIN);
+  assert.equal(wf.gpuHolds(state, T0 + 290 * MIN).length, 1);
+});

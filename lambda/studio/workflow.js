@@ -279,7 +279,13 @@ export function slotKind(slot) {
 }
 
 export function slotHoldsGpu(slot) {
-  return real(slot) && slotKind(slot) === 'test' && slot.status === 'published' && Boolean(slot.assigneeEmail);
+  if (!real(slot) || slotKind(slot) !== 'test' || !slot.assigneeEmail) return false;
+  if (slot.status === 'published') return true;
+  // Owner 2026-11-23: an edited published slot (a draft again until republished)
+  // keeps its person's GPU on the NEW times at once (warms 20 min before the new
+  // start, runs to the new end). A different person waits until it is published.
+  return slot.status === 'draft' && Boolean(slot.notified?.assigneeEmail)
+    && sameNtuPerson(slot.notified.assigneeEmail, slot.assigneeEmail);
 }
 
 // When a test slot really ends: its booked end, or earlier if the lecturer
