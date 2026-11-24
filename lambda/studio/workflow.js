@@ -665,10 +665,31 @@ function overrideBy(slot, booking, now, seen) {
 }
 
 // Free time not overridden yet: the first booking (in the order they were made) that takes it.
+// Free time added over a published booking is shown taken at once (no email); over a
+// draft one, its staff are emailed when the booking goes out like everyone else.
 function overrideFreeSlot(state, slot, now, seen = false) {
   if (slot.overriddenBy || !isFreeRecording(slot)) return;
   const booking = liveSlots(state).find((other) => takes(other, slot));
-  if (booking) overrideBy(slot, booking, now, seen);
+  if (booking) overrideBy(slot, booking, now, seen && booking.status === 'published');
+}
+
+/**
+ * A lecturer booked before anyone was free has no host. Free time marked over
+ * it later hands it to whoever free then marked first (owner 2026-11-24); they
+ * confirm it as usual, and later free time there is taken.
+ */
+function adoptHostlessBookings(state, slot, now, staff) {
+  if (!isFreeRecording(slot)) return;
+  for (const booking of liveSlots(state)) {
+    if (!isBookedRecording(booking) || (booking.hostNames || []).length || !slotsOverlap(booking, slot)) continue;
+    const host = staffFreeFor(state, booking).filter((name) => {
+      try { superuserHosts([name], staff); return true; } catch { return false; }
+    })[0];
+    if (!host) continue;
+    Object.assign(booking, { hostNames: [host], hostName: host, hostConfirmedAt: null });
+    if (booking.status === 'published') booking.status = 'draft'; // goes out again once the host confirms
+    applyOverrides(state, booking, now);
+  }
 }
 
 /** Re-applies the rule for one booking after it was added, edited or removed. */
@@ -863,6 +884,7 @@ export function addSlot(state, {
   state.slots.push(slot);
   if (slotType === 'recording') {
     applyOverrides(state, slot, now);
+    adoptHostlessBookings(state, slot, now, staff);
     overrideFreeSlot(state, slot, now, true); // free time added over a booking shows taken at once
   }
   return slot;
@@ -907,6 +929,13 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
     warm: null,
     gpuReleasedAt: null,
   });
+  // A booking still nobody runs: whoever free then marked the time first takes it.
+  if (slotKind(slot) === 'recording' && slot.assigneeEmail && !(slot.hostNames || []).length) {
+    const host = staffFreeFor(state, slot, slot.id).filter((name) => {
+      try { superuserHosts([name], staff); return true; } catch { return false; }
+    })[0];
+    if (host) Object.assign(slot, { hostNames: [host], hostName: host, hostConfirmedAt: null });
+  }
   // An edited published slot goes back to draft until it is published again,
   // so lecturers never see a half-edited schedule.
   if (slot.status === 'published') slot.status = 'draft';
@@ -915,6 +944,7 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
     const by = slot.overriddenBy ? findSlot(state, slot.overriddenBy.slotId) : null;
     if (slot.overriddenBy && !(by && takes(by, slot))) slot.overriddenBy = null;
     applyOverrides(state, slot, now);
+    adoptHostlessBookings(state, slot, now, staff);
     overrideFreeSlot(state, slot, now, true);
   }
   return slot;

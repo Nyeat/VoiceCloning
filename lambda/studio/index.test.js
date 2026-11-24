@@ -333,6 +333,27 @@ test('staff availability: a booking with no free time under its host needs no co
   assert.deepEqual((await h.call(boss, 'POST', 'admin/slots/publish', {})).body.published.map((p) => p.email), ['lee@gmail.com']);
 });
 
+test('staff availability: free time marked after a hostless booking takes it, first come first', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const at0 = (m) => new Date(T0 + m * MIN).toISOString();
+  await h.call(boss, 'POST', 'admin/superusers', { email: 'adam@ntu.edu.sg', name: 'Adam' });
+  await h.call(boss, 'POST', 'admin/superusers', { email: 'teng@ntu.edu.sg', name: 'Teng Yu' });
+  const booked = await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), assigneeEmail: 'lee@gmail.com' });
+  const booking = booked.body.slots.find((slot) => slot.assigneeEmail);
+  assert.deepEqual(booking.hostNames, [], 'nobody free yet');
+  await h.call('adam@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Adam'] });
+  const after = await h.call('teng@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
+  const find = (test) => after.body.slots.find(test);
+  assert.deepEqual(find((slot) => slot.id === booking.id).hostNames, ['Adam'], 'Adam marked it first');
+  assert.equal(find((slot) => slot.hostName === 'Adam' && !slot.assigneeEmail).overriddenBy, null);
+  assert.equal(find((slot) => slot.hostName === 'Teng Yu').overriddenBy.slotId, booking.id, 'Teng Yu is taken');
+  assert.equal(after.body.awaitingHost, 1);
+  const before = h.sent.length;
+  await h.call('adam@ntu.edu.sg', 'PUT', `admin/slots/${booking.id}`, { confirmHost: true });
+  assert.deepEqual(h.sent.slice(before).map((m) => m.to).flat().sort(), ['lee@gmail.com', 'teng@ntu.edu.sg']);
+});
+
 test('staff availability: undoing before Publish sends no "free again" email', async () => {
   const h = harness();
   const boss = 'boss@ntu.edu.sg';

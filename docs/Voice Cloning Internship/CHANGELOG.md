@@ -2922,3 +2922,7 @@
   confirm/hand-on buttons and banners only for the host. Override email reworded (marked first, shows grey, pick
   another time). Files: lambda/studio/workflow.js, index.js, index.test.js, mailer.js; client StaffAvailability.jsx,
   SlotCalendar.jsx. Lambda 460/460, client 589/589, studio build OK. Not deployed.
+- Same day: a lecturer booked before anyone was free (no host) is taken by whoever then marks free time over it
+  first (workflow.adoptHostlessBookings on add/move of free time; also re-picked when the booking is saved); later
+  free time there is taken (emailed when the host confirms, or shown taken at once if already published).
+  Lambda 461/461 (+1 test). Not deployed.
