@@ -2948,3 +2948,7 @@
   SLOT_WARMUP_MINUTES). Coordinator: a DRAINING GPU no longer counts as capacity in motion (preflightScaleBlocked),
   and `reserved:studio-*` owners never wait on other people's boots, so a person whose GPU is shutting down gets a new
   one at once (their own second boot still waits: one per person). Lambda 465/465, coordinator 89/89, client 589/589.
+- Same day: 4382300 Voice Studio: `.vs-root` uses `overflow-wrap: anywhere` (long names/emails let cramped flex
+  rows and table cells shrink instead of squeezing/overflowing); the tester's GPU popup shows after 1 s of checking
+  (not after the first coordinator answer) and polls every 4 s while starting (was 10 s). Client 589/589, studio and
+  live-fast builds. NOT deployed; not checked in a browser on a phone.
