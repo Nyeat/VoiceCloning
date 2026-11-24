@@ -3,8 +3,9 @@
 - [ ] Slide-text cleanup (2026-11-24, deployed): paste a real slide into the TTS page + studio tester and listen.
 - [ ] Lecturer one-time recording page (2026-11-24, deployed): live-test as a lecturer: send a set -> status page only; retrain ->
   "Retraining"; feedback -> "session finished"; withdraw all -> "withdrawn"; new booked session reopens recording.
-- [ ] SES email (2026-11-24, 5744a53): Super users > Send test email; if it fails with AccessDenied the Lambda role
-  needs ses:SendEmail on the us-east-1 identity (admin), SMTP is used meanwhile.
+- [ ] Email is DOWN (tested 2026-11-24 15:08 SGT, staging): SES AccessDenied for Liu_Teng_Yu_Intern2026-LambdaExecutionRole
+  (needs admin: ses:SendEmail + ses:SendRawEmail on arn:aws:ses:us-east-1:329599637774:identity/*), and the O365
+  fallback fails 535 5.7.139 "SmtpClientAuthentication is disabled for the Mailbox" (IT must enable SMTP AUTH on it).
 - [ ] Staff availability, account based (2026-11-24, b05c5ff deployed): live-test signed in as each of
   two super users: both free 3-4 (A first) -> book 3-4 -> A's column red, B hatched -> A confirms or hands to B ->
   Publish emails lecturer + the other; delete -> "free again" email. Old slots named non-super users ("s") stay.
