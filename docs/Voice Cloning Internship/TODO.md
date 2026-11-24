@@ -4,6 +4,8 @@
 - [ ] Lecturer one-time recording page (2026-11-24, deployed): live-test as a lecturer: send a set -> status page only; retrain ->
   "Retraining"; feedback -> "session finished"; withdraw all -> "withdrawn"; new booked session reopens recording.
 - [ ] Check on a phone (6d039c8 deployed): long names/emails wrap, GPU popup shows within ~1 s.
+- [ ] Owner to decide: keep a lecturer's GPU on ~10 min after a test slot ends, so a slot added right after does not
+  cold-start (today it is released at the next 5-min check unless a slot already starts within 30 min).
 - [ ] Live GPU check (staging): slot warms 30 min before; a GPU switching off -> new one starts at once with the popup.
 - [ ] Email is DOWN (tested 2026-11-24 15:08 SGT, staging): SES AccessDenied for Liu_Teng_Yu_Intern2026-LambdaExecutionRole
   (needs admin: ses:SendEmail + ses:SendRawEmail on arn:aws:ses:us-east-1:329599637774:identity/*), and the O365
