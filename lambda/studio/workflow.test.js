@@ -363,22 +363,6 @@ test('jobs from fixture accounts are fixtures', () => {
   assert.equal(wf.createJob(state, { id: 'r', ownerEmail: 'a@ntu.edu.sg', expName: 'y', now: T0 }).fixture, undefined);
 });
 
-test('a withdrawn set can be restored to where it was; nothing is lost', () => {
-  const state = wf.emptyState();
-  const inReview = job(state, 'r', 'a@ntu.edu.sg', 0);
-  inReview.status = 'review';
-  inReview.attempts.push({ attempt: 1, expName: 'a', result: 'trained' });
-  wf.cancelJob(inReview);
-  assert.equal(inReview.status, 'cancelled');
-  wf.restoreJob(inReview, { now: T0 });
-  assert.equal(inReview.status, 'review');
-  const legacy = job(state, 'old', 'b@ntu.edu.sg', 0);
-  legacy.status = 'cancelled';
-  legacy.attempts.push({ attempt: 1, expName: 'b', result: 'trained' });
-  assert.equal(wf.restoreJob(legacy, { now: T0 }).status, 'review', 'withdrawn before this existed: a trained set returns to review');
-  assert.throws(() => wf.restoreJob(inReview, { now: T0 }), /Only a withdrawn set/u);
-});
-
 test('a password account is a super user only when listed in STUDIO_PASSWORD_SUPERUSERS', () => {
   const env = { STUDIO_PASSWORD_SUPERUSERS: 'Owner@Gmail.com' };
   assert.equal(wf.passwordSuperuserAllowed('owner@gmail.com', env), true);
@@ -489,7 +473,7 @@ test('a slot finished early stops blocking; a new test slot reopens testing afte
   assert.ok(nat.testingReopenedAt);
 });
 
-test('withdraw a person resets everything for them; restore puts it all back', () => {
+test('withdraw takes the voice off the line and its test slots, keeps recording sessions, reopens recording', () => {
   const state = wf.emptyState();
   const sent = job(state, 'a1', 'a@ntu.edu.sg', 0);
   sent.status = 'approved';
@@ -501,18 +485,11 @@ test('withdraw a person resets everything for them; restore puts it all back', (
   assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).allowed, false);
   const { withdrawn, slotsRemoved } = wf.withdrawPerson(state, 'a@ntu.edu.sg', T0);
   assert.equal(withdrawn.length, 1);
-  assert.equal(slotsRemoved, 2, 'test slot and recording session both go');
+  assert.equal(slotsRemoved, 1, 'only the test slot goes');
   assert.equal(sent.status, 'cancelled');
+  assert.deepEqual(state.slots.map((slot) => [slot.id, slot.status]), [['t1', 'cancelled'], ['r1', 'published']]);
   assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).reason, 'open');
-  const back = wf.restorePerson(state, 'a@ntu.edu.sg', T0, 'a1');
-  assert.equal(sent.status, 'approved');
-  assert.equal(back.slotsRestored, 2);
-  assert.deepEqual(state.slots.map((slot) => slot.status), ['published', 'published']);
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).allowed, false, 'one-time again');
-  // A new set sent after the withdraw blocks the restore.
-  wf.withdrawPerson(state, 'a@ntu.edu.sg', T0);
-  job(state, 'a2', 'a@ntu.edu.sg', 5);
-  assert.throws(() => wf.restorePerson(state, 'a@ntu.edu.sg', T0, 'a1'), /new set since/u);
+  assert.throws(() => wf.withdrawPerson(state, 'a@ntu.edu.sg', T0), /Already withdrawn/u);
   const busy = job(state, 'b1', 'b@ntu.edu.sg', 0);
   busy.status = 'training';
   assert.throws(() => wf.withdrawPerson(state, 'b@ntu.edu.sg', T0), /Training is running/u);

@@ -28,7 +28,7 @@ import {
   addDays, dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
 } from './slotCalendar.js';
 import {
-  addSlot, addSuperuser, cancelJob, restoreJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
+  addSlot, addSuperuser, cancelJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
   googleSignIn, publishSlots, relativeFromNow, removeSuperuser, renameSuperuser, retryJob, reviewJob,
   sendFeedback,
 } from './studioApi.js';
@@ -202,17 +202,16 @@ function JobDetail({ overview, onAction, line }) {
           <StatusPill status={job.status} />
           {job.status === 'failed' && <Button variant="dark" size="sm" onClick={() => onAction(() => retryJob(job.id))}><RefreshCw size={13} /> Retry training</Button>}
           {!['training', 'cancelled'].includes(job.status) && !confirmWithdraw && <Button variant="ghost" size="sm" onClick={() => setConfirmWithdraw(true)}><X size={13} /> Withdraw</Button>}
-          {job.status === 'cancelled' && <Button variant="dark" size="sm" onClick={() => onAction(() => restoreJob(job.id))}><RefreshCw size={13} /> Restore</Button>}
         </div>
       </div>
 
       {confirmWithdraw && (
         <Notice tone="warn" className="space-y-2">
-          <p className="font-semibold [overflow-wrap:anywhere]">Withdraw {who(job)}? This resets everything for them.</p>
+          <p className="font-semibold [overflow-wrap:anywhere]">Withdraw {who(job)}'s voice? This cannot be undone.</p>
           <ul className="list-disc space-y-0.5 pl-5 text-sm">
-            <li>All their sets leave the line, and their upcoming test slots and recording sessions are cancelled.</li>
-            <li>Their page goes back to the start, so they can record and send a new set.</li>
-            <li>They are cleared from every staff list. Nothing is deleted: Tools &gt; Clean up has "Restore" to put it all back.</li>
+            <li>Their set leaves the line (training, QC) and their upcoming test slots are cancelled.</li>
+            <li>Their recording page opens again so they can send a new set. Booked recording sessions stay.</li>
+            <li>Their recordings and trained voices stay in storage.</li>
           </ul>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={withdrawEmail} onChange={(event) => setWithdrawEmail(event.target.checked)} /> Email them to record again</label>
           {withdrawEmail && <textarea className="w-full rounded-lg border border-slate-200 p-2 text-sm" rows={2} placeholder="Note for them (optional)" value={withdrawNote} onChange={(event) => setWithdrawNote(event.target.value)} />}

@@ -917,13 +917,13 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
-        // Withdraw = the whole person, reset to the start (undo with restore).
+        // Withdraw = the person's voice: sets + test slots go, recording page reopens (no undo).
         if (route === 'POST admin/jobs/:id/cancel') {
           const { result } = await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);
             if (!job) throw wf.clientError(404, 'Job not found');
             const { withdrawn, slotsRemoved } = wf.withdrawPerson(state, job.ownerEmail, now);
-            const note = slotsRemoved ? `${slotsRemoved} session${slotsRemoved === 1 ? '' : 's'} cancelled` : '';
+            const note = slotsRemoved ? `${slotsRemoved} test slot${slotsRemoved === 1 ? '' : 's'} cancelled` : '';
             for (const entry of withdrawn) wf.logCleanup(state, { actor: email, action: 'withdrawn', job: entry.job, from: entry.from, note, now });
             return { jobId: job.id };
           });
@@ -955,18 +955,6 @@ export function createHandler({
             const from = wf.findJob(state, parts[2])?.status || '';
             const { job, slotsRemoved } = wf.deleteJob(state, parts[2], now);
             wf.logCleanup(state, { actor: email, action: 'deleted', job, from, note: slotsRemoved ? `${slotsRemoved} test slot${slotsRemoved === 1 ? '' : 's'} removed` : '', now });
-            return null;
-          });
-          return ok(await adminView((await store.read()).state, email), {}, event);
-        }
-
-        if (route === 'POST admin/jobs/:id/restore') {
-          await updateState(store, (state) => {
-            const job = wf.findJob(state, parts[2]);
-            if (!job) throw wf.clientError(404, 'Job not found');
-            const { restored, slotsRestored, slotsSkipped } = wf.restorePerson(state, job.ownerEmail, now, job.id);
-            const note = [slotsRestored && `${slotsRestored} session${slotsRestored === 1 ? '' : 's'} back`, slotsSkipped && `${slotsSkipped} taken since, not restored`].filter(Boolean).join('; ');
-            for (const item of restored) wf.logCleanup(state, { actor: email, action: 'restored', job: item, note, now });
             return null;
           });
           return ok(await adminView((await store.read()).state, email), {}, event);

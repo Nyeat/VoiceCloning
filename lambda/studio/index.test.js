@@ -387,7 +387,7 @@ test('staff availability: the host can hand the booking to another free super us
   assert.deepEqual(h.sent.slice(before).map((m) => m.to).flat().sort(), ['lee@gmail.com', 'teng@ntu.edu.sg']);
 });
 
-test('a super user can delete a stale upload (withdrawn, restorable)', async () => {
+test('a super user can withdraw a stale upload', async () => {
   const h = harness();
   const boss = 'boss@ntu.edu.sg';
   const created = await h.call('amy@gmail.com', 'POST', 'submissions', { label: 'Half done', consent: { accepted: true, version: 'test-1' } });
@@ -397,7 +397,7 @@ test('a super user can delete a stale upload (withdrawn, restorable)', async () 
   assert.equal(deleted.body.jobs.find((job) => job.id === id)?.status, 'cancelled');
   assert.equal((await h.call('amy@gmail.com', 'GET', 'me')).body.recording.allowed, true, 'they can record and upload again');
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${id}/cancel`, {})).status, 409, 'already deleted');
-  assert.equal((await h.call(boss, 'POST', `admin/jobs/${id}/restore`, {})).status, 200, 'undo');
+  assert.equal((await h.call(boss, 'POST', `admin/jobs/${id}/restore`, {})).status, 404, 'no restore any more');
 });
 
 test('feedback keeps the structured answers', async () => {

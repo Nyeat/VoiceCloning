@@ -462,31 +462,16 @@ export function cancelJob(job) {
   if (['training', 'cancelled'].includes(job.status)) {
     throw clientError(409, job.status === 'training' ? 'Training is already running on the GPU' : 'Already cancelled');
   }
-  // Kept so a mistaken withdrawal can be undone (restoreJob). Nothing is deleted:
-  // the recordings and every trained voice stay where they are.
-  job.cancelledFrom = job.status;
+  // Nothing is deleted: the recordings and every trained voice stay where they are.
   job.status = 'cancelled';
-  return job;
-}
-
-/** Undo a withdrawal: the set goes back to where it was. */
-export function restoreJob(job, { now } = {}) {
-  if (job.status !== 'cancelled') throw clientError(409, 'Only a withdrawn set can be restored');
-  const trained = job.attempts.some((attempt) => attempt.result === 'trained');
-  // Sets withdrawn before this was recorded: a trained one goes back to review.
-  const previous = job.cancelledFrom || (trained ? 'review' : job.files.length ? 'queued' : 'uploading');
-  job.status = previous === 'training' ? 'queued' : previous;
-  if (job.status === 'queued') job.queuedAt = iso(now ?? Date.now());
-  delete job.cancelledFrom;
-  delete job.recordingReopened;
   return job;
 }
 
 // ── Clean up (owner 2026-11-24) ──────────────────────────────────────────
 // Stale entries (a test set, an approved voice nobody will test, an upload
 // that never finished) can be deleted for good from Tools > Clean up. Only the
-// record goes: recordings and trained voices stay in storage. Each withdraw,
-// restore and delete is logged with who did it.
+// record goes: recordings and trained voices stay in storage. Each withdraw
+// and delete is logged with who did it.
 
 /** Delete a set's record. Their upcoming test slots go too unless another set of theirs is still live. */
 export function deleteJob(state, id, now = Date.now()) {
@@ -1164,10 +1149,11 @@ export function everSubmittedVoice(state, email) {
 }
 
 /**
- * Withdraw a person (owner 2026-11-24): resets everything for them. Every set of
- * theirs is withdrawn, their upcoming test slots and recording sessions are
- * cancelled, and their recording page opens again. Nothing is deleted, and
- * restorePerson undoes it all.
+ * Withdraw a person's voice (owner 2026-11-24). One voice per person, so this
+ * is per person: every set of theirs leaves the line (training, QC), their
+ * upcoming test slots are cancelled, and their recording page opens again.
+ * Recording sessions stay booked: they belong to the person, not the set.
+ * There is no undo; recordings and trained voices stay in storage.
  */
 export function withdrawPerson(state, email, now) {
   const mine = state.jobs.filter((job) => sameNtuPerson(job.ownerEmail, email));
@@ -1178,58 +1164,17 @@ export function withdrawPerson(state, email, now) {
     if (job.status !== 'cancelled') {
       withdrawn.push({ job, from: job.status });
       cancelJob(job);
-      job.withdrawnWithPerson = true;
     }
     job.recordingReopened = true;
   }
   let slotsRemoved = 0;
   for (const slot of state.slots) {
-    if (slot.status !== 'cancelled' && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) > now) {
-      slot.cancelledFrom = slot.status;
+    if (slot.status !== 'cancelled' && slotKind(slot) === 'test' && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) > now) {
       slot.status = 'cancelled';
-      slot.withdrawnWithPerson = true;
-      // A cancelled recording session gives back the availability it overrode.
-      if (slotKind(slot) === 'recording') applyOverrides(state, slot, now);
       slotsRemoved += 1;
     }
   }
   return { withdrawn, slotsRemoved };
-}
-
-/**
- * Undo withdrawPerson: their sets and still-upcoming sessions come back and the
- * recording page is one-time again. A session whose time was given to someone
- * else since stays cancelled (counted in slotsSkipped).
- */
-export function restorePerson(state, email, now, jobId = '') {
-  const mine = state.jobs.filter((job) => sameNtuPerson(job.ownerEmail, email));
-  if (mine.some((job) => !['uploading', 'cancelled'].includes(job.status))) {
-    throw clientError(409, 'This person has sent a new set since; withdraw or delete it first');
-  }
-  // Sets withdrawn one by one before this existed: just the one clicked.
-  const flagged = mine.filter((job) => job.withdrawnWithPerson && job.status === 'cancelled');
-  const toRestore = flagged.length ? flagged : mine.filter((job) => job.id === jobId && job.status === 'cancelled');
-  for (const job of toRestore) {
-    restoreJob(job, { now });
-    delete job.withdrawnWithPerson;
-  }
-  for (const job of mine) delete job.recordingReopened;
-  let slotsRestored = 0;
-  let slotsSkipped = 0;
-  for (const slot of state.slots) {
-    if (!slot.withdrawnWithPerson || !sameNtuPerson(slot.assigneeEmail, email)) continue;
-    delete slot.withdrawnWithPerson;
-    if (slotEnd(slot) <= now) { delete slot.cancelledFrom; continue; }
-    try {
-      assertNoClash(state, { start: slot.start, end: iso(slotEnd(slot)) }, slot.id, slotKind(slot), slot.assigneeEmail);
-      slot.status = slot.cancelledFrom || 'published';
-      slotsRestored += 1;
-    } catch {
-      slotsSkipped += 1;
-    }
-    delete slot.cancelledFrom;
-  }
-  return { restored: toRestore, slotsRestored, slotsSkipped };
 }
 
 export function hasSubmittedVoice(state, email) {

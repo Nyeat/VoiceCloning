@@ -1,11 +1,11 @@
 // Tools > Clean up (owner 2026-11-24): stale entries on the line (a test set,
 // an approved voice nobody will test, an upload that never finished) can be
-// withdrawn, restored or deleted for good. Delete removes only the record —
+// withdrawn or deleted for good. Delete removes only the record —
 // recordings and trained voices stay in storage. Every action is logged.
 import React, { useMemo, useState } from 'react';
-import { History, RotateCcw, Trash2, Undo2 } from 'lucide-react';
+import { History, RotateCcw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { cancelJob, deleteJob, formatSgt, restoreJob } from './studioApi.js';
+import { cancelJob, deleteJob, formatSgt } from './studioApi.js';
 import { Button, Card, StatusPill } from './StudioChrome.jsx';
 
 const ACTION_COPY = { deleted: 'Deleted', withdrawn: 'Withdrew', restored: 'Restored' };
@@ -23,7 +23,7 @@ export function CleanUp({ overview, onAction }) {
       <header>
         <h1 className="text-xl font-semibold text-slate-900">Clean up</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-600">
-          <b>Withdraw</b> resets everything for that person (all their sets, sessions and their page) and <b>Restore</b> undoes it.
+          <b>Withdraw</b> takes that person's voice off the line (sets, training, QC, test slots) and opens their recording page again; recording sessions stay. It cannot be undone.
           {' '}<b>Delete</b> removes just this entry, for good; their recordings and trained voices stay in storage.
         </p>
       </header>
@@ -61,9 +61,6 @@ export function CleanUp({ overview, onAction }) {
                   {record.stale && <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">{record.stale}</span>}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  {record.status === 'cancelled' && (
-                    <Button size="sm" variant="ghost" onClick={() => onAction(() => restoreJob(record.id))}><Undo2 size={14} /> Restore</Button>
-                  )}
                   {!['cancelled', 'training'].includes(record.status) && (
                     <Button size="sm" variant="outline" onClick={() => onAction(() => cancelJob(record.id))}><RotateCcw size={14} /> Withdraw</Button>
                   )}
@@ -86,7 +83,7 @@ export function CleanUp({ overview, onAction }) {
       <Card>
         <h2 className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 font-semibold text-slate-900 sm:px-5"><History size={16} /> Log</h2>
         {log.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-500">Nothing withdrawn, restored or deleted yet.</p>
+          <p className="px-5 py-6 text-sm text-slate-500">Nothing withdrawn or deleted yet.</p>
         ) : (
           <ul className="divide-y divide-slate-100 text-sm">
             {log.map((entry) => (
