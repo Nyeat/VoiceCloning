@@ -7,7 +7,7 @@
 //    their voice's progress, then testing (in their slot, or any time with a
 //    cold start) until they send feedback.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Mic2, RefreshCw, ShieldCheck,
   Star, ThumbsDown, ThumbsUp, Trash2, UserPlus, X,
@@ -983,6 +983,18 @@ function Superusers({ overview, onAction }) {
 
 // Stop 4: the waiting list beside the voice being checked. /quality opens the
 // oldest waiting voice, or says nothing is waiting.
+// Quality check has two tabs (owner 2026-11-24): the sets to check, and testing any voice.
+function QualityTabs() {
+  const { pathname } = useLocation();
+  const tab = ({ isActive }) => cn('inline-flex h-9 items-center rounded-lg px-3 text-sm font-semibold', isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100');
+  return (
+    <nav aria-label="Quality check" className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:w-fit">
+      <NavLink to="/quality" end className={({ isActive }) => tab({ isActive: isActive || pathname.startsWith('/review/') })}>Sets to check</NavLink>
+      <NavLink to="/quality/test" className={tab}>Test any voice</NavLink>
+    </nav>
+  );
+}
+
 function QualityCheck({ overview, onAction, line }) {
   const { jobId } = useParams();
   const now = Date.parse(overview.now) || Date.now();
@@ -992,10 +1004,13 @@ function QualityCheck({ overview, onAction, line }) {
     if (first) return <Navigate to={`/review/${encodeURIComponent(first.id)}`} replace />;
   }
   return (
+    <>
+    <QualityTabs />
     <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
       <QualityList jobs={overview.jobs} selectedId={jobId || ''} now={now} />
-      {jobId ? <JobDetail overview={overview} onAction={onAction} line={line} /> : <Notice tone="success">Nothing is waiting for quality check.</Notice>}
+      {jobId ? <JobDetail overview={overview} onAction={onAction} line={line} /> : <Notice tone="success">Nothing is waiting for quality check. Use “Test any voice” above to try any trained voice.</Notice>}
     </div>
+    </>
   );
 }
 
@@ -1101,7 +1116,8 @@ function SuperuserConsole() {
                   </Stage>
                 )}
               />
-              <Route path="/test" element={<SuperTest />} />
+              <Route path="/quality/test" element={<Stage stopKey="qc"><QualityTabs /><SuperTest /></Stage>} />
+              <Route path="/test" element={<Navigate to="/quality/test" replace />} />
               <Route path="/superusers" element={<Superusers overview={data} onAction={onAction} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

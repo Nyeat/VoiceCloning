@@ -509,9 +509,9 @@ export function createHandler({
         // over (or a test the lecturer finished early) is not shown anywhere.
         .filter((slot) => slot.status !== 'cancelled' && wf.slotEnd(slot) > now)
         .sort((a, b) => a.start.localeCompare(b.start)),
-      draftCount: state.slots.filter((slot) => slot.status === 'draft' && !wf.awaitsHost(slot)).length,
+      draftCount: state.slots.filter((slot) => slot.status === 'draft' && !wf.awaitsHost(state, slot)).length,
       // Bookings waiting for their host to confirm (Publish leaves them as drafts).
-      awaitingHost: state.slots.filter((slot) => wf.awaitsHost(slot)).length,
+      awaitingHost: state.slots.filter((slot) => wf.awaitsHost(state, slot)).length,
       people: [...new Map(state.jobs.filter((job) => job.status !== 'uploading').map((job) => [job.ownerEmail, {
         email: job.ownerEmail,
         name: job.ownerName,
@@ -819,16 +819,32 @@ export function createHandler({
           return sent;
         };
 
+        // Published slots: the people booked or moved, and staff whose free time a booking took.
+        const sendSlotNotices = async (toNotify = [], overridden = []) => {
+          const sent = [];
+          for (const item of toNotify) {
+            const message = templates[item.kind]({ slot: item.slot, moved: item.moved, env });
+            sent.push({ email: item.email, kind: item.kind, ...(await service.mailer.send(item.email, message)) });
+          }
+          for (const item of overridden) {
+            const message = templates.availabilityOverridden({ slot: item.slot, by: item.by, name: item.name, env });
+            sent.push({ email: item.email, kind: 'availabilityOverridden', ...(await service.mailer.send(item.email, message)) });
+          }
+          return sent;
+        };
+
         if (route === 'PUT admin/slots/:id') {
           const { result } = await updateState(store, (state) => {
             const before = { ...wf.findSlot(state, parts[2]) };
             // Handing a test slot to someone else: they too need an approved voice.
             if (before.id && wf.slotKind(before) === 'test' && body.assigneeEmail !== undefined
               && !wf.sameNtuPerson(body.assigneeEmail, before.assigneeEmail)) wf.assertVoiceApproved(state, body.assigneeEmail);
-            // The host confirming a booking changes nothing else about it.
+            // The host confirming a booking sends it out at once (owner 2026-11-24): the
+            // lecturer is emailed, and so is everyone whose free time it takes.
             if (body.confirmHost === true) {
               wf.confirmHost(state, parts[2], now);
-              return { release: '', freeAgain: [] };
+              const toNotify = wf.publishSlots(state, now, parts[2]);
+              return { release: '', freeAgain: wf.freeAgainNotices(state, env, now), toNotify, overridden: wf.overrideNotices(state, env, now) };
             }
             wf.editSlot(state, parts[2], {
               start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName, hostNames: body.hostNames,
@@ -837,6 +853,7 @@ export function createHandler({
           });
           await releaseGpuOf(result.release);
           await sendFreeAgain(result.freeAgain);
+          await sendSlotNotices(result.toNotify, result.overridden);
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
@@ -861,15 +878,7 @@ export function createHandler({
             // Staff whose availability a now-published booking took: pick another time.
             return { toNotify, overridden: wf.overrideNotices(state, env, now), freeAgain: wf.freeAgainNotices(state, env, now) };
           });
-          const sent = [];
-          for (const item of result.toNotify) {
-            const message = templates[item.kind]({ slot: item.slot, moved: item.moved, env });
-            sent.push({ email: item.email, kind: item.kind, ...(await service.mailer.send(item.email, message)) });
-          }
-          for (const item of result.overridden) {
-            const message = templates.availabilityOverridden({ slot: item.slot, by: item.by, name: item.name, env });
-            sent.push({ email: item.email, kind: 'availabilityOverridden', ...(await service.mailer.send(item.email, message)) });
-          }
+          const sent = await sendSlotNotices(result.toNotify, result.overridden);
           sent.push(...(await sendFreeAgain(result.freeAgain)));
           return ok({ ...(await adminView((await store.read()).state, email)), published: sent }, {}, event);
         }

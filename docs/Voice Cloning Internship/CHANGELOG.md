@@ -2903,3 +2903,11 @@
   were withdrawn, ask our team" (lecturerView.withdrawnOnly). A new booked session shows as a note above the status.
   Files: lambda/studio/workflow.js, index.js, workflow.test.js; client StudioApp.jsx. Lambda studio 46/46 (+1 test),
   client 584/584, build OK.
+- Same day (owner): booking confirm only when the booking sits on its host's own free time (workflow.awaitsHost(state,
+  slot)); a host merely named needs none. Confirming sends that booking at once (publishSlots(state, now, onlyId) +
+  overrideNotices): lecturer emailed, other staff free then emailed to pick another time. "Test any voice" moved into
+  Quality check as a tab (/quality/test; /test redirects; sidebar link removed). New client/src/lib/speechText.js
+  prepareSpeechText: slide text -> sentences (bullets/numbering dropped, line = sentence with full stop, ":" -> comma,
+  ";" -> full stop, times kept, arrows/&/% -> words, brackets/symbols dropped; English only) used by LivePage
+  generateTextToSpeech (TTS page) and VoiceTestBench read aloud. Tests: Lambda 460/460, client 589/589, studio +
+  live-fast builds OK. Not deployed.

@@ -19,6 +19,7 @@ import {
 import { runSynthesisWithRetry } from '@/lib/synthesisRetry';
 import { voiceCapacityWait } from '@/lib/voiceCapacity';
 import GpuWaitDialog from '@/components/GpuWaitDialog.jsx';
+import { prepareSpeechText } from '@/lib/speechText';
 import { buildVoiceProfileId } from '@/lib/voiceIdentity';
 import { recordTestActivity, recordVoiceActivity } from './studioApi.js';
 import { cn } from '@/lib/utils';
@@ -211,7 +212,8 @@ function useSpeaker(voiceName) {
   }
 
   async function speak(text) {
-    const sentences = splitSentences(text);
+    // Slide-style text (bullets, ":" / ";", symbols) is read as plain sentences.
+    const sentences = splitSentences(prepareSpeechText(text));
     if (sentences.length === 0) return;
     noteTestActivity();
     stopRef.current = false;

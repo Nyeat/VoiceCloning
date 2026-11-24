@@ -93,8 +93,16 @@ const marked = (slot) => time(slot.createdAt || slot.updatedAt || slot.start);
 
 export const isBookingSlot = isBooked;
 
-/** A booking whose host has not confirmed yet (Publish leaves it a draft). */
-export const awaitsHost = (slot) => isBooked(slot) && slot.status === 'draft' && slotHosts(slot).length > 0 && !slot.hostConfirmedAt;
+/**
+ * A booking on its host's own free time, not confirmed yet (Publish leaves it a
+ * draft; confirming sends it). Mirrors workflow.awaitsHost.
+ */
+export function awaitsHost(slot, slots = []) {
+  if (!isBooked(slot) || slot.status !== 'draft' || slot.hostConfirmedAt) return false;
+  const hosts = slotHosts(slot);
+  return hosts.length > 0 && slots.some((free) => free.id !== slot.id && isRecording(free) && !free.assigneeEmail
+    && overlaps(free, slot) && slotHosts(free).some((name) => hosts.some((host) => sameName(host, name))));
+}
 
 /** Staff free over `range`, priority first; staff running another booking then are left out. */
 export function staffFreeFor(slots, range, excludeId = '') {

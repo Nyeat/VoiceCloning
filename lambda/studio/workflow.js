@@ -630,9 +630,17 @@ export function staffFreeFor(state, range, ignoreId = '') {
   return names;
 }
 
-/** A booking whose host has not confirmed yet (it stays a draft until they do). */
-export function awaitsHost(slot) {
-  return slot.status === 'draft' && isBookedRecording(slot) && (slot.hostNames || []).length > 0 && !slot.hostConfirmedAt;
+/**
+ * A booking placed on its host's own free time, not confirmed yet: it stays a
+ * draft until the host confirms (or hands it on). A booking with no free time
+ * under it (the host was just named) needs no confirming (owner 2026-11-24).
+ */
+export function awaitsHost(state, slot) {
+  if (slot.status !== 'draft' || !isBookedRecording(slot) || slot.hostConfirmedAt) return false;
+  const hosts = slot.hostNames || [];
+  if (!hosts.length) return false;
+  return liveSlots(state).some((free) => free.id !== slot.id && isFreeRecording(free) && slotsOverlap(free, slot)
+    && (free.hostNames || []).some((name) => sameHost(hosts, name)));
 }
 
 // Does `booking` take this free time? Only someone else's: the host's own free time is what they run it in.
@@ -886,10 +894,10 @@ export function removeSlot(state, id) {
  * Publishes every draft. Returns who must be emailed: people newly given a
  * slot or whose time changed, and people who lost a slot they had been told about.
  */
-export function publishSlots(state, now) {
+export function publishSlots(state, now, onlyId = '') {
   const toNotify = [];
   // A booking waits for its host to confirm (or hand it on) before it goes out.
-  for (const slot of state.slots.filter((item) => item.status === 'draft' && !awaitsHost(item))) {
+  for (const slot of state.slots.filter((item) => item.status === 'draft' && !awaitsHost(state, item) && (!onlyId || item.id === onlyId))) {
     slot.status = 'published';
     slot.publishedAt = iso(now);
     const before = slot.notified;

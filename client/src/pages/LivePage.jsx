@@ -110,6 +110,7 @@ import {
 import { concatWavBlobs } from '@/lib/wavConcat';
 import { waitForPlayableAudioSource } from '@/lib/audioReadiness';
 import { generateLiveFastQueuedTts } from '@/lib/liveFastQueuedTts';
+import { prepareSpeechText } from '@/lib/speechText';
 import {
   clearPendingFullTts,
   loadPendingFullTts,
@@ -2288,7 +2289,8 @@ export default function LivePage({ replyMode = 'phrases', mode = 'chat', variant
   }
 
   async function generateTextToSpeech(route) {
-    const text = ttsText.trim();
+    // Slide-style text (bullets, ":" / ";", symbols) is read as plain sentences.
+    const text = prepareSpeechText(ttsText, liveLanguage);
     if (!text) {
       setTtsError('Enter text to generate audio.');
       return;

@@ -194,10 +194,10 @@ function HostStatus({ booking, slots, staff, onAction }) {
       <p className="text-xs text-slate-600">{formatDay(sgtDayKey(booking.start))} · {sgtTime(booking.start)} – {sgtTime(booking.end)} · {booking.assigneeEmail}</p>
       {hosts.length === 0 ? (
         <p className="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">Nobody runs it yet. Edit it below to pick a super user.</p>
-      ) : awaitsHost(booking) ? (
+      ) : awaitsHost(booking, slots) ? (
         <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
           <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-amber-950">Waiting for <StaffChip name={hosts[0]} size="sm" /> to confirm</p>
-          <p className="mt-1 text-[11px] text-amber-900">It is not sent until they confirm. They can take it, or hand it to someone else free then.</p>
+          <p className="mt-1 text-[11px] text-amber-900">It sits on {hosts[0]}&apos;s free time. Confirming sends it right away: the lecturer is emailed, and so is anyone else free then (asked to pick another time). Or hand it to someone else free then.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" variant="dark" onClick={() => onAction(() => editSlot(booking.id, { confirmHost: true }))}><UserCheck size={14} /> {hosts[0]}: I&apos;ll run it</Button>
             {others.map((name) => (
@@ -206,7 +206,7 @@ function HostStatus({ booking, slots, staff, onAction }) {
           </div>
         </div>
       ) : (
-        <p className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-emerald-800"><CheckCircle2 size={14} /> <StaffChip name={hosts[0]} size="sm" /> confirmed{booking.status === 'draft' ? ' · press Publish to send' : ''}</p>
+        <p className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-emerald-800"><CheckCircle2 size={14} /> Run by <StaffChip name={hosts[0]} size="sm" />{booking.hostConfirmedAt ? ' (confirmed)' : ''}{booking.status === 'draft' ? ' · draft, press Publish to send' : ' · sent'}</p>
       )}
       {takenFrom.length > 0 && (
         <div className="mt-3">
@@ -263,7 +263,7 @@ export function StaffAvailability({ overview, onAction }) {
   const blocks = daySlots.map((slot) => {
     const booked = isBooking(slot);
     const draftTag = slot.status === 'draft';
-    const waiting = awaitsHost(slot);
+    const waiting = awaitsHost(slot, slots);
     return {
       id: slot.id,
       start: slot.start,
@@ -272,7 +272,7 @@ export function StaffAvailability({ overview, onAction }) {
       overlay: booked,
       tone: booked ? (draftTag ? 'reservedDraft' : 'reserved') : (draftTag ? 'freeDraft' : 'free'),
       title: booked ? (slot.assigneeName || slot.assigneeEmail) : 'Free',
-      subtitle: `${sgtTime(slot.start)} – ${sgtTime(slot.end)}${booked ? (waiting ? ' · waiting to confirm' : draftTag ? ' · confirmed, not published' : '') : draftTag ? ' · draft' : ''}`,
+      subtitle: `${sgtTime(slot.start)} – ${sgtTime(slot.end)}${booked ? (waiting ? ` · waiting for ${slotHosts(slot)[0]} to confirm` : draftTag ? ' · draft' : '') : draftTag ? ' · draft' : ''}`,
       staff: [],
     };
   });
@@ -289,7 +289,7 @@ export function StaffAvailability({ overview, onAction }) {
     ) : <span className="text-[11px] font-semibold text-slate-400">No host</span>,
   }));
 
-  const waitingAll = slots.filter(awaitsHost).sort((a, b) => a.start.localeCompare(b.start));
+  const waitingAll = slots.filter((slot) => awaitsHost(slot, slots)).sort((a, b) => a.start.localeCompare(b.start));
   const takenFromMe = overriddenFor(slots, me);
   const drafts = overview.draftCount || 0;
   const awaiting = overview.awaitingHost ?? waitingAll.length;
@@ -386,7 +386,7 @@ export function StaffAvailability({ overview, onAction }) {
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-rose-400 bg-rose-100" /> Booked (on the host&apos;s column)</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-[repeating-linear-gradient(135deg,#94a3b8_0_3px,#fff_3px_6px)] ring-1 ring-slate-400" /> Taken by someone else&apos;s booking</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-dashed border-slate-500" /> Draft</span>
-          {awaiting > 0 && <span className="font-semibold text-amber-800 sm:ml-auto">{awaiting} booking{awaiting === 1 ? '' : 's'} waiting for the host to confirm (not published until then)</span>}
+          {awaiting > 0 && <span className="font-semibold text-amber-800 sm:ml-auto">{awaiting} booking{awaiting === 1 ? '' : 's'} on someone&apos;s free time, waiting for them to confirm</span>}
         </div>
       </Card>
 
@@ -401,7 +401,7 @@ export function StaffAvailability({ overview, onAction }) {
           <div key={slot.id} role="status" className={cn('flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm', mine ? 'border-amber-400 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-800')}>
             <UserCheck size={18} className="shrink-0 text-amber-700" aria-hidden="true" />
             <p className="min-w-0 flex-1">
-              <b>{mine ? 'You have' : `${host} has`}</b> a booking to confirm: {slot.assigneeName || slot.assigneeEmail}, {formatDay(sgtDayKey(slot.start))} {sgtTime(slot.start)} – {sgtTime(slot.end)}.
+              {slot.assigneeName || slot.assigneeEmail} was booked into <b>{mine ? 'your' : `${host}'s`}</b> free time, {formatDay(sgtDayKey(slot.start))} {sgtTime(slot.start)} – {sgtTime(slot.end)}. Confirm to send it, or hand it on.
             </p>
             <Button size="sm" variant="dark" onClick={() => onAction(() => editSlot(slot.id, { confirmHost: true }))}>{mine ? "I'll run it" : `Confirm for ${host}`}</Button>
             <Button size="sm" variant="ghost" onClick={() => openSlot({ id: slot.id })}>Hand on…</Button>

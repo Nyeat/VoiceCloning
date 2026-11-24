@@ -130,10 +130,8 @@ test('a recording session may be free (no person) and run by several staff', () 
   // Filling the person in later books it; clearing it frees it again.
   wf.editSlot(state, 'f1', { assigneeEmail: 'r@gmail.com', assigneeName: 'R', hostNames: ['Ms Lee'] }, T0);
   assert.deepEqual([state.slots[0].assigneeEmail, state.slots[0].hostName], ['r@gmail.com', 'Ms Lee']);
-  // A booking with a host waits for them to confirm before it publishes.
-  assert.deepEqual(wf.publishSlots(state, T0), []);
-  assert.equal(wf.awaitsHost(state.slots[0]), true);
-  wf.confirmHost(state, 'f1', T0);
+  // Ms Lee has no free time under it, so there is nothing for her to confirm.
+  assert.equal(wf.awaitsHost(state, state.slots[0]), false);
   assert.deepEqual(wf.publishSlots(state, T0).map((n) => [n.kind, n.email]), [['recordingBooked', 'r@gmail.com']]);
   wf.editSlot(state, 'f1', { assigneeEmail: '', assigneeName: '' }, T0);
   assert.deepEqual(wf.publishSlots(state, T0).map((n) => [n.kind, n.email]), [['recordingCancelled', 'r@gmail.com']]);
@@ -163,6 +161,11 @@ test('a booking goes to whoever free then marked the time first; whole cover bea
   assert.equal(state.slots.find((s) => s.id === 'adam').overriddenBy, null);
   assert.equal(state.slots.find((s) => s.id === 'teng').overriddenBy.slotId, 'b');
   assert.equal(booking.hostConfirmedAt, null);
+  assert.equal(wf.awaitsHost(state, booking), true, 'Adam has free time under it: he confirms first');
+  assert.deepEqual(wf.publishSlots(state, T0, 'b'), [], 'not sent before he confirms');
+  wf.confirmHost(state, 'b', T0);
+  assert.deepEqual(wf.publishSlots(state, T0, 'b').map((n) => n.email), ['lee@gmail.com']);
+  assert.equal(state.slots.find((s) => s.id === 'teng').status, 'draft', 'confirming sends only that booking');
   // Adam is busy now, so the next booking then goes to the next free person.
   assert.deepEqual(wf.staffFreeFor(state, { start: at(90), end: at(120) }), ['bea@ntu.edu.sg', 'Teng Yu']);
 });

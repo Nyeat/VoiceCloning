@@ -309,13 +309,24 @@ test('staff availability: first come hosts, the host confirms, others are emaile
   assert.equal(booked.body.awaitingHost, 1);
   // Publish waits for Adam to confirm: nobody is emailed yet.
   assert.equal((await h.call(boss, 'POST', 'admin/slots/publish', {})).body.published.length, 0);
+  // Adam confirming sends it at once: the lecturer is booked and Teng Yu is told to pick another time.
+  const before = h.sent.length;
   assert.equal((await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { confirmHost: true })).status, 200);
-  const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
-  assert.deepEqual(published.body.published.map((p) => [p.email, p.kind]).sort(), [['lee@gmail.com', 'recordingBooked'], ['teng@ntu.edu.sg', 'availabilityOverridden']]);
+  assert.deepEqual(h.sent.slice(before).map((m) => m.to).flat().sort(), ['lee@gmail.com', 'teng@ntu.edu.sg']);
   assert.equal((await h.call(boss, 'POST', 'admin/slots/publish', {})).body.published.length, 0, 'told once');
   // Deleting the booking gives Teng Yu his hour back, and he is told.
   await h.call(boss, 'DELETE', `admin/slots/${booking.id}`);
   assert.ok(h.sent.some((m) => m.to.includes('teng@ntu.edu.sg') && /free again/u.test(m.subject)));
+});
+
+test('staff availability: a booking with no free time under its host needs no confirming', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const at0 = (m) => new Date(T0 + m * MIN).toISOString();
+  await h.call(boss, 'POST', 'admin/superusers', { email: 'teng@ntu.edu.sg', name: 'Teng Yu' });
+  const booked = await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), assigneeEmail: 'lee@gmail.com', hostNames: ['Teng Yu'] });
+  assert.equal(booked.body.awaitingHost, 0);
+  assert.deepEqual((await h.call(boss, 'POST', 'admin/slots/publish', {})).body.published.map((p) => p.email), ['lee@gmail.com']);
 });
 
 test('staff availability: undoing before Publish sends no "free again" email', async () => {
@@ -345,9 +356,9 @@ test('staff availability: the host can hand the booking to another free super us
   assert.deepEqual(booking.hostNames, ['Teng Yu']);
   assert.equal((await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { hostNames: ['s'] })).status, 400, 'only super users');
   await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { hostNames: ['Adam'] });
+  const before = h.sent.length;
   await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { confirmHost: true });
-  const published = await h.call(boss, 'POST', 'admin/slots/publish', {});
-  assert.deepEqual(published.body.published.map((p) => [p.email, p.kind]).sort(), [['lee@gmail.com', 'recordingBooked'], ['teng@ntu.edu.sg', 'availabilityOverridden']]);
+  assert.deepEqual(h.sent.slice(before).map((m) => m.to).flat().sort(), ['lee@gmail.com', 'teng@ntu.edu.sg']);
 });
 
 test('a super user can delete a stale upload (withdrawn, restorable)', async () => {

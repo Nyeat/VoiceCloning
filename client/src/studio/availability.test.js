@@ -59,5 +59,6 @@ test('first come hosts a booking; whole cover beats partial; busy hosts are skip
   assert.deepEqual(staffColumns(booked), ['Teng Yu', 'Adam', 'Bea']);
   assert.deepEqual(takenParts(booked[2], booked).map((p) => [p.start, p.end]), [[at(14), at(16)]]);
   assert.deepEqual(takenParts(booked[1], booked), [], "the host's own time is not taken");
-  assert.equal(awaitsHost(booked[3]), true);
+  assert.equal(awaitsHost(booked[3], booked), true, "on Teng Yu's own free time");
+  assert.equal(awaitsHost(slot('n', 9, 10, { assigneeEmail: 'x@gmail.com', hostNames: ['Teng Yu'], status: 'draft' }), booked), false, 'no free time under it');
 });

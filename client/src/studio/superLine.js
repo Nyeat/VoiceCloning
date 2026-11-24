@@ -58,7 +58,7 @@ const ALERT_LABEL = {
 
 /** The stop a console path belongs to ('' for home and the tools). */
 export function stopForPath(pathname = '/') {
-  if (pathname.startsWith('/review/') || pathname === '/quality') return 'qc';
+  if (pathname.startsWith('/review/') || pathname.startsWith('/quality')) return 'qc';
   if (pathname === '/record') return 'record';
   return STOPS.find((stop) => stop.path === pathname)?.key || '';
 }
