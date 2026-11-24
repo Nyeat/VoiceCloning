@@ -942,8 +942,11 @@ export function recordingAccess(state, { email, now, superuser }) {
   if (active) return { allowed: true, reason: 'in-session', slot: active };
   // Owner 2026-11-23: anyone who has not sent their recordings yet may record
   // on their own, session or not (a booked session is still shown to them).
-  if (!hasSubmittedVoice(state, email)) return { allowed: true, reason: 'open', slot: next };
-  return { allowed: false, reason: next ? 'too-early' : 'no-session', slot: next };
+  // Owner 2026-11-24: the recording page is a one-time thing. Once a set was
+  // ever sent (even one later withdrawn), only a new session the team books
+  // opens it again.
+  if (!everSubmittedVoice(state, email)) return { allowed: true, reason: 'open', slot: next };
+  return { allowed: false, reason: next ? 'too-early' : 'submitted', slot: next };
 }
 
 /** Uploads to a set created in a session may finish shortly after it; sets made outside one stay open. */
@@ -959,6 +962,11 @@ export function uploadWindowOpen(state, job, { now, superuser }) {
  * (anything but an unsent or withdrawn set), they cannot book another. A set
  * sent back for new recordings is withdrawn, so that person may book again.
  */
+/** Sent a set at least once (withdrawn ones count): the recording page has been used. */
+export function everSubmittedVoice(state, email) {
+  return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && job.queuedAt);
+}
+
 export function hasSubmittedVoice(state, email) {
   return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && !['uploading', 'cancelled'].includes(job.status));
 }
@@ -1168,6 +1176,8 @@ export function lecturerJob(job, estimate) {
     totalBytes: job.totalBytes,
     createdAt: job.createdAt,
     queuedAt: job.queuedAt,
+    // The recording session it was made in (a new session the team books opens recording again).
+    recordingSlotId: job.recordingSlotId || null,
     voiceName: ['approved', 'scheduled'].includes(job.status) ? job.approvedExpName : '',
     testingClosedAt: job.testingClosedAt || null,
     estimate: estimate || null,

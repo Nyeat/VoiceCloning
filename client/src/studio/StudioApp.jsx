@@ -1294,8 +1294,14 @@ function VoiceJourney({ job, now, testSlot }) {
     title = 'Our team is listening to your voice';
     body = <p>Training is done. Quality control is done by people, so it can take longer than training — sometimes we retrain to get it right. We email you when it passes.</p>;
   } else if (job.status === 'ready' && job.testingClosedAt) {
-    title = 'You have tested your voice — thank you';
-    body = <p>We received your feedback on {formatSgt(job.testingClosedAt)} SGT. Our team reads it and emails you about next steps.</p>;
+    // Owner 2026-11-24: testing done = the session is finished; training again goes through the team.
+    title = 'Your voice session is finished — thank you';
+    body = (
+      <>
+        <p>We received your feedback on {formatSgt(job.testingClosedAt)} SGT. Our team reads it and emails you about next steps.</p>
+        <p>Want your voice trained again, for example with new recordings? Please ask our team; they will book you a new recording session.</p>
+      </>
+    );
   } else if (job.status === 'ready' && testSlot) {
     title = 'Your test time is booked';
     body = <p><b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}). A GPU is warmed up just for you before it starts; we email you that morning.</p>;
@@ -1309,7 +1315,7 @@ function VoiceJourney({ job, now, testSlot }) {
         <p className="min-w-0 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 [overflow-wrap:anywhere]">{job.label}</p>
         {job.attempt > 1 && job.status !== 'ready' && <span className="text-xs text-slate-400">improving it (try {job.attempt})</span>}
       </div>
-      <div className="mt-5"><JourneySteps step={step} retrain={retrain} /></div>
+      <div className="mt-5"><JourneySteps step={job.status === 'ready' && job.testingClosedAt ? JOURNEY.length : step} retrain={retrain} /></div>
       <div className="mt-5 rounded-2xl bg-slate-50 px-4 py-4 sm:mt-6 sm:px-5">
         <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
         <div className="mt-1 space-y-1 text-sm leading-6 text-slate-600">
@@ -1329,12 +1335,18 @@ function LecturerHome({ me: initialMe, refresh }) {
   const ready = me.jobs.filter((job) => job.status === 'ready');
   const testable = ready.filter((job) => !job.testingClosedAt && job.voiceName);
   const submitted = me.jobs.filter((job) => !['uploading', 'cancelled'].includes(job.status));
+  // Sets still on their way; once every one is tested, the newest shows "session finished".
+  const finished = (job) => job.status === 'ready' && Boolean(job.testingClosedAt);
+  const journeys = submitted.some((job) => !finished(job)) ? submitted.filter((job) => !finished(job)) : submitted.slice(0, 1);
   const slot = me.activeSlot && Date.parse(me.activeSlot.end) > now ? me.activeSlot : null;
   const testSlot = me.mySlot && !slot ? me.mySlot : null;
   const recording = me.recording || {};
-  // Open in their session, and any time before they have sent their recordings.
-  const recordingOpen = Boolean(recording.allowed);
   const booked = recording.slot && Date.parse(recording.slot.end) > now ? recording.slot : null;
+  // The recording page is one-time (owner 2026-11-24): before the first set is sent,
+  // or during a new session the team booked that nothing was sent from yet.
+  const inSession = recording.reason === 'in-session' ? recording.slot : null;
+  const recordingOpen = recording.reason === 'open'
+    || Boolean(inSession && !me.jobs.some((job) => job.recordingSlotId === inSession.id && job.status !== 'uploading'));
   const [feedbackJob, setFeedbackJob] = useState('');
   const feedbackTarget = testable.find((job) => job.id === feedbackJob) || testable[0];
   // Outside a slot the GPU starts only when they ask (a cold start just for them).
@@ -1354,7 +1366,7 @@ function LecturerHome({ me: initialMe, refresh }) {
     return () => window.clearInterval(id);
   }, [refresh, testing]);
 
-  // One stage at a time: testing → recording → the voice's journey → waiting for a session.
+  // One stage at a time: testing → recording → the voice's journey → withdrawn → waiting for a session.
   let content;
   if (testing) {
     content = (
@@ -1376,11 +1388,23 @@ function LecturerHome({ me: initialMe, refresh }) {
         )}
       </>
     );
-  } else if (submitted.length > 0) {
-    // Submitted (even while their session is still open): only what comes next.
+  } else if (recordingOpen) {
     content = (
       <>
-        {submitted.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />)}
+        {recording.reason === 'open' && booked && (
+          <p className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900">Your recording session is booked for <b>{formatRange(booked.start, booked.end)}</b>. You can also record here on your own now.</p>
+        )}
+        <RecordWorkspace embedded sessionEnd={recording.reason === 'in-session' ? recording.slot?.end : undefined} onSubmitted={(view) => setMe(view)} />
+      </>
+    );
+  } else if (submitted.length > 0) {
+    // Sent: only the status of what comes next, never the recording page again.
+    content = (
+      <>
+        {booked && recording.reason === 'too-early' && (
+          <p className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900">Your new recording session is booked for <b>{formatRange(booked.start, booked.end)}</b>. This page becomes your recording studio when it starts.</p>
+        )}
+        {journeys.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />)}
         {testable.length > 0 && (
           <Card className="flex flex-wrap items-center gap-3 p-4 sm:p-5">
             <div className="min-w-0 flex-1 basis-64">
@@ -1392,14 +1416,13 @@ function LecturerHome({ me: initialMe, refresh }) {
         )}
       </>
     );
-  } else if (recordingOpen) {
+  } else if (me.withdrawnOnly) {
     content = (
-      <>
-        {recording.reason === 'open' && booked && (
-          <p className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900">Your recording session is booked for <b>{formatRange(booked.start, booked.end)}</b>. You can also record here on your own now.</p>
-        )}
-        <RecordWorkspace embedded sessionEnd={recording.reason === 'in-session' ? recording.slot?.end : undefined} onSubmitted={(view) => setMe(view)} />
-      </>
+      <Card className="p-5 text-center sm:p-8">
+        <CalendarClock size={30} className="mx-auto text-slate-400" />
+        <h1 className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">Your recordings were withdrawn</h1>
+        <p className="mx-auto mt-2 max-w-md text-slate-600">Our team took your last set out of training. To record or train your voice again, please ask our team; they will book you a new recording session and email you the time.</p>
+      </Card>
     );
   } else {
     content = (

@@ -2895,3 +2895,11 @@
   StaffAvailability.jsx (new), SlotCalendar.jsx (columns/overlay/shades), availability.js (+test), StudioApp.jsx,
   LineStages.jsx, SuperLineChrome.jsx. Lambda 459/459, client 584/584, studio build OK. Not deployed; not checked
   signed in in a browser.
+- Same day: 55ecf6a DEPLOYED dev + staging (main Lambdas, studio site). Then lecturer flow (owner): the recording page
+  is one-time — recordingAccess reason 'submitted' once any set was ever sent (withdrawn counts,
+  workflow.everSubmittedVoice); a new session the team books reopens it while it runs (until a set is sent from it,
+  lecturerJob.recordingSlotId). Lecturer page order: testing > recording > status journey (only unfinished sets; all
+  tested = newest shows "Your voice session is finished … ask our team to train again", all steps done) > "recordings
+  were withdrawn, ask our team" (lecturerView.withdrawnOnly). A new booked session shows as a note above the status.
+  Files: lambda/studio/workflow.js, index.js, workflow.test.js; client StudioApp.jsx. Lambda studio 46/46 (+1 test),
+  client 584/584, build OK.

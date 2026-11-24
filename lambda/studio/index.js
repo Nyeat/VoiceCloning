@@ -471,6 +471,8 @@ export function createHandler({
       })),
       // Their recording session (booked for them by the team) and whether recording is open now.
       recording: wf.recordingAccess(state, { email, now, superuser }),
+      // Sent a set before but every one was withdrawn: the page says to ask the team.
+      withdrawnOnly: !jobs.some((job) => job.queuedAt) && wf.everSubmittedVoice(state, email),
       // GPU test slot (allocated by a super user after QC).
       mySlot: wf.upcomingSlotFor(state, email, now, 'test'),
       // Their last test slot that is over, so the page can say they have tested.

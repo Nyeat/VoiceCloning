@@ -181,6 +181,14 @@ test('recording: open in a booked session, and any time before the person has su
   const sent = job(state, 'a1', 'a@ntu.edu.sg', 0);
   sent.status = 'queued';
   assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 121 * MIN, superuser: false }).allowed, false);
+  // The page is one-time: a withdrawn set still counts as sent.
+  sent.status = 'cancelled';
+  sent.queuedAt = sent.queuedAt || new Date(T0).toISOString();
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 121 * MIN, superuser: false }).reason, 'submitted');
+  // A new session the team books opens it again while it runs.
+  wf.addSlot(state, { id: 'r2', kind: 'recording', start: at(180), end: at(240), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.publishSlots(state, T0);
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 181 * MIN, superuser: false }).reason, 'in-session');
 });
 
 test('a lecturer tests their approved voices on their own GPU, in their slot or on demand, until feedback', () => {

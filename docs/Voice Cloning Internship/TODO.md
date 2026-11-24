@@ -1,6 +1,8 @@
 # Active TODO
 
-- [ ] Staff availability per-person calendar (2026-11-24, NOT deployed): deploy studio Lambda + site, then live-test with
+- [ ] Lecturer one-time recording page (2026-11-24): live-test as a lecturer: send a set -> status page only; retrain ->
+  "Retraining"; feedback -> "session finished"; withdraw all -> "withdrawn"; new booked session reopens recording.
+- [ ] Staff availability per-person calendar (2026-11-24, deployed dev+staging): live-test with
   two super users: both free 3-4 (A first) -> book 3-4 -> A's column red, B hatched -> A confirms or hands to B ->
   Publish emails lecturer + the other; delete -> "free again" email. Old slots named non-super users ("s") stay.
 - [ ] Voice Studio redesign (2026-11-23, DEPLOYED; sign-in down meanwhile): owner creates a Google OAuth web client

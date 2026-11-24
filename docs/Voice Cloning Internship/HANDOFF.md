@@ -21,10 +21,9 @@ Last updated: 2026-11-23
 - 11-23 Voice Studio redesign + later fixes (CHANGELOG 11-23, through 93835dd): approved voice before test slot, upload for someone, open recording, edit moves slot GPU, warm-up ensures profile, past slots hidden.
   11-23 later (32f6e35, DEPLOYED dev+staging 17:25 SGT): Staff availability (override + taken/free-again emails, hand-off, undo), Upload for anyone, Delete stale uploads, 12 dummies re-seeded. Staging again has open recording.
   Dev has all; STAGING was overwritten 16:33 SGT by a teammate's unpushed tree ("To record" list) -> his work merged in 5acac14; redeploy staging next. Email needs the LKC mailbox (TODO).
-- 11-24 (local, NOT deployed): per-person availability calendar, first come hosts + confirms; see CHANGELOG 11-24.
-- One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
-  must point at the same commit; runtime config owns the deliberate differences (Staging hides
-  advanced settings, Dev does not autoscale, Dev has no Faculty).
+- 11-24: availability calendar (55ecf6a) deployed dev+staging; one-time recording page + lecturer status flow after it (CHANGELOG 11-24).
+- One tree: Dev `separate-containers-new` = Staging `codex/staging-multi-user-scaling` (same commit); runtime
+  config owns the differences (Staging hides advanced settings, Dev does not autoscale, Dev has no Faculty).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected
   cloned-voice snapshot and category to Dev; training, analytics and transcripts stay isolated.
 - ElevenLabs stock voices bypass the cloned-voice coordinator.
