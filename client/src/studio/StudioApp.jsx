@@ -1378,25 +1378,22 @@ function LecturerHome({ me: initialMe, refresh }) {
   const slot = me.activeSlot && Date.parse(me.activeSlot.end) > now ? me.activeSlot : null;
   const testSlot = me.mySlot && !slot ? me.mySlot : null;
   const recording = me.recording || {};
-  const booked = recording.slot && Date.parse(recording.slot.end) > now ? recording.slot : null;
-  // The recording page is one-time (owner 2026-11-24): before the first set is sent,
-  // or during a new session the team booked that nothing was sent from yet.
-  const inSession = recording.reason === 'in-session' ? recording.slot : null;
-  const recordingOpen = recording.reason === 'open'
-    || Boolean(inSession && !me.jobs.some((job) => job.recordingSlotId === inSession.id && job.status !== 'uploading'));
+  // Recording is open whenever nothing of theirs is on the line (owner 2026-11-24).
+  // Recording sessions are for staff and emails only: they never change this page.
+  const recordingOpen = recording.reason === 'open';
   const [feedbackJob, setFeedbackJob] = useState('');
   const feedbackTarget = testable.find((job) => job.id === feedbackJob) || testable[0];
   // Outside a slot the GPU starts only when they ask (a cold start just for them).
   const [testNow, setTestNow] = useState(false);
   const testing = testable.length > 0 && (Boolean(slot) || testNow);
 
-  // Re-read at session/slot boundaries so pages unlock and lock on time.
+  // Re-read at test-slot boundaries so testing unlocks and locks on time.
   useEffect(() => {
-    const times = [slot?.end, testSlot?.start, booked?.start, booked?.end].filter(Boolean).map((value) => Date.parse(value)).filter((value) => value > Date.now());
+    const times = [slot?.end, testSlot?.start].filter(Boolean).map((value) => Date.parse(value)).filter((value) => value > Date.now());
     if (times.length === 0) return undefined;
     const id = window.setTimeout(refresh, Math.max(1000, Math.min(...times) - Date.now() + 1500));
     return () => window.clearTimeout(id);
-  }, [slot, testSlot, booked, refresh]);
+  }, [slot, testSlot, refresh]);
   useEffect(() => {
     if (testing) return undefined;
     const id = window.setInterval(refresh, 60_000);
@@ -1427,20 +1424,12 @@ function LecturerHome({ me: initialMe, refresh }) {
     );
   } else if (recordingOpen) {
     content = (
-      <>
-        {recording.reason === 'open' && booked && (
-          <p className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900">Your recording session is booked for <b>{formatRange(booked.start, booked.end)}</b>. You can also record here on your own now.</p>
-        )}
-        <RecordWorkspace embedded sessionEnd={recording.reason === 'in-session' ? recording.slot?.end : undefined} onSubmitted={(view) => setMe(view)} />
-      </>
+      <RecordWorkspace embedded onSubmitted={(view) => setMe(view)} />
     );
   } else if (submitted.length > 0) {
     // Sent: only the status of what comes next, never the recording page again.
     content = (
       <>
-        {booked && recording.reason === 'too-early' && (
-          <p className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900">Your new recording session is booked for <b>{formatRange(booked.start, booked.end)}</b>. This page becomes your recording studio when it starts.</p>
-        )}
         {journeys.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />)}
         {testable.length > 0 && (
           <Card className="flex flex-wrap items-center gap-3 p-4 sm:p-5">
@@ -1458,17 +1447,15 @@ function LecturerHome({ me: initialMe, refresh }) {
       <Card className="p-5 text-center sm:p-8">
         <CalendarClock size={30} className="mx-auto text-slate-400" />
         <h1 className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">Your recordings were withdrawn</h1>
-        <p className="mx-auto mt-2 max-w-md text-slate-600">Our team took your last set out of training. To record or train your voice again, please ask our team; they will book you a new recording session and email you the time.</p>
+        <p className="mx-auto mt-2 max-w-md text-slate-600">Our team took your last set out of training. To record or train your voice again, please ask our team to reopen your recording page.</p>
       </Card>
     );
   } else {
     content = (
       <Card className="p-5 text-center sm:p-8">
         <CalendarClock size={30} className="mx-auto text-slate-400" />
-        <h1 className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">{booked ? 'Your recording session is booked' : 'Your recording session'}</h1>
-        {booked
-          ? <><p className="mt-2 text-slate-600"><b>{formatRange(booked.start, booked.end)}</b> ({relativeFromNow(booked.start, now)}).</p><p className="mt-1 text-sm text-slate-500">We email you the day before and on the day. This page becomes your recording studio when it starts.</p></>
-          : <p className="mt-2 text-slate-600">Our team arranges a time with you and books it here. We email you the time; this page becomes your recording studio during it.</p>}
+        <h1 className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">Nothing to do right now</h1>
+        <p className="mt-2 text-slate-600">Your recordings are with our team. We email you as your voice moves along.</p>
       </Card>
     );
   }

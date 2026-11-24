@@ -277,7 +277,7 @@ test('a recording session is booked for a named person; they see only their own'
   assert.deepEqual(published.body.published.map((p) => p.kind), ['recordingBooked', 'recordingBooked']);
   const amy = (await h.call('amy@gmail.com', 'GET', 'me')).body;
   assert.equal(amy.recording.reason, 'open', 'before her session she may already record on her own');
-  assert.equal(amy.recording.slot.assigneeEmail, 'amy@gmail.com');
+  assert.equal(amy.recording.slot, undefined, 'sessions are not shown to lecturers');
   assert.equal(amy.sessions, undefined, 'no booking table for lecturers');
   h.advance(61);
   assert.equal((await h.call('amy@gmail.com', 'GET', 'me')).body.recording.allowed, true);

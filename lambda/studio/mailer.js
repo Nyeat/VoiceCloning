@@ -78,7 +78,7 @@ export const templates = {
       subject: tomorrow ? 'Reminder: your voice recording session is tomorrow' : 'Today: your voice recording session',
       ...layout(tomorrow ? 'Your recording session is tomorrow' : 'Your recording session is today', [
         `Your recording session is ${formatSgtRange(slot.start, slot.end)}.`,
-        'Find a quiet room and use a headset or a microphone close to you. Sign in to Voice Studio when it starts — the recording page opens for you then.',
+        'Find a quiet room and use a headset or a microphone close to you. Sign in to Voice Studio with the link below to record.',
       ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },
@@ -150,7 +150,7 @@ export const templates = {
       subject: moved ? 'Your recording session has changed' : 'Your voice recording session',
       ...layout(moved ? 'Your recording session has changed' : 'Your recording session is booked', [
         `Your recording session is ${formatSgtRange(slot.start, slot.end)}.`,
-        'Sign in to Voice Studio with Google during that time — the recording page opens for you then. We email you the day before and on the day.',
+        'Sign in to Voice Studio with the link below to record. We email you the day before and on the day.',
       ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },
@@ -159,8 +159,8 @@ export const templates = {
     return {
       subject: 'Your recording session was cancelled',
       ...layout('Your recording session was cancelled', [
-        `Your recording session on ${formatSgtRange(slot.start, slot.end)} was cancelled. Please pick another time in Voice Studio.`,
-      ], studio ? { label: 'Pick another time', url: studio } : null),
+        `Your recording session on ${formatSgtRange(slot.start, slot.end)} was cancelled. Our team will arrange a new time with you.`,
+      ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },
   // Staff: another staff member booked a lecturer over this person's free time.
@@ -172,7 +172,7 @@ export const templates = {
       ...layout('Your availability was taken', [
         `${name ? `Hi ${name}, your` : 'Your'} free time on ${formatSgtRange(by.start, by.end)} is booked: ${hosts} marked that time first, so they run ${by.assigneeName || 'a lecturer'}'s recording session then.`,
         'That time now shows grey on the Staff availability calendar in Voice Studio. Please pick another time. If you would rather run this session yourself, ask them to hand it to you.',
-      ], studio ? { label: 'Pick another time', url: studio } : null),
+      ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },
   // Staff: the booking that took their free time was undone, moved or cancelled.

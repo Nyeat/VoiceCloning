@@ -3,9 +3,9 @@
 // withdrawn or deleted for good. Delete removes only the record —
 // recordings and trained voices stay in storage. Every action is logged.
 import React, { useMemo, useState } from 'react';
-import { History, RotateCcw, Trash2 } from 'lucide-react';
+import { History, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { cancelJob, clearCleanupLog, deleteJob, formatSgt } from './studioApi.js';
+import { cancelJob, clearCleanupLog, deleteJob, formatSgt, resetPerson } from './studioApi.js';
 import { Button, Card, StatusPill } from './StudioChrome.jsx';
 
 const ACTION_COPY = { deleted: 'Deleted', withdrawn: 'Withdrew', restored: 'Restored', reset: 'Reset for a new voice' };
@@ -25,6 +25,7 @@ export function CleanUp({ overview, onAction }) {
         <h1 className="text-xl font-semibold text-slate-900">Clean up</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-600">
           <b>Withdraw</b> takes that person's voice off the line (sets, training, QC, test slots) and opens their recording page again; recording sessions stay. It cannot be undone.
+          {' '}<b>Reset for a new voice</b> (once a run is approved and tested) opens recording for another voice without withdrawing anything.
           {' '}<b>Delete</b> removes just this entry, for good; their recordings and trained voices stay in storage.
         </p>
       </header>
@@ -62,6 +63,10 @@ export function CleanUp({ overview, onAction }) {
                   {record.stale && <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">{record.stale}</span>}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
+                  {record.reset && <span className="text-xs text-slate-500">Reset · can record a new voice</span>}
+                  {record.canReset && (
+                    <Button size="sm" variant="outline" onClick={() => onAction(() => resetPerson(record.id))} title="Their run is finished: open recording for another voice (nothing is withdrawn)"><RefreshCw size={14} /> Reset for a new voice</Button>
+                  )}
                   {!['cancelled', 'training'].includes(record.status) && (
                     <Button size="sm" variant="outline" onClick={() => onAction(() => cancelJob(record.id))}><RotateCcw size={14} /> Withdraw</Button>
                   )}

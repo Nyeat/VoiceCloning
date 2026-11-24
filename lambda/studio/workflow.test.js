@@ -170,28 +170,23 @@ test('a booking goes to whoever free then marked the time first; whole cover bea
   assert.deepEqual(wf.staffFreeFor(state, { start: at(90), end: at(120) }), ['bea@ntu.edu.sg', 'Teng Yu']);
 });
 
-test('recording: open in a booked session, and any time before the person has submitted', () => {
+test('recording sessions never open or close recording: it is open until something is sent', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', now: T0 });
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'open', 'a draft is not a session, but they may record on their own');
   wf.publishSlots(state, T0);
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).reason, 'open');
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'in-session');
-  assert.equal(wf.recordingAccess(state, { email: 'A@staff.main.ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).allowed, true);
-  assert.equal(wf.recordingAccess(state, { email: 'b@ntu.edu.sg', now: T0 + 61 * MIN, superuser: false }).reason, 'open');
-  // Once their recordings are sent, recording closes (one voice per person).
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', superuser: false }).reason, 'open');
+  assert.equal(wf.recordingAccess(state, { email: 'b@ntu.edu.sg', superuser: false }).reason, 'open', 'no session needed');
+  // Once their recordings are sent, recording closes (one voice per person), session or not.
   const sent = job(state, 'a1', 'a@ntu.edu.sg', 0);
-  sent.status = 'queued';
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 121 * MIN, superuser: false }).allowed, false);
-  // The page is one-time: a withdrawn set still counts as sent.
-  sent.status = 'cancelled';
-  sent.queuedAt = sent.queuedAt || new Date(T0).toISOString();
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 121 * MIN, superuser: false }).reason, 'submitted');
-  // A new session the team books opens it again while it runs.
+  assert.equal(wf.recordingAccess(state, { email: 'A@staff.main.ntu.edu.sg', superuser: false }).allowed, false);
   wf.addSlot(state, { id: 'r2', kind: 'recording', start: at(180), end: at(240), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
   wf.publishSlots(state, T0);
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 181 * MIN, superuser: false }).reason, 'in-session');
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', superuser: false }).reason, 'submitted', 'a new session does not reopen it');
+  // Only the team reopens it (withdraw / reset).
+  sent.recordingReopened = true;
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', superuser: false }).reason, 'open');
+  assert.equal(wf.recordingAccess(state, { email: 'x@ntu.edu.sg', superuser: true }).allowed, true);
 });
 
 test('a lecturer tests their approved voices on their own GPU, in their slot or on demand, until feedback', () => {
@@ -505,6 +500,7 @@ test('reset a finished person: nothing withdrawn, recording opens, a new set is 
   assert.equal(wf.hasSubmittedVoice(state, 'a@ntu.edu.sg'), true);
   assert.throws(() => wf.resetPerson(state, 'a@ntu.edu.sg'), /still on the line/u, 'approved but not tested yet');
   done.testingClosedAt = at(120);
+  assert.equal(wf.cleanupRecords(state, T0).find((r) => r.id === 'a1').canReset, true, 'Clean up offers Reset');
   const { reset } = wf.resetPerson(state, 'a@ntu.edu.sg');
   assert.equal(reset.length, 1);
   assert.equal(done.status, 'approved', 'not withdrawn');
@@ -512,6 +508,7 @@ test('reset a finished person: nothing withdrawn, recording opens, a new set is 
   assert.equal(wf.hasSubmittedVoice(state, 'a@ntu.edu.sg'), false);
   assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 200 * MIN, superuser: false }).reason, 'open');
   assert.throws(() => wf.resetPerson(state, 'a@ntu.edu.sg'), /Nothing to reset/u);
+  assert.deepEqual([wf.cleanupRecords(state, T0).find((r) => r.id === 'a1')].map((r) => [r.canReset, r.reset])[0], [false, true]);
   assert.equal(wf.latestTestSlotFor(state, 'a@ntu.edu.sg', at(200)), null, 'earlier run\'s slot is not the new set\'s');
   const busy = job(state, 'b1', 'b@ntu.edu.sg', 0);
   busy.status = 'review';

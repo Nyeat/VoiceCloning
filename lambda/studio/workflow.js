@@ -540,11 +540,14 @@ export function cleanupRecords(state, now = Date.now()) {
     if (job.status === 'uploading' && idleDays >= 1) stale = 'Upload never finished';
     else if (job.status === 'cancelled') stale = 'Withdrawn';
     else if (job.status === 'failed') stale = 'Training failed';
-    else if (['approved', 'scheduled'].includes(job.status) && !upcomingTest(job.ownerEmail)) stale = 'Approved, no test slot';
+    else if (['approved', 'scheduled'].includes(job.status) && !job.testingClosedAt && !upcomingTest(job.ownerEmail)) stale = 'Approved, no test slot';
     else if (idleDays >= 14 && job.status !== 'training') stale = `No activity for ${idleDays} days`;
     return {
       id: job.id, ownerEmail: job.ownerEmail, ownerName: job.ownerName, label: job.label, status: job.status,
       createdAt: job.createdAt, lastAt: lastAt ? iso(lastAt) : null, idleDays, stale, files: (job.files || []).length,
+      // Finished run (approved and tested) not reset yet: Clean up offers "Reset for a new voice".
+      canReset: ['approved', 'scheduled'].includes(job.status) && Boolean(job.testingClosedAt) && !job.recordingReopened,
+      reset: Boolean(job.recordingReopened) && job.status !== 'cancelled',
     };
   }).sort((a, b) => Number(Boolean(b.stale)) - Number(Boolean(a.stale)) || String(b.createdAt).localeCompare(String(a.createdAt)));
 }
@@ -1107,36 +1110,16 @@ export function lastTestedSlotFor(state, email, now) {
 }
 
 // After a recording session ends, uploads that were started in it may still finish.
-export const RECORDING_GRACE_MINUTES = 120;
-
 /**
- * Whether this person may record/upload right now: only during their own
- * published recording session (super users always may). Returns their next
- * session either way so the page can say when it unlocks.
+ * Whether this person may record/upload now (owner 2026-11-24). Recording
+ * sessions are only for staff to organise themselves and to email the person:
+ * they never open or close the page. The page is open whenever nothing of
+ * theirs is on the line (never sent, or withdrawn / reset by the team).
  */
-export function recordingAccess(state, { email, now, superuser }) {
-  const mine = liveSlots(state)
-    .filter((slot) => slotKind(slot) === 'recording' && slot.status === 'published' && sameNtuPerson(slot.assigneeEmail, email))
-    .sort((a, b) => ms(a.start) - ms(b.start));
-  const active = mine.find((slot) => ms(slot.start) <= now && now < ms(slot.end)) || null;
-  const next = mine.find((slot) => ms(slot.end) > now) || null;
-  if (superuser) return { allowed: true, reason: 'superuser', slot: active || next };
-  if (active) return { allowed: true, reason: 'in-session', slot: active };
-  // Owner 2026-11-23: anyone who has not sent their recordings yet may record
-  // on their own, session or not (a booked session is still shown to them).
-  // Owner 2026-11-24: the recording page is a one-time thing. Once a set was
-  // ever sent (even one later withdrawn), only a new session the team books
-  // opens it again.
-  if (!everSubmittedVoice(state, email)) return { allowed: true, reason: 'open', slot: next };
-  return { allowed: false, reason: next ? 'too-early' : 'submitted', slot: next };
-}
-
-/** Uploads to a set created in a session may finish shortly after it; sets made outside one stay open. */
-export function uploadWindowOpen(state, job, { now, superuser }) {
-  if (superuser || !job.recordingSlotId) return true;
-  const slot = state.slots.find((item) => item.id === job.recordingSlotId);
-  if (!slot) return true;
-  return now < ms(slot.end) + RECORDING_GRACE_MINUTES * MINUTE;
+export function recordingAccess(state, { email, superuser }) {
+  if (superuser) return { allowed: true, reason: 'superuser' };
+  if (!everSubmittedVoice(state, email)) return { allowed: true, reason: 'open' };
+  return { allowed: false, reason: 'submitted' };
 }
 
 /**
@@ -1415,8 +1398,6 @@ export function lecturerJob(job, estimate) {
     totalBytes: job.totalBytes,
     createdAt: job.createdAt,
     queuedAt: job.queuedAt,
-    // The recording session it was made in (a new session the team books opens recording again).
-    recordingSlotId: job.recordingSlotId || null,
     voiceName: ['approved', 'scheduled'].includes(job.status) ? job.approvedExpName : '',
     testingClosedAt: job.testingClosedAt || null,
     estimate: estimate || null,

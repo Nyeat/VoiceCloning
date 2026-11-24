@@ -484,8 +484,8 @@ export function createHandler({
         voiceName,
         access: wf.voiceAccess(state, { email, voiceName, now, superuser: false }),
       })),
-      // Their recording session (booked for them by the team) and whether recording is open now.
-      recording: wf.recordingAccess(state, { email, now, superuser }),
+      // Whether recording is open now (sessions never change it).
+      recording: wf.recordingAccess(state, { email, superuser }),
       // Sent a set before but every one was withdrawn: the page says to ask the team.
       withdrawnOnly: !jobs.some((job) => job.queuedAt) && wf.everSubmittedVoice(state, email),
       // GPU test slot (allocated by a super user after QC).
@@ -616,8 +616,8 @@ export function createHandler({
           if (!superuser && (body.consent?.accepted !== true || !String(body.consent?.version || '').trim())) {
             throw wf.clientError(400, 'Please read and accept the consent form first');
           }
-          const access = wf.recordingAccess(state, { email, now, superuser });
-          if (!access.allowed) throw wf.clientError(403, 'Recording opens during your booked recording session');
+          const access = wf.recordingAccess(state, { email, superuser });
+          if (!access.allowed) throw wf.clientError(409, 'Your recordings are already submitted. We email you as your voice moves along.');
           // One submission per person (same rule as booking): once it is in, what comes next is training.
           if (!superuser && wf.hasSubmittedVoice(state, email)) {
             throw wf.clientError(409, 'Your recordings are already submitted. We email you as your voice moves along.');
@@ -636,7 +636,6 @@ export function createHandler({
             consent: superuser ? null : body.consent, trainingConfig: superuser ? body.trainingConfig : null, now,
           });
           if (forEmail) job.submittedBy = normalizeEmail(email);
-          job.recordingSlotId = access.slot?.id || '';
           return { job };
         });
         return ok({ job: wf.lecturerJob(result.job, null), jobId: result.job.id }, {}, event);
@@ -646,9 +645,6 @@ export function createHandler({
         const { state } = await store.read();
         const job = ownJob(state, parts[1], email);
         if (job.status !== 'uploading') throw wf.clientError(409, 'This recording set was already submitted');
-        if (!wf.uploadWindowOpen(state, job, { now, superuser: superuserOf(state, email, passwordAccount) })) {
-          throw wf.clientError(403, 'Your recording session has ended');
-        }
         const files = Array.isArray(body.files) ? body.files : [];
         if (files.length === 0) throw wf.clientError(400, 'files array is required');
         if (files.length > MAX_FILES) throw wf.clientError(400, `At most ${MAX_FILES} files per recording set`);
@@ -667,9 +663,6 @@ export function createHandler({
       if (route === 'POST submissions/:id/submit') {
         const { state: snapshot } = await store.read();
         const job = ownJob(snapshot, parts[1], email);
-        if (!wf.uploadWindowOpen(snapshot, job, { now, superuser: superuserOf(snapshot, email, passwordAccount) })) {
-          throw wf.clientError(403, 'Your recording session has ended');
-        }
         const prefix = `training/datasets/${job.sourceExpName}/raw/`;
         const keys = Array.isArray(body.keys) ? body.keys.map(String) : [];
         if (keys.length === 0) throw wf.clientError(400, 'Upload at least one audio file');
