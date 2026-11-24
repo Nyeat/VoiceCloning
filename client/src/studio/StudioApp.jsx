@@ -42,6 +42,7 @@ import {
 } from './availability.js';
 import { StaffChip, StaffField, knownStaff, rememberStaff } from './StaffField.jsx';
 import { StaffAvailability } from './StaffAvailability.jsx';
+import { CleanUp } from './CleanUp.jsx';
 import { MobileLine, StageHeader, SuperSidebar } from './SuperLineChrome.jsx';
 import { LineMap } from './LineMap.jsx';
 import { PersonTrip, QualityList, RecordingStage, TestingNow, TrainingStage } from './LineStages.jsx';
@@ -1119,6 +1120,7 @@ function SuperuserConsole() {
               <Route path="/quality/test" element={<Stage stopKey="qc"><QualityTabs /><SuperTest /></Stage>} />
               <Route path="/test" element={<Navigate to="/quality/test" replace />} />
               <Route path="/superusers" element={<Superusers overview={data} onAction={onAction} />} />
+              <Route path="/cleanup" element={<CleanUp overview={data} onAction={onAction} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           )}

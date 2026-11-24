@@ -14,6 +14,7 @@
     "@aws-sdk/client-ec2": "^3.1038.0",
     "@aws-sdk/client-lambda": "3.1038.0",
     "@aws-sdk/client-s3": "^3.1030.0",
+    "@aws-sdk/client-sesv2": "^3.1176.0",
     "@aws-sdk/lib-dynamodb": "^3.1101.0",
     "@aws-sdk/s3-request-presigner": "^3.1030.0",
     "nodemailer": "^6.10.1"

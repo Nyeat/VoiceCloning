@@ -91,6 +91,7 @@ export function normalizeState(raw) {
     jobs: Array.isArray(raw.jobs) ? raw.jobs : [],
     slots: Array.isArray(raw.slots) ? raw.slots : [],
     history: Array.isArray(raw.history) ? raw.history : [],
+    cleanupLog: Array.isArray(raw.cleanupLog) ? raw.cleanupLog : [],
   };
 }
 
@@ -477,6 +478,61 @@ export function restoreJob(job, { now } = {}) {
   if (job.status === 'queued') job.queuedAt = iso(now ?? Date.now());
   delete job.cancelledFrom;
   return job;
+}
+
+// ── Clean up (owner 2026-11-24) ──────────────────────────────────────────
+// Stale entries (a test set, an approved voice nobody will test, an upload
+// that never finished) can be deleted for good from Tools > Clean up. Only the
+// record goes: recordings and trained voices stay in storage. Each withdraw,
+// restore and delete is logged with who did it.
+
+/** Delete a set's record. Their upcoming test slots go too unless another set of theirs is still live. */
+export function deleteJob(state, id, now = Date.now()) {
+  const job = findJob(state, id);
+  if (!job) throw clientError(404, 'Job not found');
+  if (job.status === 'training') throw clientError(409, 'Training is running on the GPU; wait for it to finish');
+  state.jobs = state.jobs.filter((item) => item.id !== id);
+  const stillLive = state.jobs.some((other) => sameNtuPerson(other.ownerEmail, job.ownerEmail) && other.status !== 'cancelled');
+  let slotsRemoved = 0;
+  if (!stillLive) {
+    for (const slot of state.slots) {
+      if (slot.status !== 'cancelled' && slotKind(slot) === 'test' && sameNtuPerson(slot.assigneeEmail, job.ownerEmail) && slotEnd(slot) > now) {
+        slot.status = 'cancelled';
+        slotsRemoved += 1;
+      }
+    }
+  }
+  return { job, slotsRemoved };
+}
+
+export function logCleanup(state, { actor, action, job, from = '', note = '', now = Date.now() }) {
+  state.cleanupLog = [...(state.cleanupLog || []), {
+    at: iso(now), actor: normalizeEmail(actor), action, jobId: job.id,
+    who: job.ownerName || job.ownerEmail, email: job.ownerEmail, label: job.label || '', status: from || job.status, note,
+  }].slice(-100);
+}
+
+/** Every set, old unfinished uploads included, with what makes it look stale. */
+export function cleanupRecords(state, now = Date.now()) {
+  const upcomingTest = (email) => state.slots.some((slot) => slot.status !== 'cancelled' && slotKind(slot) === 'test'
+    && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) > now);
+  return state.jobs.map((job) => {
+    const times = [job.createdAt, job.queuedAt, job.startedAt, job.finishedAt,
+      ...(job.reviews || []).map((entry) => entry.at), ...(job.feedback || []).map((entry) => entry.at)]
+      .map((value) => Date.parse(value || '')).filter(Number.isFinite);
+    const lastAt = times.length ? Math.max(...times) : 0;
+    const idleDays = lastAt ? Math.floor((now - lastAt) / 86_400_000) : null;
+    let stale = '';
+    if (job.status === 'uploading' && idleDays >= 1) stale = 'Upload never finished';
+    else if (job.status === 'cancelled') stale = 'Withdrawn';
+    else if (job.status === 'failed') stale = 'Training failed';
+    else if (['approved', 'scheduled'].includes(job.status) && !upcomingTest(job.ownerEmail)) stale = 'Approved, no test slot';
+    else if (idleDays >= 14 && job.status !== 'training') stale = `No activity for ${idleDays} days`;
+    return {
+      id: job.id, ownerEmail: job.ownerEmail, ownerName: job.ownerName, label: job.label, status: job.status,
+      createdAt: job.createdAt, lastAt: lastAt ? iso(lastAt) : null, idleDays, stale, files: (job.files || []).length,
+    };
+  }).sort((a, b) => Number(Boolean(b.stale)) - Number(Boolean(a.stale)) || String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
 // What a lecturer can tick about their voice. Short on purpose: a few taps,

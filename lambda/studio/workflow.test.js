@@ -435,3 +435,24 @@ test('editing a published test slot moves its GPU to the new times at once (no r
   wf.publishSlots(state, T0 + 71 * MIN);
   assert.equal(wf.gpuHolds(state, T0 + 290 * MIN).length, 1);
 });
+
+test('clean up: a stale set is deleted for good, its future test slots go, and it is logged', () => {
+  const now = Date.parse('2026-11-24T02:00:00Z');
+  const state = wf.emptyState();
+  const job = wf.createJob(state, { id: 'j1', ownerEmail: 'man@example.com', ownerName: 'man', expName: 'v1', now: now - 3 * 86_400_000 });
+  job.status = 'approved';
+  assert.equal(wf.cleanupRecords(state, now)[0].stale, 'Approved, no test slot');
+  state.slots.push({ id: 's1', kind: 'test', status: 'published', assigneeEmail: 'man@example.com', start: new Date(now + 3600_000).toISOString(), end: new Date(now + 7200_000).toISOString() });
+  assert.equal(wf.cleanupRecords(state, now)[0].stale, '');
+  const training = wf.createJob(state, { id: 'j2', ownerEmail: 'other@example.com', expName: 'v2', now });
+  training.status = 'training';
+  assert.throws(() => wf.deleteJob(state, 'j2', now), /Training is running/);
+  const { slotsRemoved } = wf.deleteJob(state, 'j1', now);
+  wf.logCleanup(state, { actor: 'Boss@x.com', action: 'deleted', job, from: 'approved', now });
+  assert.equal(slotsRemoved, 1);
+  assert.equal(state.slots[0].status, 'cancelled');
+  assert.deepEqual(state.jobs.map((item) => item.id), ['j2']);
+  assert.equal(state.cleanupLog[0].actor, 'boss@x.com');
+  assert.equal(state.cleanupLog[0].status, 'approved');
+  assert.throws(() => wf.deleteJob(state, 'j1', now), /not found/);
+});

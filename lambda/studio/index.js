@@ -22,7 +22,7 @@ import {
 } from './accounts.js';
 import { createGoogleVerifier } from './googleToken.js';
 import { signStudioSession, STUDIO_SESSION_DAYS } from '../shared/studioSession.js';
-import { createMailer, templates } from './mailer.js';
+import { createMailer, emailConfigured, templates } from './mailer.js';
 import { validatePronunciation, voiceDictionaryKey } from './pronunciation.js';
 
 // Voice Studio accepts any Microsoft account, so outside addresses get x- voice names.
@@ -520,12 +520,15 @@ export function createHandler({
       // Test slots holding a GPU now (one per person).
       currentSlots: wf.gpuHolds(state, now).map((hold) => ({ ...hold.slot, phase: hold.phase })),
       superusers: wf.listSuperusers(state, env),
+      // Tools > Clean up: every set (old unfinished uploads too) and the log.
+      records: wf.cleanupRecords(state, now),
+      cleanupLog: [...(state.cleanupLog || [])].reverse().slice(0, 50),
       trainingMinutes: wf.trainingMinutes(state, env),
       maxAttempts: wf.MAX_TRAINING_ATTEMPTS,
       rejectReasons: wf.REJECT_REASONS,
       feedbackIssues: wf.FEEDBACK_ISSUES,
       feedbackLikeness: wf.FEEDBACK_LIKENESS,
-      emailConfigured: Boolean(env.EMAIL_USER && env.EMAIL_PASS),
+      emailConfigured: emailConfigured(env),
       worker: worker
         ? { reachable: true, status: worker.status || 'idle', expName: worker.expName || '', busy: workerBusy(worker) }
         : { reachable: false },
@@ -901,7 +904,9 @@ export function createHandler({
           await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);
             if (!job) throw wf.clientError(404, 'Job not found');
+            const from = job.status;
             wf.cancelJob(job);
+            wf.logCleanup(state, { actor: email, action: 'withdrawn', job, from, now });
             return null;
           });
           return ok(await adminView((await store.read()).state, email), {}, event);
@@ -922,6 +927,17 @@ export function createHandler({
           return ok({ to: email, ...result }, {}, event);
         }
 
+        // Tools > Clean up: a stale set's record goes for good (files stay in storage).
+        if (route === 'DELETE admin/jobs/:id') {
+          await updateState(store, (state) => {
+            const from = wf.findJob(state, parts[2])?.status || '';
+            const { job, slotsRemoved } = wf.deleteJob(state, parts[2], now);
+            wf.logCleanup(state, { actor: email, action: 'deleted', job, from, note: slotsRemoved ? `${slotsRemoved} test slot${slotsRemoved === 1 ? '' : 's'} removed` : '', now });
+            return null;
+          });
+          return ok(await adminView((await store.read()).state, email), {}, event);
+        }
+
         if (route === 'POST admin/jobs/:id/restore') {
           await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);
@@ -932,6 +948,7 @@ export function createHandler({
               throw wf.clientError(409, 'This lecturer already has another set in progress; withdraw that one first');
             }
             wf.restoreJob(job, { now });
+            wf.logCleanup(state, { actor: email, action: 'restored', job, now });
             return null;
           });
           return ok(await adminView((await store.read()).state, email), {}, event);

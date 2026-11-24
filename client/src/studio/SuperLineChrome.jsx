@@ -2,7 +2,7 @@
 // the phone strip, and the header each stop's page opens with.
 import React, { useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LogOut, Map, ShieldCheck, Users } from 'lucide-react';
+import { Eraser, LogOut, Map, ShieldCheck, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { STOPS, STOP_COPY, stopForPath } from './superLine.js';
 import { Brand } from './StudioChrome.jsx';
@@ -76,6 +76,7 @@ export function SuperSidebar({ line, email, onSignOut }) {
         </div>
         <p className={sectionLabel}>Tools · any time</p>
         <NavLink to="/superusers" className={toolLink}><Users size={17} aria-hidden="true" /> Super users</NavLink>
+        <NavLink to="/cleanup" className={toolLink}><Eraser size={17} aria-hidden="true" /> Clean up</NavLink>
       </nav>
       <div className="mt-auto pt-5">
         <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.05] p-2.5 ring-1 ring-white/10">
@@ -116,6 +117,7 @@ export function MobileLine({ line }) {
         );
       })}
       <NavLink to="/superusers" className={({ isActive }) => cn(tab, isActive ? 'bg-white/15 text-white' : 'text-white/75')}>Super users</NavLink>
+      <NavLink to="/cleanup" className={({ isActive }) => cn(tab, isActive ? 'bg-white/15 text-white' : 'text-white/75')}>Clean up</NavLink>
     </nav>
   );
 }

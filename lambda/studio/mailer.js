@@ -255,25 +255,74 @@ async function defaultTransport(env) {
   return cachedTransport;
 }
 
-export function createMailer({ env = process.env, transport } = {}) {
+// Amazon SES (owner 2026-11-24): EMAIL_PROVIDER=ses sends through SES in
+// SES_REGION (default us-east-1, where the sender is verified and the account
+// has production access) as EMAIL_FROM, using the Lambda's own role — no
+// password. If SES refuses and SMTP is configured, SMTP is tried instead.
+export function sesEnabled(env = process.env) {
+  return String(env.EMAIL_PROVIDER || '').trim().toLowerCase() === 'ses' && Boolean(String(env.EMAIL_FROM || '').trim());
+}
+
+let cachedSes;
+
+async function defaultSes(env) {
+  if (cachedSes) return cachedSes;
+  const { SESv2Client, SendEmailCommand } = await import('@aws-sdk/client-sesv2');
+  const client = new SESv2Client({ region: env.SES_REGION || 'us-east-1' });
+  cachedSes = { send: (input) => client.send(new SendEmailCommand(input)) };
+  return cachedSes;
+}
+
+export function sesRequest(from, recipients, message) {
+  return {
+    FromEmailAddress: from,
+    Destination: { ToAddresses: recipients },
+    Content: {
+      Simple: {
+        Subject: { Data: String(message.subject || ''), Charset: 'UTF-8' },
+        Body: {
+          ...(message.text ? { Text: { Data: String(message.text), Charset: 'UTF-8' } } : {}),
+          ...(message.html ? { Html: { Data: String(message.html), Charset: 'UTF-8' } } : {}),
+        },
+      },
+    },
+  };
+}
+
+export function emailConfigured(env = process.env) {
+  return sesEnabled(env) || Boolean(env.EMAIL_USER && env.EMAIL_PASS);
+}
+
+export function createMailer({ env = process.env, transport, ses } = {}) {
   return {
     /** Never throws: returns { status: 'sent'|'skipped'|'failed', error? } per message. */
     async send(to, message) {
       const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
       if (recipients.length === 0) return { status: 'skipped', error: 'no recipients' };
+      let sesError = '';
+      if (sesEnabled(env)) {
+        try {
+          const client = ses || await defaultSes(env);
+          await client.send(sesRequest(formatSender(env), recipients, message));
+          return { status: 'sent', via: 'ses' };
+        } catch (error) {
+          sesError = `SES: ${error.message}`;
+          console.warn('[studio][email] SES send failed:', error.message);
+        }
+      }
       let activeTransport;
       try {
         activeTransport = transport === undefined ? await defaultTransport(env) : transport;
       } catch (error) {
-        return { status: 'failed', error: error.message };
+        return { status: 'failed', error: [sesError, error.message].filter(Boolean).join(' · ') };
       }
-      if (!activeTransport) return { status: 'skipped', error: 'email is not configured' };
+      if (!activeTransport) return sesError ? { status: 'failed', error: sesError } : { status: 'skipped', error: 'email is not configured' };
       try {
         await activeTransport.sendMail({ from: formatSender(env), to: recipients.join(', '), ...message });
-        return { status: 'sent' };
+        return { status: 'sent', via: 'smtp' };
       } catch (error) {
         console.warn('[studio][email] send failed:', error.message);
-        return { status: 'failed', error: error.message };
+        return { status: 'failed', error: [sesError, error.message].filter(Boolean).join(' · ') };
       }
     },
   };
