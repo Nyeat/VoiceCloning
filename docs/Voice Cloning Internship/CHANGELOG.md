@@ -2934,3 +2934,7 @@
   (`EMAIL_PROVIDER=ses`, `SES_REGION=us-east-1`, sender = EMAIL_FROM, verified there; SMTP is the fallback;
   `@aws-sdk/client-sesv2` added). Lambda 464/464, client 589/589, studio build. SES send from the Lambda role not
   yet confirmed (intern role cannot send or read IAM): use Super users > Send test email.
+- Same day: f209d3a DEPLOYED dev + staging (Lambdas). QC > Test any voice showed "No trained voices yet" once the only
+  Studio record was deleted in Clean up: it listed only voices on Studio records. Super users now get every trained
+  voice (`voice-profile` scope=studio adds all trained names when allVoices; `studioGpuGuard` allows any voice id for
+  allVoices). Lambda 464/464.
