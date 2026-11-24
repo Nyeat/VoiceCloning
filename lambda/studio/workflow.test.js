@@ -472,3 +472,19 @@ test('latestTestSlotFor: the newest test slot, ended ones included, never cancel
   assert.equal(wf.latestTestSlotFor(state, 'A@staff.main.ntu.edu.sg').id, 'old');
   assert.equal(wf.latestTestSlotFor(state, 'b@ntu.edu.sg'), null);
 });
+
+test('a slot finished early stops blocking; a new test slot reopens testing after feedback', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  const nat = job(state, 'n1', 'nat@ntu.edu.sg', 0);
+  nat.status = 'approved'; nat.approvedExpName = 'nat';
+  wf.addSlot(state, { id: 's1', start: at(30), end: at(90), assigneeEmail: 'nat@ntu.edu.sg', now: T0 });
+  wf.publishSlots(state, T0);
+  assert.throws(() => wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'nat@ntu.edu.sg', now: T0 + 40 * MIN }), /already has a test slot/);
+  wf.completeSlot(state, { slotId: 's1', email: 'nat@ntu.edu.sg', now: T0 + 45 * MIN });
+  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 4, now: T0 + 45 * MIN });
+  assert.equal(wf.testingClosed(state, 'nat@ntu.edu.sg', 'nat'), true);
+  wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'nat@ntu.edu.sg', now: T0 + 50 * MIN });
+  assert.equal(wf.testingClosed(state, 'nat@ntu.edu.sg', 'nat'), false, 'the new slot reopens testing');
+  assert.ok(nat.testingReopenedAt);
+});

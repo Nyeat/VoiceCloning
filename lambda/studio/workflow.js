@@ -616,14 +616,20 @@ function validateTimes(start, end, now) {
   return { start: iso(startMs), end: iso(endMs) };
 }
 
+function sgtClock(value) {
+  return new Intl.DateTimeFormat('en-SG', { timeZone: 'Asia/Singapore', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
+}
+
 function assertNoClash(state, candidate, ignoreId = '', kind = 'test', email = '') {
   // One person cannot be in two sessions of a kind at once; different people can.
   if (!normalizeEmail(email)) return;
+  // A slot the person already finished early (completedAt) ends there: it no
+  // longer blocks a new one in the rest of its time (owner 2026-11-24).
   const clash = liveSlots(state).find((slot) => slot.id !== ignoreId && real(slot) && slotKind(slot) === kind
-    && sameNtuPerson(slot.assigneeEmail, email) && slotsOverlap(slot, candidate));
+    && sameNtuPerson(slot.assigneeEmail, email) && slotsOverlap({ start: slot.start, end: iso(slotEnd(slot)) }, candidate));
   if (clash) {
     const error = clientError(409, `${clash.assigneeName || clash.assigneeEmail} already has a ${kind === 'test' ? 'test slot' : 'recording session'} `
-      + `then (${clash.start} – ${clash.end}).`);
+      + `then (${sgtClock(clash.start)} – ${sgtClock(slotEnd(clash))} SGT).`);
     error.code = 'SLOT_CLASH';
     error.clash = { id: clash.id, start: clash.start, end: clash.end };
     throw error;
@@ -966,6 +972,10 @@ export function addSlot(state, {
     hostConfirmedAt: null,
   };
   state.slots.push(slot);
+  // A new test slot for someone who already finished testing (sent feedback):
+  // their testing opens again, so the new slot is usable and their page shows
+  // the tester again (owner 2026-11-24).
+  if (slotType === 'test') reopenTesting(state, slot.assigneeEmail, now);
   if (slotType === 'recording') {
     applyOverrides(state, slot, now);
     adoptHostlessBookings(state, slot, now, staff);
@@ -1214,6 +1224,15 @@ function approvedVoicesOf(state, email) {
 }
 
 /** Whether this person has finished testing (sent their feedback) for a voice. */
+export function reopenTesting(state, email, now) {
+  for (const job of state.jobs) {
+    if (sameNtuPerson(job.ownerEmail, email) && job.testingClosedAt && ['approved', 'scheduled'].includes(job.status)) {
+      job.testingReopenedAt = iso(now);
+      delete job.testingClosedAt;
+    }
+  }
+}
+
 export function testingClosed(state, email, voiceName) {
   return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && job.approvedExpName === voiceName && job.testingClosedAt);
 }

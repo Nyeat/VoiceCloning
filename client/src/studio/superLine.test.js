@@ -65,6 +65,11 @@ test('approved with a test slot moves on: drafted, upcoming, now, over (slot fro
   assert.equal(place({ jobs: [job({ status: 'approved' })], testSlots: [slot({ kind: 'test', start: at(-5), end: at(15) })] }).note, 'Testing now');
 });
 
+test('a new slot after feedback puts them back on the line', () => {
+  const reopened = place({ jobs: [job({ status: 'approved', feedback: [{ email: 'a@x.com', at: at(-60) }], testingReopenedAt: at(-10), testSlot: { status: 'published', start: at(20), end: at(40) } })] });
+  assert.deepEqual([reopened.stop, reopened.note, reopened.done], ['test', 'Test slot', undefined]);
+});
+
 test('buildLine counts alerts, labels badges and picks quality check as next', () => {
   const overview = {
     now: NOW,
