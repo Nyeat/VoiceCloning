@@ -392,3 +392,5 @@ These live in runtime configuration and will not appear in any branch diff:
   for older readers.
 - 2026-11-24 (owner): recording bookings go to the staff member free then who marked the time first; they confirm
   or hand it to another free staff member before it publishes. Calendar staff are super users only.
+- 2026-11-24 (owner): the staff availability calendar is account based: each super user marks only their own free
+  time, and only the host (first to mark the time) confirms or hands on a booking on it.

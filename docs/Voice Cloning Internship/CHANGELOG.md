@@ -2913,3 +2913,12 @@
   live-fast builds OK. Not deployed.
 - Same day: 9657f6a (with 31e0538) DEPLOYED dev + staging: main Lambdas, studio and live-fast (TTS page) sites; both
   branches at 9657f6a. Not checked signed in.
+- Same day (owner: "it should be account based"): Staff availability acts as the signed-in super user only ("I am"
+  picker removed). Lambda workflow.assertMayChange (POST/PUT/DELETE admin/slots): only your own free time can be
+  marked/moved/deleted (403 NOT_YOURS; slots naming non-super users stay editable by anyone), only the host confirms
+  or hands on a booking on their free time. Calendar: your column = mark free, others' column/free block = book a
+  lecturer; overlapping free blocks labelled 1st/2nd + "marked <time>"; the host's booking cuts its part out of their
+  free slot (no overlap); others' free time under it is solid grey "Taken by X" / "Taken · pick another time";
+  confirm/hand-on buttons and banners only for the host. Override email reworded (marked first, shows grey, pick
+  another time). Files: lambda/studio/workflow.js, index.js, index.test.js, mailer.js; client StaffAvailability.jsx,
+  SlotCalendar.jsx. Lambda 460/460, client 589/589, studio build OK. Not deployed.

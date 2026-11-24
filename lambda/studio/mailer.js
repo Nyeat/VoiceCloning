@@ -170,8 +170,8 @@ export const templates = {
     return {
       subject: 'Your recording availability was taken',
       ...layout('Your availability was taken', [
-        `${name ? `Hi ${name}, your` : 'Your'} free time on ${formatSgtRange(slot.start, slot.end)} was overridden: ${hosts} booked ${by.assigneeName || 'a lecturer'} for ${formatSgtRange(by.start, by.end)}, and the first booking gets the time.`,
-        'Please pick another time on the Book recording calendar in Voice Studio. If you would rather run this session yourself, ask them to hand it to you.',
+        `${name ? `Hi ${name}, your` : 'Your'} free time on ${formatSgtRange(by.start, by.end)} is booked: ${hosts} marked that time first, so they run ${by.assigneeName || 'a lecturer'}'s recording session then.`,
+        'That time now shows grey on the Staff availability calendar in Voice Studio. Please pick another time. If you would rather run this session yourself, ask them to hand it to you.',
       ], studio ? { label: 'Pick another time', url: studio } : null),
     };
   },

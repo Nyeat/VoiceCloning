@@ -24,18 +24,11 @@ import {
 const LENGTHS = [30, 45, 60, 90, 120, 180, 240];
 const START_STEPS = Array.from({ length: 96 }, (_, i) => i * 15);
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
-const ME_KEY = 'voice-studio-me';
 const fieldClass = 'mt-1 block h-10 w-full rounded-lg border border-slate-300 px-3 text-sm';
 const sgtTime = (value) => formatSgt(value, { withDate: false });
 const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 const isBooking = (slot) => Boolean(slot?.assigneeEmail);
 
-function readMe() {
-  try { return window.localStorage.getItem(ME_KEY) || ''; } catch { return ''; }
-}
-function saveMe(name) {
-  try { window.localStorage.setItem(ME_KEY, name); } catch { /* per-viewer only */ }
-}
 
 function rangeOf(draft) {
   const start = sgtIso(draft.day, draft.start);
@@ -58,31 +51,6 @@ function TimeFields({ draft, setDraft }) {
             </button>
           ))}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// Who is free: super users only, picked as chips (several at once on new time = one block each).
-function StaffPicker({ staff, value, onChange, single }) {
-  if (!staff.length) return <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Add staff under <b>Super users</b> (name + email) first. Only super users can be on this calendar.</p>;
-  return (
-    <div className="text-xs font-medium text-slate-600">{single ? 'Whose free time' : 'Who is free (super users)'}
-      <div className="mt-1.5 flex flex-wrap gap-1.5">
-        {staff.map((name) => {
-          const chosen = value.some((other) => same(other, name));
-          return (
-            <button
-              key={name}
-              type="button"
-              aria-pressed={chosen}
-              onClick={() => onChange(single ? [name] : chosen ? value.filter((other) => !same(other, name)) : [...value, name])}
-              className={cn('rounded-full transition', chosen ? 'ring-2 ring-slate-900 ring-offset-1' : 'opacity-60 hover:opacity-100')}
-            >
-              <StaffChip name={name} size="sm" />
-            </button>
-          );
-        })}
       </div>
     </div>
   );
@@ -120,7 +88,7 @@ function HostPicker({ candidates, staff, value, onChange }) {
   );
 }
 
-function Composer({ draft, setDraft, slots, staff, onSave, onDelete, onCancel, onBookHere }) {
+function Composer({ draft, setDraft, slots, staff, me, onSave, onDelete, onCancel, onBookHere }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const booking = draft.mode === 'booking';
   const range = rangeOf(draft);
@@ -129,8 +97,8 @@ function Composer({ draft, setDraft, slots, staff, onSave, onDelete, onCancel, o
   const email = String(draft.person || '').trim();
   const badEmail = Boolean(email) && !EMAIL_SHAPE.test(email);
   const bumped = booking ? candidates.filter((name) => !same(name, host)) : [];
-  const canSave = booking ? EMAIL_SHAPE.test(email) : (draft.hosts || []).length > 0;
-  const title = booking ? (draft.id ? 'Edit booking' : 'Book a lecturer') : (draft.id ? 'Free time' : 'Mark free time');
+  const canSave = booking ? EMAIL_SHAPE.test(email) : Boolean(me);
+  const title = booking ? (draft.id ? 'Edit booking' : 'Book a lecturer') : (draft.id ? 'Your free time' : 'Mark your free time');
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-start justify-between gap-2">
@@ -166,11 +134,13 @@ function Composer({ draft, setDraft, slots, staff, onSave, onDelete, onCancel, o
           )}
         </>
       ) : (
-        <StaffPicker staff={staff} value={draft.hosts || []} single={Boolean(draft.id)} onChange={(hosts) => setDraft({ ...draft, hosts })} />
+        me
+          ? <p className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600">Free time for <StaffChip name={me} size="sm" /> (you). Each account marks its own.</p>
+          : <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Your account is not on the Super users list yet, so it cannot mark free time.</p>
       )}
       <div className="flex flex-wrap gap-2 pt-1">
         <Button variant="dark" disabled={!canSave} onClick={() => onSave(booking ? { ...draft, host } : draft)}>
-          {draft.id ? 'Save changes' : booking ? 'Book' : (draft.hosts || []).length > 1 ? `Add ${(draft.hosts || []).length} free blocks` : 'Add free time'}
+          {draft.id ? 'Save changes' : booking ? 'Book' : 'Add my free time'}
         </Button>
         {draft.id && !booking && <Button variant="outline" onClick={onBookHere}>Book a lecturer here</Button>}
         {draft.id && (confirmDelete
@@ -183,8 +153,9 @@ function Composer({ draft, setDraft, slots, staff, onSave, onDelete, onCancel, o
 }
 
 // The booking's host: confirm, or hand it to someone else free then.
-function HostStatus({ booking, slots, staff, onAction }) {
+function HostStatus({ booking, slots, staff, me, onAction }) {
   const hosts = slotHosts(booking);
+  const isHost = Boolean(me) && same(hosts[0] || '', me);
   const others = staffFreeFor(slots, booking, booking.id).filter((name) => !hosts.some((host) => same(host, name)) && staff.some((other) => same(other, name)));
   const takenFrom = slots.filter((slot) => slot.overriddenBy?.slotId === booking.id);
   return (
@@ -197,13 +168,19 @@ function HostStatus({ booking, slots, staff, onAction }) {
       ) : awaitsHost(booking, slots) ? (
         <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
           <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-amber-950">Waiting for <StaffChip name={hosts[0]} size="sm" /> to confirm</p>
-          <p className="mt-1 text-[11px] text-amber-900">It sits on {hosts[0]}&apos;s free time. Confirming sends it right away: the lecturer is emailed, and so is anyone else free then (asked to pick another time). Or hand it to someone else free then.</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button size="sm" variant="dark" onClick={() => onAction(() => editSlot(booking.id, { confirmHost: true }))}><UserCheck size={14} /> {hosts[0]}: I&apos;ll run it</Button>
-            {others.map((name) => (
-              <Button key={name} size="sm" variant="outline" onClick={() => onAction(() => editSlot(booking.id, { hostNames: [name] }))}>Hand to {name}</Button>
-            ))}
-          </div>
+          {isHost ? (
+            <>
+              <p className="mt-1 text-[11px] text-amber-900">It is on your free time. Confirming sends it right away: the lecturer is emailed, and so is anyone else free then (asked to pick another time). Or hand it to someone else free then.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="sm" variant="dark" onClick={() => onAction(() => editSlot(booking.id, { confirmHost: true }))}><UserCheck size={14} /> I&apos;ll run it</Button>
+                {others.map((name) => (
+                  <Button key={name} size="sm" variant="outline" onClick={() => onAction(() => editSlot(booking.id, { hostNames: [name] }))}>Hand to {name}</Button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="mt-1 text-[11px] text-amber-900">It is on {hosts[0]}&apos;s free time (they marked it first). Only {hosts[0]} can confirm it or hand it on, from their own account.</p>
+          )}
         </div>
       ) : (
         <p className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-emerald-800"><CheckCircle2 size={14} /> Run by <StaffChip name={hosts[0]} size="sm" />{booking.hostConfirmedAt ? ' (confirmed)' : ''}{booking.status === 'draft' ? ' · draft, press Publish to send' : ' · sent'}</p>
@@ -235,10 +212,9 @@ export function StaffAvailability({ overview, onAction }) {
     [overview.slots, nowMs],
   );
   const staff = useMemo(() => (overview.superusers || []).map(staffLabel).filter(Boolean), [overview.superusers]);
-  // One shared login: "who am I" is picked per browser, from the super users.
-  const [meChoice, setMeChoice] = useState(readMe);
+  // Account based (owner 2026-11-24): you are the super user you signed in as.
   const signedIn = (overview.superusers || []).find((user) => same(user.email, auth.user?.email || ''));
-  const me = staff.find((name) => same(name, meChoice)) || (signedIn ? staffLabel(signedIn) : '') || staff[0] || '';
+  const me = signedIn ? staffLabel(signedIn) : '';
   const [day, setDay] = useState(today);
   const [month, setMonth] = useState(monthOf(today));
   const [draft, setDraft] = useState(null);
@@ -260,24 +236,59 @@ export function StaffAvailability({ overview, onAction }) {
   const columnOf = (slot) => Math.max(0, columnKeys.findIndex((key) => same(key, slotHosts(slot)[0] || '')));
   const hours = dayHours(daySlots, { nowMinutes: day === today ? sgtMinutes(nowMs) : null });
 
-  const blocks = daySlots.map((slot) => {
-    const booked = isBooking(slot);
+  const ms = (value) => Date.parse(value);
+  const marked = (slot) => ms(slot.createdAt || slot.updatedAt || slot.start);
+  const ORDINAL = ['1st', '2nd', '3rd'];
+  const blocks = [];
+  for (const slot of daySlots) {
     const draftTag = slot.status === 'draft';
-    const waiting = awaitsHost(slot, slots);
-    return {
-      id: slot.id,
-      start: slot.start,
-      end: slot.end,
-      column: columnOf(slot),
-      overlay: booked,
-      tone: booked ? (draftTag ? 'reservedDraft' : 'reserved') : (draftTag ? 'freeDraft' : 'free'),
-      title: booked ? (slot.assigneeName || slot.assigneeEmail) : 'Free',
-      subtitle: `${sgtTime(slot.start)} – ${sgtTime(slot.end)}${booked ? (waiting ? ` · waiting for ${slotHosts(slot)[0]} to confirm` : draftTag ? ' · draft' : '') : draftTag ? ' · draft' : ''}`,
-      staff: [],
-    };
-  });
+    if (isBooking(slot)) {
+      const waiting = awaitsHost(slot, slots);
+      blocks.push({
+        id: slot.id,
+        start: slot.start,
+        end: slot.end,
+        column: columnOf(slot),
+        tone: draftTag ? 'reservedDraft' : 'reserved',
+        title: slot.assigneeName || slot.assigneeEmail,
+        subtitle: `${sgtTime(slot.start)} – ${sgtTime(slot.end)}${waiting ? ` · waiting for ${slotHosts(slot)[0]} to confirm` : draftTag ? ' · draft' : ''}`,
+        staff: [],
+      });
+      continue;
+    }
+    const host = slotHosts(slot)[0] || '';
+    // Who marked overlapping time first (different people): 1st, 2nd, ...
+    const rivals = daySlots.filter((other) => !isBooking(other) && other.id !== slot.id && !same(slotHosts(other)[0] || '', host)
+      && ms(other.start) < ms(slot.end) && ms(slot.start) < ms(other.end));
+    const rank = rivals.length ? [slot, ...rivals].sort((a, b) => marked(a) - marked(b)).indexOf(slot) : -1;
+    // The host's own booking turns that part of their free slot into the booking (no overlap).
+    let pieces = [[ms(slot.start), ms(slot.end)]];
+    for (const booking of slots.filter((other) => isBooking(other) && host && slotHosts(other).some((name) => same(name, host)))) {
+      pieces = pieces.flatMap(([from, to]) => {
+        if (ms(booking.end) <= from || ms(booking.start) >= to) return [[from, to]];
+        return [[from, ms(booking.start)], [ms(booking.end), to]].filter(([a, b]) => b - a >= 5 * 60_000);
+      });
+    }
+    const mine = same(host, me);
+    pieces.forEach(([from, to], index) => {
+      blocks.push({
+        id: pieces.length > 1 || from !== ms(slot.start) || to !== ms(slot.end) ? `${slot.id}::${index}` : slot.id,
+        start: new Date(from).toISOString(),
+        end: new Date(to).toISOString(),
+        column: columnOf(slot),
+        tone: draftTag ? 'freeDraft' : 'free',
+        title: rank >= 0 ? `Free · ${ORDINAL[rank] || `${rank + 1}th`}` : 'Free',
+        subtitle: `${sgtTime(slot.start)} – ${sgtTime(slot.end)}${rank >= 0 ? ` · marked ${formatSgt(slot.createdAt || slot.updatedAt)}` : ''}${draftTag ? ' · draft' : ''}`,
+        staff: [],
+        canDelete: mine || !staff.some((name) => same(name, host)),
+      });
+    });
+  }
   const shades = daySlots.flatMap((slot) => takenParts(slot, slots).map((part) => ({
-    column: columnOf(slot), start: part.start, end: part.end, label: 'Taken',
+    column: columnOf(slot),
+    start: part.start,
+    end: part.end,
+    label: same(slotHosts(slot)[0] || '', me) ? 'Taken · pick another time' : `Taken by ${slotHosts(part.booking)[0] || 'a booking'}`,
   })));
   const columns = columnKeys.map((key) => ({
     key: key || 'nobody',
@@ -289,7 +300,7 @@ export function StaffAvailability({ overview, onAction }) {
     ) : <span className="text-[11px] font-semibold text-slate-400">No host</span>,
   }));
 
-  const waitingAll = slots.filter((slot) => awaitsHost(slot, slots)).sort((a, b) => a.start.localeCompare(b.start));
+  const waitingAll = slots.filter((slot) => awaitsHost(slot, slots) && same(slotHosts(slot)[0] || '', me)).sort((a, b) => a.start.localeCompare(b.start));
   const takenFromMe = overriddenFor(slots, me);
   const drafts = overview.draftCount || 0;
   const awaiting = overview.awaitingHost ?? waitingAll.length;
@@ -307,10 +318,15 @@ export function StaffAvailability({ overview, onAction }) {
     setMonth(monthOf(key));
   }
   function openSlot(block) {
-    const slot = slots.find((item) => item.id === block.id);
+    const slot = slots.find((item) => item.id === String(block.id).split('::')[0]);
     if (!slot) return;
     goTo(sgtDayKey(slot.start));
     setSelectedId(slot.id);
+    // Someone else's free time: show it (and "book here"); only they can edit it.
+    if (!isBooking(slot) && !same(slotHosts(slot)[0] || '', me) && staff.some((name) => same(name, slotHosts(slot)[0] || ''))) {
+      setDraft(null);
+      return;
+    }
     setDraft({
       id: slot.id,
       mode: isBooking(slot) ? 'booking' : 'free',
@@ -341,14 +357,9 @@ export function StaffAvailability({ overview, onAction }) {
         return;
       }
     } else if (next.id) {
-      done = await onAction(() => editSlot(next.id, { start, end, hostNames: next.hosts.slice(0, 1) }));
+      done = await onAction(() => editSlot(next.id, { start, end }));
     } else {
-      // Several staff free at once: one block each, so each person's time stands on its own.
-      done = await onAction(async () => {
-        let result;
-        for (const host of next.hosts) result = await addSlot({ kind: 'recording', start, end, hostNames: [host] });
-        return result;
-      });
+      done = await onAction(() => addSlot({ kind: 'recording', start, end, hostNames: [me] }));
     }
     if (done) setDraft(null);
   }
@@ -369,13 +380,7 @@ export function StaffAvailability({ overview, onAction }) {
             <p className="mt-1 text-sm text-slate-600">Each staff member has a column. Mark when you are free; overlapping time sits side by side. A booking goes to whoever marked that time first, who confirms it or hands it on.</p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            {staff.length > 0 && (
-              <label className="flex items-center gap-1.5 text-xs text-slate-500">I am
-                <select value={me} onChange={(event) => { setMeChoice(event.target.value); saveMe(event.target.value); }} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm font-semibold text-slate-800">
-                  {staff.map((name) => <option key={name} value={name}>{name}</option>)}
-                </select>
-              </label>
-            )}
+            {me && <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">Signed in as <StaffChip name={me} size="sm" /></span>}
             <Button variant={drafts ? 'success' : 'outline'} disabled={!drafts} className="w-full sm:w-auto" onClick={() => onAction(publishSlots)}>
               Publish {drafts ? `${drafts} change${drafts === 1 ? '' : 's'}` : '(nothing to publish)'}
             </Button>
@@ -383,8 +388,8 @@ export function StaffAvailability({ overview, onAction }) {
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-emerald-400 bg-emerald-100" /> Free</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-rose-400 bg-rose-100" /> Booked (on the host&apos;s column)</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-[repeating-linear-gradient(135deg,#94a3b8_0_3px,#fff_3px_6px)] ring-1 ring-slate-400" /> Taken by someone else&apos;s booking</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-rose-400 bg-rose-100" /> Booked (in the host&apos;s free slot)</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-slate-300 bg-slate-200" /> Taken: someone marked it first (pick another time)</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-dashed border-slate-500" /> Draft</span>
           {awaiting > 0 && <span className="font-semibold text-amber-800 sm:ml-auto">{awaiting} booking{awaiting === 1 ? '' : 's'} on someone&apos;s free time, waiting for them to confirm</span>}
         </div>
@@ -395,15 +400,13 @@ export function StaffAvailability({ overview, onAction }) {
       )}
 
       {waitingAll.map((slot) => {
-        const host = slotHosts(slot)[0];
-        const mine = same(host, me);
         return (
-          <div key={slot.id} role="status" className={cn('flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm', mine ? 'border-amber-400 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-800')}>
+          <div key={slot.id} role="status" className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             <UserCheck size={18} className="shrink-0 text-amber-700" aria-hidden="true" />
             <p className="min-w-0 flex-1">
-              {slot.assigneeName || slot.assigneeEmail} was booked into <b>{mine ? 'your' : `${host}'s`}</b> free time, {formatDay(sgtDayKey(slot.start))} {sgtTime(slot.start)} – {sgtTime(slot.end)}. Confirm to send it, or hand it on.
+              {slot.assigneeName || slot.assigneeEmail} was booked into <b>your</b> free time, {formatDay(sgtDayKey(slot.start))} {sgtTime(slot.start)} – {sgtTime(slot.end)}. Confirm to send it, or hand it on.
             </p>
-            <Button size="sm" variant="dark" onClick={() => onAction(() => editSlot(slot.id, { confirmHost: true }))}>{mine ? "I'll run it" : `Confirm for ${host}`}</Button>
+            <Button size="sm" variant="dark" onClick={() => onAction(() => editSlot(slot.id, { confirmHost: true }))}>I&apos;ll run it</Button>
             <Button size="sm" variant="ghost" onClick={() => openSlot({ id: slot.id })}>Hand on…</Button>
           </div>
         );
@@ -411,7 +414,7 @@ export function StaffAvailability({ overview, onAction }) {
       {takenFromMe.map((slot) => (
         <div key={slot.id} role="status" className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800">
           <CalendarClock size={18} className="shrink-0 text-slate-500" aria-hidden="true" />
-          <p className="min-w-0 flex-1">Part of your free time {formatDay(sgtDayKey(slot.start))} {sgtTime(slot.start)} – {sgtTime(slot.end)} was taken: {(slot.overriddenBy.hostNames || []).join(', ') || 'someone'} runs {slot.overriddenBy.assigneeName || 'a lecturer'} {sgtTime(slot.overriddenBy.start)} – {sgtTime(slot.overriddenBy.end)}. Pick another time if you like.</p>
+          <p className="min-w-0 flex-1">Your free time {formatDay(sgtDayKey(slot.start))} {sgtTime(slot.overriddenBy.start)} – {sgtTime(slot.overriddenBy.end)} was taken: {(slot.overriddenBy.hostNames || []).join(', ') || 'someone'} marked it first and runs {slot.overriddenBy.assigneeName || 'a lecturer'} then. We recommend picking another time.</p>
           <Button size="sm" variant="outline" onClick={() => { goTo(sgtDayKey(slot.start)); newDraft({ day: sgtDayKey(slot.start), start: sgtMinutes(slot.overriddenBy.end), hosts: [me] }); }}>Pick another time</Button>
         </div>
       ))}
@@ -425,7 +428,7 @@ export function StaffAvailability({ overview, onAction }) {
               <button type="button" onClick={() => goTo(addDays(day, 1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" aria-label="Next day"><ChevronRight size={18} /></button>
               {day !== today && <Button size="sm" variant="ghost" onClick={() => goTo(today)}>Today</Button>}
             </div>
-            <p className="text-xs text-slate-500">Click an empty time in a column to mark that person free; click a block to book or edit it.</p>
+            <p className="text-xs text-slate-500">Click your column to mark yourself free; click a free block (or someone else&apos;s column) to book a lecturer.</p>
           </div>
           <div className="max-h-[min(720px,72dvh)] overflow-y-auto overscroll-contain pr-1">
             <DayTimeline
@@ -436,21 +439,28 @@ export function StaffAvailability({ overview, onAction }) {
               shades={shades}
               bands={overlapBands(daySlots)}
               nowMs={nowMs}
-              selectedId={selectedId}
+              selectedId={blocks.find((block) => String(block.id).split('::')[0] === selectedId)?.id || selectedId}
               pending={draft && !draft.id && draft.day === day ? { start: draft.start, minutes: draft.minutes, column: draft.mode === 'free' ? Math.max(0, columnKeys.findIndex((key) => same(key, draft.hosts?.[0] || ''))) : null } : null}
               onSlotClick={openSlot}
-              onSlotDelete={(block) => onAction(() => deleteSlot(block.id)).then((done) => { if (done && draft?.id === block.id) setDraft(null); })}
+              onSlotDelete={(block) => { const id = String(block.id).split('::')[0]; onAction(() => deleteSlot(id)).then((done) => { if (done && draft?.id === id) setDraft(null); }); }}
               onEmptyClick={(minutes, column) => {
-                const who = column !== null && columnKeys[column] ? columnKeys[column] : me;
-                if (draft && !draft.id) setDraft({ ...draft, day, start: minutes, hosts: draft.mode === 'free' ? [who] : draft.hosts });
-                else newDraft({ day, start: minutes, hosts: who ? [who] : [] });
+                const key = column !== null ? columnKeys[column] : me;
+                newDraft({ day, start: minutes, mode: key && !same(key, me) ? 'booking' : 'free', hosts: me ? [me] : [] });
               }}
             />
           </div>
         </Card>
 
         <div className="space-y-4">
-          {selected && isBooking(selected) && <HostStatus booking={selected} slots={slots} staff={staff} onAction={onAction} />}
+          {selected && isBooking(selected) && <HostStatus booking={selected} slots={slots} staff={staff} me={me} onAction={onAction} />}
+          {selected && !isBooking(selected) && !same(slotHosts(selected)[0] || '', me) && (
+            <Card className="p-4">
+              <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Free time</p>
+              <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm font-bold text-slate-900"><StaffChip name={slotHosts(selected)[0] || 'Nobody'} size="sm" /> {sgtTime(selected.start)} – {sgtTime(selected.end)}</p>
+              <p className="mt-1 text-xs text-slate-600">Marked {formatSgt(selected.createdAt || selected.updatedAt)}. Only they can change it.</p>
+              <Button variant="dark" className="mt-3 w-full" onClick={() => { setSelectedId(''); setDraft({ mode: 'booking', day: sgtDayKey(selected.start), start: sgtMinutes(selected.start), minutes: Math.round((Date.parse(selected.end) - Date.parse(selected.start)) / 60000), host: '', hostTouched: false, person: '', name: '' }); }}>Book a lecturer here</Button>
+            </Card>
+          )}
           {draft && (
             <div ref={composerRef} className="scroll-mt-32">
               <Composer
@@ -459,6 +469,7 @@ export function StaffAvailability({ overview, onAction }) {
                 setDraft={setDraft}
                 slots={slots}
                 staff={staff}
+                me={me}
                 onSave={save}
                 onCancel={() => { setDraft(null); setSelectedId(''); }}
                 onDelete={() => onAction(() => deleteSlot(draft.id)).then((done) => { if (done) { setDraft(null); setSelectedId(''); } })}
@@ -471,8 +482,8 @@ export function StaffAvailability({ overview, onAction }) {
               <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-indigo-700">{formatDay(day)}</p>
               <p className="mt-0.5 text-sm font-bold text-slate-900">What do you want to do?</p>
               <div className="mt-3 grid gap-2">
-                <Button variant="dark" disabled={!staff.length} onClick={() => newDraft({ start: day === today ? Math.min(22 * 60, Math.ceil(sgtMinutes(nowMs) / 60) * 60) : 9 * 60 })}>
-                  <CalendarClock size={15} /> Mark {me ? `${me} as` : 'staff'} free
+                <Button variant="dark" disabled={!me} onClick={() => newDraft({ start: day === today ? Math.min(22 * 60, Math.ceil(sgtMinutes(nowMs) / 60) * 60) : 9 * 60 })}>
+                  <CalendarClock size={15} /> Mark myself free
                 </Button>
                 <Button variant="outline" onClick={() => newDraft({ mode: 'booking', start: 9 * 60 })}>Book a lecturer</Button>
               </div>

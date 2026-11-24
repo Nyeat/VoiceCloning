@@ -797,6 +797,7 @@ export function createHandler({
             : [{ email: body.assigneeEmail, name: body.assigneeName }];
           await updateState(store, (state) => {
             if (body.kind !== 'recording') for (const person of people) wf.assertVoiceApproved(state, person?.email);
+            wf.assertMayChange(state, { actorEmail: email, staff: wf.listSuperusers(state, env), add: { kind: body.kind, assigneeEmail: body.assigneeEmail, hostNames: body.hostNames || (body.hostName ? [body.hostName] : []) } });
             for (const person of people) {
               wf.addSlot(state, {
                 id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: person?.email, assigneeName: person?.name, hostName: body.hostName, hostNames: body.hostNames, actor: email, now, staff: wf.listSuperusers(state, env),
@@ -839,6 +840,7 @@ export function createHandler({
             // Handing a test slot to someone else: they too need an approved voice.
             if (before.id && wf.slotKind(before) === 'test' && body.assigneeEmail !== undefined
               && !wf.sameNtuPerson(body.assigneeEmail, before.assigneeEmail)) wf.assertVoiceApproved(state, body.assigneeEmail);
+            wf.assertMayChange(state, { actorEmail: email, staff: wf.listSuperusers(state, env), slotId: parts[2], hostNames: body.hostNames, confirm: body.confirmHost === true });
             // The host confirming a booking sends it out at once (owner 2026-11-24): the
             // lecturer is emailed, and so is everyone whose free time it takes.
             if (body.confirmHost === true) {
@@ -859,6 +861,7 @@ export function createHandler({
 
         if (route === 'DELETE admin/slots/:id') {
           const { result } = await updateState(store, (state) => {
+            wf.assertMayChange(state, { actorEmail: email, staff: wf.listSuperusers(state, env), slotId: parts[2], remove: true });
             const removed = wf.removeSlot(state, parts[2]);
             return { removed, release: wf.gpuToRelease(state, removed.slot, now), freeAgain: wf.freeAgainNotices(state, env, now) };
           });

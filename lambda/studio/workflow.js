@@ -701,7 +701,58 @@ function applyOverrides(state, booking, now) {
   }
 }
 
-/** The host takes the booking (one shared login, so anyone may press it for them). */
+// ── Account-based (owner 2026-11-24): each super user acts only for themself ──
+
+/** The signed-in super user's calendar name (name, else email), or ''. */
+export function staffLabelOf(staff, email) {
+  const entry = (staff || []).find((item) => sameNtuPerson(item.email, email));
+  return entry ? (entry.name?.trim() || entry.email) : '';
+}
+
+// Hosts on a slot that are real super users (older slots may name anyone).
+function superuserNames(names, staff) {
+  return (names || []).filter((name) => (staff || []).some((item) => (item.name && item.name.trim().toLowerCase() === String(name).toLowerCase())
+    || sameNtuPerson(item.email, name)));
+}
+
+function forbidden(message) {
+  const error = clientError(403, message);
+  error.code = 'NOT_YOURS';
+  return error;
+}
+
+/**
+ * Refuses a calendar change the signed-in account may not make: marking,
+ * moving or deleting someone else's free time, and confirming or handing on a
+ * booking that waits for another account. Bookings themselves (lecturer,
+ * time) may be made and edited by any super user.
+ * change: { add?: { assigneeEmail, hostNames }, slotId?, hostNames?, confirm?, remove? }
+ */
+export function assertMayChange(state, { actorEmail, staff, add, slotId, hostNames, confirm = false, remove = false }) {
+  const me = staffLabelOf(staff, actorEmail);
+  const mine = (names) => superuserNames(names, staff).every((name) => sameHost([me], name) || sameNtuPerson(actorEmail, name));
+  if (add) {
+    if (add.kind !== 'recording' || normalizeEmail(add.assigneeEmail)) return;
+    if (!mine(add.hostNames || [])) throw forbidden('You can only mark your own free time. Sign in as them to mark theirs.');
+    return;
+  }
+  const slot = findSlot(state, slotId);
+  if (!slot || slotKind(slot) !== 'recording') return;
+  if (isFreeRecording(slot)) {
+    if (!mine(slot.hostNames || [])) throw forbidden(`This is ${(slot.hostNames || []).join(', ')}'s free time. Only they can change it.`);
+    if (hostNames !== undefined && !mine(hostNames)) throw forbidden('You can only mark your own free time.');
+    return;
+  }
+  // A booking on its host's free time: only that host confirms it or hands it on.
+  const waiting = awaitsHost(state, slot);
+  const host = (slot.hostNames || [])[0] || '';
+  const handing = hostNames !== undefined && (hostNames || []).join(',').toLowerCase() !== (slot.hostNames || []).join(',').toLowerCase();
+  if ((confirm || (waiting && handing)) && superuserNames([host], staff).length && !mine([host])) {
+    throw forbidden(`Only ${host} can ${confirm ? 'confirm this booking' : 'hand this booking on'}. They see it when they sign in.`);
+  }
+}
+
+/** The host takes the booking (the route checks it is them: assertMayChange). */
 export function confirmHost(state, id, now) {
   const slot = findSlot(state, id);
   if (!slot) throw clientError(404, 'Slot not found');

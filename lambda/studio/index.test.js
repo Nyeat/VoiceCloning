@@ -292,9 +292,9 @@ test('staff availability: first come hosts, the host confirms, others are emaile
   await h.call(boss, 'POST', 'admin/superusers', { email: 'teng@ntu.edu.sg', name: 'Teng Yu' });
   // Staff must be super users.
   assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['s'] })).status, 400);
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(180), hostNames: ['Adam'] });
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(240), end: at0(300), hostNames: ['Teng Yu'] });
+  await h.call('adam@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(180), hostNames: ['Adam'] });
+  await h.call('teng@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
+  await h.call('teng@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(240), end: at0(300), hostNames: ['Teng Yu'] });
   await h.call(boss, 'POST', 'admin/slots/publish', {});
   // A lecturer booked 1-2: Adam marked the time first, so he hosts; Teng Yu's overlapping hour is overridden.
   const booked = await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), assigneeEmail: 'lee@gmail.com', assigneeName: 'Dr Lee' });
@@ -311,7 +311,11 @@ test('staff availability: first come hosts, the host confirms, others are emaile
   assert.equal((await h.call(boss, 'POST', 'admin/slots/publish', {})).body.published.length, 0);
   // Adam confirming sends it at once: the lecturer is booked and Teng Yu is told to pick another time.
   const before = h.sent.length;
-  assert.equal((await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { confirmHost: true })).status, 200);
+  assert.equal((await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { confirmHost: true })).status, 403, 'only Adam confirms');
+  assert.equal((await h.call('adam@ntu.edu.sg', 'DELETE', `admin/slots/${tengFree.id}`)).status, 403, "not Adam's free time");
+  assert.equal((await h.call('adam@ntu.edu.sg', 'PUT', `admin/slots/${tengFree.id}`, { start: at0(70) })).status, 403);
+  assert.equal((await h.call('teng@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(300), end: at0(360), hostNames: ['Adam'] })).status, 403, "not someone else's free time");
+  assert.equal((await h.call('adam@ntu.edu.sg', 'PUT', `admin/slots/${booking.id}`, { confirmHost: true })).status, 200);
   assert.deepEqual(h.sent.slice(before).map((m) => m.to).flat().sort(), ['lee@gmail.com', 'teng@ntu.edu.sg']);
   assert.equal((await h.call(boss, 'POST', 'admin/slots/publish', {})).body.published.length, 0, 'told once');
   // Deleting the booking gives Teng Yu his hour back, and he is told.
@@ -335,8 +339,8 @@ test('staff availability: undoing before Publish sends no "free again" email', a
   const at0 = (m) => new Date(T0 + m * MIN).toISOString();
   await h.call(boss, 'POST', 'admin/superusers', { email: 'adam@ntu.edu.sg', name: 'Adam' });
   await h.call(boss, 'POST', 'admin/superusers', { email: 'teng@ntu.edu.sg', name: 'Teng Yu' });
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Adam'] });
+  await h.call('teng@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
+  await h.call('adam@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Adam'] });
   const booked = await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), assigneeEmail: 'lee@gmail.com' });
   const booking = booked.body.slots.find((slot) => slot.assigneeEmail);
   await h.call(boss, 'DELETE', `admin/slots/${booking.id}`);
@@ -349,15 +353,16 @@ test('staff availability: the host can hand the booking to another free super us
   const at0 = (m) => new Date(T0 + m * MIN).toISOString();
   await h.call(boss, 'POST', 'admin/superusers', { email: 'adam@ntu.edu.sg', name: 'Adam' });
   await h.call(boss, 'POST', 'admin/superusers', { email: 'teng@ntu.edu.sg', name: 'Teng Yu' });
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Adam'] });
+  await h.call('teng@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Teng Yu'] });
+  await h.call('adam@ntu.edu.sg', 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), hostNames: ['Adam'] });
   const booked = await h.call(boss, 'POST', 'admin/slots', { kind: 'recording', start: at0(60), end: at0(120), assigneeEmail: 'lee@gmail.com' });
   const booking = booked.body.slots.find((slot) => slot.assigneeEmail);
   assert.deepEqual(booking.hostNames, ['Teng Yu']);
-  assert.equal((await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { hostNames: ['s'] })).status, 400, 'only super users');
-  await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { hostNames: ['Adam'] });
+  assert.equal((await h.call('adam@ntu.edu.sg', 'PUT', `admin/slots/${booking.id}`, { hostNames: ['Adam'] })).status, 403, 'only Teng Yu hands it on');
+  assert.equal((await h.call('teng@ntu.edu.sg', 'PUT', `admin/slots/${booking.id}`, { hostNames: ['s'] })).status, 400, 'only super users');
+  await h.call('teng@ntu.edu.sg', 'PUT', `admin/slots/${booking.id}`, { hostNames: ['Adam'] });
   const before = h.sent.length;
-  await h.call(boss, 'PUT', `admin/slots/${booking.id}`, { confirmHost: true });
+  await h.call('adam@ntu.edu.sg', 'PUT', `admin/slots/${booking.id}`, { confirmHost: true });
   assert.deepEqual(h.sent.slice(before).map((m) => m.to).flat().sort(), ['lee@gmail.com', 'teng@ntu.edu.sg']);
 });
 

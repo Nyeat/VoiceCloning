@@ -178,8 +178,8 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
         const from = minutesIn(shade.start, 0);
         const to = minutesIn(shade.end, 24 * 60);
         return (
-          <div key={`${shade.column}-${shade.start}-${shade.end}`} className="pointer-events-none absolute z-[15] flex items-end justify-end overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,rgba(100,116,139,0.28)_0_5px,rgba(255,255,255,0.55)_5px_10px)] ring-1 ring-slate-400/60" style={{ top: top(from) + 1, height: Math.max(ROW_PX - 2, ((to - from) / 30) * ROW_PX - 2), left: colLeft(shade.column), width: colWidth() }}>
-            {shade.label && <span className="m-1 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{shade.label}</span>}
+          <div key={`${shade.column}-${shade.start}-${shade.end}`} className="pointer-events-none absolute z-[15] flex items-start overflow-hidden rounded-lg border border-slate-300 bg-slate-200 bg-[repeating-linear-gradient(135deg,rgba(148,163,184,0.35)_0_4px,transparent_4px_10px)]" style={{ top: top(from) + 1, height: Math.max(ROW_PX - 2, ((to - from) / 30) * ROW_PX - 2), left: colLeft(shade.column), width: colWidth() }}>
+            {shade.label && <span className="m-1.5 truncate rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{shade.label}</span>}
           </div>
         );
       })}
@@ -227,7 +227,7 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
                 'block h-full w-full overflow-hidden rounded-lg border px-2 text-left shadow-sm transition',
                 tone.block,
                 short ? 'flex items-center gap-2 py-0' : 'py-1',
-                onSlotDelete && (short ? 'pr-8' : 'pr-10'),
+                onSlotDelete && slot.canDelete !== false && (short ? 'pr-8' : 'pr-10'),
                 onSlotClick && 'hover:shadow-md',
                 selectedId === slot.id && 'ring-2 ring-slate-900 ring-offset-1',
               )}
@@ -267,7 +267,7 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
               </>)}
             </Tag>
             {/* Quick delete on hover: the first click arms it ("Delete?"), the second deletes. */}
-            {onSlotDelete && (
+            {onSlotDelete && slot.canDelete !== false && (
               <button
                 type="button"
                 onClick={() => {
