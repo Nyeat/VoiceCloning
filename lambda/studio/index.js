@@ -808,6 +808,13 @@ export function createHandler({
             const job = wf.findJob(state, parts[2]);
             const slot = wf.upcomingSlotFor(state, job.ownerEmail, clock());
             await service.notify(job.id, 'voiceApproved', job.ownerEmail, templates.voiceApproved({ job, slot, env }));
+          } else {
+            // The lecturer hears that it is being retrained (their page shows "Retraining" too).
+            const job = wf.findJob(state, parts[2]);
+            if (!job.fixture && ['queued', 'training'].includes(job.status)) {
+              const estimate = wf.estimateQueue(state, { now: clock(), env }).find((entry) => entry.jobId === job.id) || null;
+              await service.notify(job.id, 'retraining', job.ownerEmail, templates.retraining({ job, estimate, env }));
+            }
           }
           return ok(await adminView((await store.read()).state, email), {}, event);
         }

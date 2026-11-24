@@ -139,6 +139,7 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   const rejected = await h.call(boss, 'POST', `admin/jobs/${a1}/review`, { decision: 'reject', reasons: ['not-their-voice'] });
   assert.equal(rejected.status, 200, JSON.stringify(rejected.body));
   const retry = rejected.body.jobs.find((j) => j.id === a1);
+  assert.ok(h.sent.some((m) => m.to.includes(alice) && /being retrained/u.test(m.subject)), 'the lecturer is told it is being retrained');
   assert.equal(retry.status, 'queued');
   assert.equal(retry.sourceExpName, 'alice');
   assert.notEqual(retry.expName, 'alice');

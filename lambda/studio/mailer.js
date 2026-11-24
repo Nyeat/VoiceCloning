@@ -60,6 +60,18 @@ export const templates = {
       ], record ? { label: 'See your submission', url: record } : null),
     };
   },
+  // Quality check sent it back: it trains again on the same recordings.
+  retraining({ job, estimate, env }) {
+    const { studio } = studioLinks(env);
+    return {
+      subject: `Your voice is being retrained: ${job.label}`,
+      ...layout('We are retraining your voice', [
+        `Our team listened to your voice "${job.label}" and wants it closer to you, so it is being trained again on the same recordings. You do not need to do anything.`,
+        estimate?.finishAt ? `It should finish around ${formatSgt(estimate.finishAt)} SGT, then goes back to quality control.` : 'When it finishes it goes back to quality control.',
+        'We email you once it passes, with a reserved time to test your voice.',
+      ], studio ? { label: 'See its progress', url: studio } : null),
+    };
+  },
   inQualityCheck({ job, env }) {
     const { studio } = studioLinks(env);
     return {

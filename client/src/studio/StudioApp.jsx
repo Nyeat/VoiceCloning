@@ -1336,7 +1336,7 @@ function VoiceJourney({ job, now, testSlot }) {
     body = (
       <>
         <p>We received your feedback on {formatSgt(job.testingClosedAt)} SGT. Our team reads it and emails you about next steps.</p>
-        <p>Want your voice trained again, for example with new recordings? Please ask our team; they will book you a new recording session.</p>
+        <p>Want another voice, or this one trained again with new recordings? Please ask our team; they reopen your recording page for you.</p>
       </>
     );
   } else if (job.status === 'ready' && testSlot) {
