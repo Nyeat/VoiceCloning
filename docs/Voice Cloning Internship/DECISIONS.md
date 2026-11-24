@@ -362,6 +362,9 @@ These live in runtime configuration and will not appear in any branch diff:
   switches it while used. Test slots 20 min, several people may share a time. Lecturers may test outside a slot (cold
   start). Sending feedback ends a lecturer's testing. Supersedes the 2026-11-21 two-GPU slot/QC split.
 - No GPU kept on between a person's slots (no 1 h bridge): released at slot end; a deleted/moved slot's GPU at once.
+- 2026-11-24 (owner): a test slot's GPU warms 30 min before (was 20) and runs the whole slot; outside slots
+  (super users, lecturers on demand) each GPU stops after 30 min idle. A person whose GPU is shutting down gets a new
+  one at once rather than waiting (at most one stopping + one starting per person).
 - 2026-11-23 (owner): no idle protection before a voice switch on ANY site — a GPU not mid-reply switches at once
   (supersedes the 11-19 10-min rule). Accepts the RISK above: a TTS/training pick can take a lecture GPU between replies.
 - 2026-11-23 (owner, supersedes the line above's RISK): every GPU in use is owned and hard-reserved — no site, person

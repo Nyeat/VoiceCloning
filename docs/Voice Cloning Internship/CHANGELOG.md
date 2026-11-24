@@ -2944,3 +2944,7 @@
   A test slot added/moved/published inside its 20 min warm-up starts warming at once (`warmNow`, forced tick only
   when a GPU hold has no warm state yet), not at the next 5-min idle-check. GPU wait popup (all sites) is now one
   line: "Getting resources ready", time left, OK. Lambda 464/464, client 589/589, both builds.
+- Same day: dcdd42a DEPLOYED dev + staging (Lambdas + coordinators, studio). Test slots warm 30 min before (was 20;
+  SLOT_WARMUP_MINUTES). Coordinator: a DRAINING GPU no longer counts as capacity in motion (preflightScaleBlocked),
+  and `reserved:studio-*` owners never wait on other people's boots, so a person whose GPU is shutting down gets a new
+  one at once (their own second boot still waits: one per person). Lambda 465/465, coordinator 89/89, client 589/589.
