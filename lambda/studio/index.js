@@ -917,15 +917,20 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
+        // Withdraw = the whole person, reset to the start (undo with restore).
         if (route === 'POST admin/jobs/:id/cancel') {
-          await updateState(store, (state) => {
+          const { result } = await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);
             if (!job) throw wf.clientError(404, 'Job not found');
-            const from = job.status;
-            wf.cancelJob(job);
-            wf.logCleanup(state, { actor: email, action: 'withdrawn', job, from, now });
-            return null;
+            const { withdrawn, slotsRemoved } = wf.withdrawPerson(state, job.ownerEmail, now);
+            const note = slotsRemoved ? `${slotsRemoved} session${slotsRemoved === 1 ? '' : 's'} cancelled` : '';
+            for (const entry of withdrawn) wf.logCleanup(state, { actor: email, action: 'withdrawn', job: entry.job, from: entry.from, note, now });
+            return { jobId: job.id };
           });
+          if (body.email === true) {
+            const job = wf.findJob((await store.read()).state, result.jobId);
+            await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env, reset: true }));
+          }
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
@@ -959,13 +964,9 @@ export function createHandler({
           await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);
             if (!job) throw wf.clientError(404, 'Job not found');
-            // One set per person: not while they already have another one in.
-            if (state.jobs.some((other) => other.id !== job.id && wf.sameNtuPerson(other.ownerEmail, job.ownerEmail)
-              && !['uploading', 'cancelled'].includes(other.status))) {
-              throw wf.clientError(409, 'This lecturer already has another set in progress; withdraw that one first');
-            }
-            wf.restoreJob(job, { now });
-            wf.logCleanup(state, { actor: email, action: 'restored', job, now });
+            const { restored, slotsRestored, slotsSkipped } = wf.restorePerson(state, job.ownerEmail, now, job.id);
+            const note = [slotsRestored && `${slotsRestored} session${slotsRestored === 1 ? '' : 's'} back`, slotsSkipped && `${slotsSkipped} taken since, not restored`].filter(Boolean).join('; ');
+            for (const item of restored) wf.logCleanup(state, { actor: email, action: 'restored', job: item, note, now });
             return null;
           });
           return ok(await adminView((await store.read()).state, email), {}, event);
@@ -985,24 +986,6 @@ export function createHandler({
           const { state } = await store.read();
           const job = wf.findJob(state, result.jobId);
           await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env }));
-          return ok(await adminView((await store.read()).state, email), {}, event);
-        }
-
-        // Reset a person to the start: sets withdrawn, test slots cancelled, recording page open.
-        if (route === 'POST admin/jobs/:id/reset-person') {
-          const { result } = await updateState(store, (state) => {
-            const job = wf.findJob(state, parts[2]);
-            if (!job) throw wf.clientError(404, 'Job not found');
-            const { withdrawn, slotsRemoved } = wf.resetPerson(state, job.ownerEmail, now);
-            const note = `reset to recording${slotsRemoved ? `; ${slotsRemoved} test slot${slotsRemoved === 1 ? '' : 's'} removed` : ''}`;
-            for (const entry of withdrawn) wf.logCleanup(state, { actor: email, action: 'reset', job: entry.job, from: entry.from, note, now });
-            if (!withdrawn.length) wf.logCleanup(state, { actor: email, action: 'reset', job, note, now });
-            return { jobId: job.id };
-          });
-          if (body.email === true) {
-            const job = wf.findJob((await store.read()).state, result.jobId);
-            await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env, reset: true }));
-          }
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 

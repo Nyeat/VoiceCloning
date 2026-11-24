@@ -489,22 +489,31 @@ test('a slot finished early stops blocking; a new test slot reopens testing afte
   assert.ok(nat.testingReopenedAt);
 });
 
-test('reset to recording: sets withdrawn, test slots cancelled, recording page opens again; restore closes it', () => {
+test('withdraw a person resets everything for them; restore puts it all back', () => {
   const state = wf.emptyState();
   const sent = job(state, 'a1', 'a@ntu.edu.sg', 0);
   sent.status = 'approved';
   sent.approvedExpName = 'a1-voice';
-  wf.addSlot(state, { id: 't1', kind: 'test', start: new Date(T0 + 60 * MIN).toISOString(), end: new Date(T0 + 120 * MIN).toISOString(), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  wf.addSlot(state, { id: 't1', kind: 'test', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(180), end: at(240), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.publishSlots(state, T0);
   assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).allowed, false);
-  const { withdrawn, slotsRemoved } = wf.resetPerson(state, 'a@ntu.edu.sg', T0);
+  const { withdrawn, slotsRemoved } = wf.withdrawPerson(state, 'a@ntu.edu.sg', T0);
   assert.equal(withdrawn.length, 1);
-  assert.equal(slotsRemoved, 1);
+  assert.equal(slotsRemoved, 2, 'test slot and recording session both go');
   assert.equal(sent.status, 'cancelled');
   assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).reason, 'open');
-  assert.equal(wf.hasSubmittedVoice(state, 'a@ntu.edu.sg'), false);
-  wf.restoreJob(sent, { now: T0 });
-  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).allowed, false);
+  const back = wf.restorePerson(state, 'a@ntu.edu.sg', T0, 'a1');
+  assert.equal(sent.status, 'approved');
+  assert.equal(back.slotsRestored, 2);
+  assert.deepEqual(state.slots.map((slot) => slot.status), ['published', 'published']);
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0, superuser: false }).allowed, false, 'one-time again');
+  // A new set sent after the withdraw blocks the restore.
+  wf.withdrawPerson(state, 'a@ntu.edu.sg', T0);
+  job(state, 'a2', 'a@ntu.edu.sg', 5);
+  assert.throws(() => wf.restorePerson(state, 'a@ntu.edu.sg', T0, 'a1'), /new set since/u);
   const busy = job(state, 'b1', 'b@ntu.edu.sg', 0);
   busy.status = 'training';
-  assert.throws(() => wf.resetPerson(state, 'b@ntu.edu.sg', T0), /Training is running/u);
+  assert.throws(() => wf.withdrawPerson(state, 'b@ntu.edu.sg', T0), /Training is running/u);
 });

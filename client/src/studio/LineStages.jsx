@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { CheckCircle2, Clock, Cpu, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { STOPS } from './superLine.js';
-import { cancelJob, formatSgt, relativeFromNow, runTick } from './studioApi.js';
+import { deleteJob, formatSgt, relativeFromNow, runTick } from './studioApi.js';
 import { Button, Card } from './StudioChrome.jsx';
 import { riderNote } from './LineMap.jsx';
 
@@ -38,16 +38,15 @@ function latestRecordingSlot(slots, email) {
 }
 
 /**
- * Delete a stale upload (click, then confirm). It withdraws the set: it leaves
- * every list and never trains, but the audio stays on S3 and "Restore set" on
- * its review page brings it back. A set already on the GPU cannot be deleted.
+ * Delete a stale upload (click, then confirm): the record goes for good; the
+ * audio stays on S3. A set already on the GPU cannot be deleted.
  */
 function DeleteSet({ job, onAction }) {
   const [confirming, setConfirming] = useState(false);
   if (!onAction || !job || ['training', 'cancelled'].includes(job.status)) return null;
   return confirming ? (
     <span className="inline-flex items-center gap-1">
-      <Button size="sm" variant="danger" onClick={() => onAction(() => cancelJob(job.id)).then(() => setConfirming(false))}>Delete?</Button>
+      <Button size="sm" variant="danger" onClick={() => onAction(() => deleteJob(job.id)).then(() => setConfirming(false))}>Delete for good?</Button>
       <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>Keep</Button>
     </span>
   ) : (

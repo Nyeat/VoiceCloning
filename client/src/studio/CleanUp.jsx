@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { cancelJob, deleteJob, formatSgt, restoreJob } from './studioApi.js';
 import { Button, Card, StatusPill } from './StudioChrome.jsx';
 
-const ACTION_COPY = { deleted: 'Deleted', withdrawn: 'Withdrew', restored: 'Restored', reset: 'Reset to recording' };
+const ACTION_COPY = { deleted: 'Deleted', withdrawn: 'Withdrew', restored: 'Restored' };
 
 export function CleanUp({ overview, onAction }) {
   const [filter, setFilter] = useState('stale');
@@ -23,8 +23,8 @@ export function CleanUp({ overview, onAction }) {
       <header>
         <h1 className="text-xl font-semibold text-slate-900">Clean up</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-600">
-          Remove stale entries from the line. <b>Withdraw</b> takes a set off the line and can be undone.
-          {' '}<b>Delete</b> removes the entry for good (and their upcoming test slots); their recordings and trained voices stay in storage.
+          <b>Withdraw</b> resets everything for that person (all their sets, sessions and their page) and <b>Restore</b> undoes it.
+          {' '}<b>Delete</b> removes just this entry, for good; their recordings and trained voices stay in storage.
         </p>
       </header>
 
