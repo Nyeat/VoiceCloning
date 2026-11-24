@@ -503,6 +503,8 @@ test('reset a finished person: nothing withdrawn, recording opens, a new set is 
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   wf.addSlot(state, { id: 't1', kind: 'test', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
   assert.equal(wf.hasSubmittedVoice(state, 'a@ntu.edu.sg'), true);
+  assert.throws(() => wf.resetPerson(state, 'a@ntu.edu.sg'), /still on the line/u, 'approved but not tested yet');
+  done.testingClosedAt = at(120);
   const { reset } = wf.resetPerson(state, 'a@ntu.edu.sg');
   assert.equal(reset.length, 1);
   assert.equal(done.status, 'approved', 'not withdrawn');

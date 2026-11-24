@@ -961,6 +961,15 @@ export function createHandler({
           return ok({ to: email, ...result }, {}, event);
         }
 
+        // Tools > Clean up: empty the log of withdraws, resets and deletes.
+        if (route === 'DELETE admin/cleanup-log') {
+          await updateState(store, (state) => {
+            state.cleanupLog = [];
+            return null;
+          });
+          return ok(await adminView((await store.read()).state, email), {}, event);
+        }
+
         // Tools > Clean up: a stale set's record goes for good (files stay in storage).
         if (route === 'DELETE admin/jobs/:id') {
           await updateState(store, (state) => {

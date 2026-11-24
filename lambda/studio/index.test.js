@@ -398,6 +398,11 @@ test('a super user can withdraw a stale upload', async () => {
   assert.equal((await h.call('amy@gmail.com', 'GET', 'me')).body.recording.allowed, true, 'they can record and upload again');
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${id}/cancel`, {})).status, 409, 'already deleted');
   assert.equal((await h.call(boss, 'POST', `admin/jobs/${id}/restore`, {})).status, 404, 'no restore any more');
+  assert.ok(deleted.body.cleanupLog.length > 0, 'the withdraw is logged');
+  const cleared = await h.call(boss, 'DELETE', 'admin/cleanup-log');
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(cleared.body.cleanupLog, [], 'log cleared');
+  assert.equal((await h.call('amy@gmail.com', 'DELETE', 'admin/cleanup-log')).status, 403, 'super users only');
 });
 
 test('feedback keeps the structured answers', async () => {
@@ -535,6 +540,7 @@ test('one voice, one run: no second voice for someone until their run is reset',
     const first = state.jobs.find((job) => job.ownerEmail === lee);
     first.status = 'approved';
     first.approvedExpName = first.expName;
+    first.testingClosedAt = new Date(T0).toISOString();
     firstId = first.id;
     return null;
   });

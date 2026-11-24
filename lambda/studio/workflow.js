@@ -1180,7 +1180,7 @@ export function withdrawPerson(state, email, now) {
 }
 
 /**
- * Reset a person whose run is finished (owner 2026-11-24): one full run is one
+ * Reset a person whose run is finished, i.e. approved and tested (owner 2026-11-24): one full run is one
  * voice, so this starts a new run for another voice. Nothing is withdrawn: their
  * finished voices stay testable from Quality check. Their recording page opens
  * again and their page no longer shows the old run.
@@ -1188,8 +1188,9 @@ export function withdrawPerson(state, email, now) {
 export function resetPerson(state, email) {
   const mine = state.jobs.filter((job) => sameNtuPerson(job.ownerEmail, email) && job.status !== 'cancelled' && !job.recordingReopened);
   if (!mine.length) throw clientError(409, 'Nothing to reset: they can already record');
-  if (mine.some((job) => !['approved', 'scheduled'].includes(job.status))) {
-    throw clientError(409, 'Their voice is still on its way (not approved yet); withdraw it instead');
+  // Only when nothing of theirs is anywhere on the line: approved AND tested (feedback sent).
+  if (mine.some((job) => !['approved', 'scheduled'].includes(job.status) || !job.testingClosedAt)) {
+    throw clientError(409, 'Their voice is still on the line (not approved and tested yet); withdraw it instead');
   }
   for (const job of mine) job.recordingReopened = true;
   return { reset: mine };

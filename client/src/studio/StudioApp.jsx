@@ -202,7 +202,7 @@ function JobDetail({ overview, onAction, line }) {
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={job.status} />
           {job.status === 'failed' && <Button variant="dark" size="sm" onClick={() => onAction(() => retryJob(job.id))}><RefreshCw size={13} /> Retry training</Button>}
-          {['approved', 'scheduled'].includes(job.status) && !job.recordingReopened && !confirmReset && <Button variant="outline" size="sm" onClick={() => { setConfirmReset(true); setConfirmWithdraw(false); }}><RefreshCw size={13} /> Reset for a new voice</Button>}
+          {['approved', 'scheduled'].includes(job.status) && job.testingClosedAt && !job.recordingReopened && !confirmReset && <Button variant="outline" size="sm" onClick={() => { setConfirmReset(true); setConfirmWithdraw(false); }}><RefreshCw size={13} /> Reset for a new voice</Button>}
           {!['training', 'cancelled'].includes(job.status) && !confirmWithdraw && <Button variant="ghost" size="sm" onClick={() => { setConfirmWithdraw(true); setConfirmReset(false); }}><X size={13} /> Withdraw</Button>}
         </div>
       </div>
@@ -211,7 +211,7 @@ function JobDetail({ overview, onAction, line }) {
         <Notice tone="info" className="space-y-2">
           <p className="font-semibold [overflow-wrap:anywhere]">Reset {who(job)} for a new voice?</p>
           <ul className="list-disc space-y-0.5 pl-5 text-sm">
-            <li>Nothing is withdrawn: this voice stays approved and testable in Quality check.</li>
+            <li>Their run is finished (approved and tested). Nothing is withdrawn: this voice stays testable in Quality check.</li>
             <li>Their page starts fresh at recording, so they (or you, uploading for them) can start one new run.</li>
           </ul>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={withdrawEmail} onChange={(event) => setWithdrawEmail(event.target.checked)} /> Email them to record again</label>

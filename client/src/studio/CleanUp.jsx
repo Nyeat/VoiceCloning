@@ -5,7 +5,7 @@
 import React, { useMemo, useState } from 'react';
 import { History, RotateCcw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { cancelJob, deleteJob, formatSgt } from './studioApi.js';
+import { cancelJob, clearCleanupLog, deleteJob, formatSgt } from './studioApi.js';
 import { Button, Card, StatusPill } from './StudioChrome.jsx';
 
 const ACTION_COPY = { deleted: 'Deleted', withdrawn: 'Withdrew', restored: 'Restored', reset: 'Reset for a new voice' };
@@ -13,6 +13,7 @@ const ACTION_COPY = { deleted: 'Deleted', withdrawn: 'Withdrew', restored: 'Rest
 export function CleanUp({ overview, onAction }) {
   const [filter, setFilter] = useState('stale');
   const [confirm, setConfirm] = useState('');
+  const [confirmClear, setConfirmClear] = useState(false);
   const records = overview.records || [];
   const staleCount = records.filter((record) => record.stale).length;
   const shown = useMemo(() => (filter === 'stale' ? records.filter((record) => record.stale) : records), [filter, records]);
@@ -81,7 +82,17 @@ export function CleanUp({ overview, onAction }) {
       </Card>
 
       <Card>
-        <h2 className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 font-semibold text-slate-900 sm:px-5"><History size={16} /> Log</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 sm:px-5">
+          <h2 className="flex items-center gap-2 font-semibold text-slate-900"><History size={16} /> Log</h2>
+          {log.length > 0 && (confirmClear ? (
+            <span className="inline-flex items-center gap-1">
+              <Button size="sm" variant="danger" onClick={() => onAction(() => clearCleanupLog()).then(() => setConfirmClear(false))}>Clear the whole log?</Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmClear(false)}>Keep</Button>
+            </span>
+          ) : (
+            <Button size="sm" variant="ghost" onClick={() => setConfirmClear(true)}><Trash2 size={14} /> Clear log</Button>
+          ))}
+        </div>
         {log.length === 0 ? (
           <p className="px-5 py-6 text-sm text-slate-500">Nothing withdrawn or deleted yet.</p>
         ) : (
