@@ -117,7 +117,13 @@ function useVoiceWait(voiceName, gpu) {
     return () => window.clearTimeout(id);
   }, [gpu.status, voiceName]);
   let wait = null;
-  if (gpu.status === 'starting' && gpu.capacity) wait = voiceCapacityWait(gpu.capacity, previous.current, voiceName);
+  if (gpu.status === 'starting' && gpu.capacity) {
+    // The first real answer replaces the 1 s placeholder outright: its clock and
+    // key come from the server's start, so a reload or reopened tab carries on
+    // (and stays dismissed) instead of restarting at 0s.
+    const carried = previous.current?.state === 'CHECKING' ? null : previous.current;
+    wait = voiceCapacityWait(gpu.capacity, carried, voiceName);
+  }
   else if (gpu.status === 'checking' && slow && voiceName) {
     // Same voiceId as the answer that follows, so it carries on as one wait.
     wait = previous.current?.voiceId === voiceName ? previous.current : {
