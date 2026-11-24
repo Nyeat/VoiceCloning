@@ -55,6 +55,16 @@ test('scheduled: live slot is testing now, feedback means done', () => {
   assert.equal(done.done, true);
 });
 
+test('approved with a test slot moves on: drafted, upcoming, now, over (slot from the server, ended ones too)', () => {
+  const withSlot = (testSlot) => place({ jobs: [job({ status: 'approved', testSlot })] });
+  assert.deepEqual([withSlot({ status: 'draft', start: at(30), end: at(90) }).stop, withSlot({ status: 'draft', start: at(30), end: at(90) }).alert], ['assign', true]);
+  assert.deepEqual([withSlot({ status: 'published', start: at(30), end: at(90) }).stop, withSlot({ status: 'published', start: at(30), end: at(90) }).note], ['test', 'Test slot']);
+  assert.equal(withSlot({ status: 'published', start: at(-30), end: at(30) }).note, 'Testing now');
+  assert.deepEqual([withSlot({ status: 'published', start: at(-90), end: at(-30) }).note, withSlot({ status: 'published', start: at(-90), end: at(-30) }).alert], ['Slot over · no feedback yet', false]);
+  // The overview's own (upcoming) slots still count when the job has none attached.
+  assert.equal(place({ jobs: [job({ status: 'approved' })], testSlots: [slot({ kind: 'test', start: at(-5), end: at(15) })] }).note, 'Testing now');
+});
+
 test('buildLine counts alerts, labels badges and picks quality check as next', () => {
   const overview = {
     now: NOW,

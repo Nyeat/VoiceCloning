@@ -515,7 +515,7 @@ export function createHandler({
     return {
       jobs: state.jobs
         .filter((job) => job.status !== 'uploading' || now - Date.parse(job.createdAt) < 24 * 3600_000)
-        .map((job) => wf.publicJob(job, estimates.get(job.id)))
+        .map((job) => ({ ...wf.publicJob(job, estimates.get(job.id)), testSlot: wf.latestTestSlotFor(state, job.ownerEmail) }))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
       queue: wf.orderQueue(state.jobs).map((job) => job.id),
       slots: state.slots

@@ -460,3 +460,15 @@ test('clean up: a stale set is deleted for good, its future test slots go, and i
   assert.equal(state.cleanupLog[0].status, 'approved');
   assert.throws(() => wf.deleteJob(state, 'j1', now), /not found/);
 });
+
+test('latestTestSlotFor: the newest test slot, ended ones included, never cancelled or recording', () => {
+  const state = wf.emptyState();
+  const iso = (min) => new Date(T0 + min * MIN).toISOString();
+  state.slots.push(
+    { id: 'old', kind: 'test', status: 'published', assigneeEmail: 'a@ntu.edu.sg', start: iso(-120), end: iso(-100) },
+    { id: 'rec', kind: 'recording', status: 'published', assigneeEmail: 'a@ntu.edu.sg', start: iso(60), end: iso(120) },
+    { id: 'gone', kind: 'test', status: 'cancelled', assigneeEmail: 'a@ntu.edu.sg', start: iso(200), end: iso(220) },
+  );
+  assert.equal(wf.latestTestSlotFor(state, 'A@staff.main.ntu.edu.sg').id, 'old');
+  assert.equal(wf.latestTestSlotFor(state, 'b@ntu.edu.sg'), null);
+});

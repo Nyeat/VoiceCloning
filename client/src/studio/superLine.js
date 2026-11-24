@@ -100,14 +100,18 @@ export function positionOf({ jobs, recordingSlots, testSlots, now }) {
       return { stop: 'qc', alert: true, note: job.attempt > 1 ? `Retrain ${job.attempt} · review` : 'Ready to review', at: null, href: review };
     case 'failed':
       return { stop: 'qc', alert: true, note: 'Training failed', at: null, href: review };
+    // A test slot does not change the set's status, so where they are comes from
+    // their latest test slot (the server sends it with the job, ended ones too).
     case 'approved':
-      return { stop: 'assign', alert: true, note: 'Approved · no slot', at: null, href: `/schedule?person=${encodeURIComponent(job.ownerEmail)}` };
     case 'scheduled': {
       const owner = job.feedback?.some((entry) => lower(entry.email) === lower(job.ownerEmail));
       if (job.testingClosedAt || owner) return { stop: 'test', alert: false, note: 'Feedback sent', at: null, href: '/feedback', done: true };
-      const slot = latestBy(testSlots, 'start');
-      if (slot && ms(slot.start) <= now && now < ms(slot.end)) return { stop: 'test', alert: false, note: 'Testing now', at: null, href: '/feedback' };
-      if (slot && ms(slot.start) > now) return { stop: 'test', alert: false, note: 'Test slot', at: slot.start, href: '/feedback' };
+      const slot = job.testSlot || latestBy(testSlots, 'start');
+      const assign = `/schedule?person=${encodeURIComponent(job.ownerEmail)}`;
+      if (!slot) return { stop: 'assign', alert: true, note: 'Approved · no slot', at: null, href: assign };
+      if (slot.status === 'draft') return { stop: 'assign', alert: true, note: 'Slot drafted · publish it', at: slot.start, href: assign };
+      if (ms(slot.start) <= now && now < ms(slot.end)) return { stop: 'test', alert: false, note: 'Testing now', at: null, href: '/feedback' };
+      if (ms(slot.start) > now) return { stop: 'test', alert: false, note: 'Test slot', at: slot.start, href: '/feedback' };
       return { stop: 'test', alert: false, note: 'Slot over · no feedback yet', at: null, href: '/feedback' };
     }
     default:

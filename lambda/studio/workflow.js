@@ -1091,6 +1091,17 @@ export function upcomingSlotFor(state, email, now, kind = 'test') {
 }
 
 /** This person's most recent test slot that is over (ended or finished early), or null. */
+/**
+ * This person's latest test slot (past ones too; not cancelled), for the line map:
+ * the admin view lists only upcoming slots, so an ended slot would otherwise look
+ * like "no slot". { id, start, end, status, finishedAt } or null.
+ */
+export function latestTestSlotFor(state, email) {
+  const mine = state.slots.filter((slot) => slot.status !== 'cancelled' && slotKind(slot) === 'test' && sameNtuPerson(slot.assigneeEmail, email));
+  const latest = mine.reduce((best, slot) => (!best || ms(slot.start) > ms(best.start) ? slot : best), null);
+  return latest ? { id: latest.id, start: latest.start, end: iso(slotEnd(latest)), status: latest.status } : null;
+}
+
 export function lastTestedSlotFor(state, email, now) {
   return liveSlots(state)
     .filter((slot) => slotHoldsGpu(slot) && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) <= now)
