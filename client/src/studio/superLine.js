@@ -41,7 +41,7 @@ export const STOP_COPY = Object.freeze({
   },
   test: {
     title: 'Testing and feedback',
-    what: 'The lecturer tests in their slot (their GPU warms up 20 minutes before) and sends feedback. Sending feedback ends their testing and the voice reaches the end of the line.',
+    what: 'The lecturer tests in their slot (their GPU warms up 30 minutes before) and sends feedback. Sending feedback ends their testing and the voice reaches the end of the line.',
     todo: ['The lecturer tested in their slot', 'Their feedback arrived (it shows below)'],
   },
 });

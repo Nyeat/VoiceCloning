@@ -212,8 +212,8 @@ test('a lecturer tests their approved voices on their own GPU, in their slot or 
   assert.equal(asA('a', T0 + 90 * MIN).reason, 'on-demand', 'after the slot: still on demand');
   assert.equal(wf.voiceAccess(state, { email: 'b@ntu.edu.sg', voiceName: 'a', now: T0 + 61 * MIN, superuser: false }).allowed, false);
   assert.equal(wf.voiceAccess(state, { email: 'su@ntu.edu.sg', voiceName: 'other', now: T0 + 61 * MIN, superuser: true }).allowed, true);
-  assert.equal(wf.gpuDemand(state, T0 + 41 * MIN), 'slot', 'GPU is wanted 20 min early');
-  assert.equal(wf.gpuDemand(state, T0 + 39 * MIN), '');
+  assert.equal(wf.gpuDemand(state, T0 + 31 * MIN), 'slot', 'GPU is wanted 30 min early');
+  assert.equal(wf.gpuDemand(state, T0 + 29 * MIN), '');
   assert.deepEqual(wf.gpuHolds(state, T0 + 41 * MIN).map((hold) => hold.slot.id).sort(), ['s1', 's2'], 'one GPU each for two people at 1:40');
   assert.equal(wf.preloadVoiceFor(state, state.slots[0]), 'a_2', 'most recently approved voice is preloaded');
   // Feedback closes testing for that voice.
@@ -228,14 +228,14 @@ test('a finished slot releases that person\'s GPU at once, unless their next slo
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   wf.addSlot(state, { id: 's1', start: at(60), end: at(80), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
   wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
-  wf.addSlot(state, { id: 's3', start: at(110), end: at(130), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 's3', start: at(120), end: at(140), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
   wf.addSlot(state, { id: 's4', start: at(90), end: at(110), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
   wf.publishSlots(state, T0);
   for (const slot of state.slots) slot.warm = { state: 'READY' };
-  // b's next slot is 30 min later: no bridge, b's GPU goes off. a's next slot (10 min later) is already warming.
+  // b's next slot is 40 min later: no bridge, b's GPU goes off. a's next slot (10 min later) is already warming.
   assert.deepEqual(wf.slotsToRelease(state, T0 + 81 * MIN).map((slot) => slot.id), ['s2']);
-  wf.completeSlot(state, { slotId: 's3', email: 'b@ntu.edu.sg', now: T0 + 115 * MIN });
-  assert.deepEqual(wf.slotsToRelease(state, T0 + 116 * MIN).map((slot) => slot.id).sort(), ['s1', 's2', 's3', 's4']);
+  wf.completeSlot(state, { slotId: 's3', email: 'b@ntu.edu.sg', now: T0 + 125 * MIN });
+  assert.deepEqual(wf.slotsToRelease(state, T0 + 126 * MIN).map((slot) => slot.id).sort(), ['s1', 's2', 's3', 's4']);
 });
 
 test('slot warm-up uses the coordinator wait start', () => {
@@ -325,23 +325,23 @@ test('fixtures: only fixture accounts and listed testers see them; other super u
   assert.equal(wf.viewFor(state, 'tester@gmail.com', env).slots.length, 2);
 });
 
-test('GPU holds: per person, 20 min warm-up and the whole slot, nothing between slots', () => {
+test('GPU holds: per person, 30 min warm-up and the whole slot, nothing between slots', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   const add = (id, start, end, who) => wf.addSlot(state, { id, start: at(start), end: at(end), assigneeEmail: who, now: T0 });
   add('a', 60, 120, 'a@ntu.edu.sg');
-  add('a2', 150, 210, 'a@ntu.edu.sg'); // 30 min gap: off between, warms again
+  add('a2', 160, 220, 'a@ntu.edu.sg'); // 40 min gap: off between, warms again
   add('a3', 330, 390, 'a@ntu.edu.sg'); // 2 h gap: GPU may stop
   add('b', 60, 80, 'b@ntu.edu.sg');
   wf.publishSlots(state, T0);
   const holds = (min) => wf.gpuHolds(state, T0 + min * MIN).map((h) => `${h.slot.id}:${h.phase}`).sort();
-  assert.deepEqual(holds(39), []);
-  assert.deepEqual(holds(41), ['a:warmup', 'b:warmup']);
+  assert.deepEqual(holds(29), []);
+  assert.deepEqual(holds(31), ['a:warmup', 'b:warmup']);
   assert.deepEqual(holds(90), ['a:slot']);
   assert.deepEqual(holds(125), [], 'no bridge: off after the slot');
   assert.deepEqual(holds(135), ['a2:warmup']);
-  assert.deepEqual(holds(215), [], 'long gap: released');
-  assert.deepEqual(holds(315), ['a3:warmup']);
+  assert.deepEqual(holds(225), [], 'long gap: released');
+  assert.deepEqual(holds(305), ['a3:warmup']);
 });
 
 test('slot warm-up state: estimate from the coordinator answer, READY once it speaks', () => {
@@ -424,11 +424,11 @@ test('editing a published test slot moves its GPU to the new times at once (no r
   assert.equal(wf.gpuToRelease(state, before, T0 + 70 * MIN), '', 'extending a live slot keeps its GPU');
   assert.equal(wf.gpuHolds(state, T0 + 100 * MIN).length, 1, 'still held after the old end');
   assert.equal(wf.gpuHolds(state, T0 + 121 * MIN).length, 0);
-  // Moved to later: released now, warms 20 min before the new start.
+  // Moved to later: released now, warms 30 min before the new start.
   wf.editSlot(state, 's1', { start: at(300), end: at(330) }, T0 + 70 * MIN);
   assert.equal(wf.gpuToRelease(state, before, T0 + 70 * MIN), 'a@ntu.edu.sg');
-  assert.equal(wf.gpuHolds(state, T0 + 279 * MIN).length, 0);
-  assert.equal(wf.gpuHolds(state, T0 + 281 * MIN).length, 1, 'warms 20 min before the new start');
+  assert.equal(wf.gpuHolds(state, T0 + 269 * MIN).length, 0);
+  assert.equal(wf.gpuHolds(state, T0 + 271 * MIN).length, 1, 'warms 30 min before the new start');
   // Handed to someone not yet told: their GPU waits for Publish.
   wf.editSlot(state, 's1', { assigneeEmail: 'b@ntu.edu.sg' }, T0 + 70 * MIN);
   assert.equal(wf.gpuHolds(state, T0 + 290 * MIN).length, 0);

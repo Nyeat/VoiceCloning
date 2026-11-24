@@ -253,7 +253,9 @@ export function preflightScaleBlocked({
     item?.entity === 'PENDING' && now - Number(item.requestedAt || 0) < pendingTtlMs
   ));
   if (livePending.some((item) => now - Number(item.requestedAt || 0) < cooldownMs)) return true;
-  const booting = workers.filter((worker) => worker.reachable !== false && worker.state !== 'READY').length;
+  // A GPU shutting down (DRAINING) is not capacity in motion: nobody can get it,
+  // so it must not make a request wait for it (owner 2026-11-24).
+  const booting = workers.filter((worker) => worker.reachable !== false && worker.state !== 'READY' && worker.state !== 'DRAINING').length;
   return booting > livePending.length;
 }
 

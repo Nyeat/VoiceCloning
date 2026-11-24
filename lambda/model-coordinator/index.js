@@ -1266,7 +1266,9 @@ async function prepareCapacity(event) {
   // reassignable, and therefore scaling. A selection waits for capacity already
   // in motion instead of buying more. Real synthesis is unaffected and still
   // scales on real overlapping demand.
-  const fleetInMotion = preflightScaleBlocked({
+  // Voice Studio (one person, one GPU): someone else's GPU starting is never this
+  // person's, so it is not a reason to wait; their own boot is handled below.
+  const fleetInMotion = !String(ownerKey || '').startsWith('reserved:studio-') && preflightScaleBlocked({
     coordinationItems: existing.filter((item) => itemInScope(item)),
     workers,
     now,

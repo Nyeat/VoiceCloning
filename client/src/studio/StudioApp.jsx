@@ -385,7 +385,7 @@ function TestPeopleField({ draft, setDraft, people }) {
         <Button size="sm" variant="outline" onClick={addTyped} disabled={!typed.trim()}>Add</Button>
       </div>
       <p className="mt-1 text-[11px] text-slate-500">Approve a person&apos;s voice first, then assign their test slot.</p>
-      {!editing && chosen.length > 1 && <p className="mt-1 text-[11px] text-slate-500">{chosen.length} people: one slot and one GPU each, all warmed 20 min before.</p>}
+      {!editing && chosen.length > 1 && <p className="mt-1 text-[11px] text-slate-500">{chosen.length} people: one slot and one GPU each, all warmed 30 min before.</p>}
     </div>
   );
 }
@@ -522,7 +522,7 @@ function SlotComposer({ kind, draft, setDraft, people, staffSuggestions, onSave,
           ? <Button variant="danger" onClick={onDelete}>Confirm delete</Button>
           : <Button variant="ghost" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete</Button>)}
       </div>
-      {draft.id && <p className="text-[11px] text-slate-500">{kind === 'recording' ? 'Saving a published one makes it a draft again until you publish.' : 'Saving a published one makes it a draft again until you publish (that emails the new time). For the same person, their GPU follows the new time right away: on 20 min before the new start, off at the new end.'}</p>}
+      {draft.id && <p className="text-[11px] text-slate-500">{kind === 'recording' ? 'Saving a published one makes it a draft again until you publish.' : 'Saving a published one makes it a draft again until you publish (that emails the new time). For the same person, their GPU follows the new time right away: on 30 min before the new start, off at the new end.'}</p>}
     </div>
   );
 }
@@ -566,7 +566,7 @@ const SCHEDULE_COPY = {
   test: {
     title: 'Test slot calendar',
     help: 'Click a time, then pick the approved lecturers to assign it to. Each gets a GPU of their own.',
-    footer: 'Publishing emails each person their time. Their GPU starts 20 minutes before with their voice loaded. Outside a slot they can still test with a cold start; sending feedback ends their testing.',
+    footer: 'Publishing emails each person their time. Their GPU starts 30 minutes before with their voice loaded. Outside a slot they can still test with a cold start; sending feedback ends their testing.',
     list: 'Upcoming test slots',
     open: '—',
     tones: ['booked', 'draft', 'live'],

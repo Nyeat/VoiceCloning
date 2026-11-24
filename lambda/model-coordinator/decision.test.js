@@ -729,3 +729,10 @@ test('a released GPU (slot over) scales in as soon as it is idle', async () => {
   assert.equal(scaleInCandidates({ ...base, releasedWorkerIds: ['i-slot'] })[0]?.instanceId, 'i-slot');
   assert.equal(scaleInCandidates({ ...base, releasedWorkerIds: ['i-slot'], workers: [{ ...worker, active: 1 }] }).length, 0, 'never while speaking');
 });
+
+test('a GPU shutting down does not hold up a new one', async () => {
+  const { preflightScaleBlocked } = await import('./decision.js');
+  const workers = [{ instanceId: 'i-old', state: 'DRAINING', reachable: true }];
+  assert.equal(preflightScaleBlocked({ coordinationItems: [], workers, now: 1_000_000 }), false);
+  assert.equal(preflightScaleBlocked({ coordinationItems: [], workers: [{ instanceId: 'i-new', state: 'STARTING' }], now: 1_000_000 }), true);
+});

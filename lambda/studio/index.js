@@ -255,7 +255,7 @@ export function createStudioService({
       await mailer.send(slot.assigneeEmail, message);
     }
 
-    // Each test slot holds a GPU of its person's own from 20 min before it to
+    // Each test slot holds a GPU of its person's own from 30 min before it to
     // its end (and across a short gap to their next): ask for their voice on
     // every tick, and keep the warm-up state on the slot for everyone to see.
     // Several people in one slot each get their own GPU, warmed in parallel.

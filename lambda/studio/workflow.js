@@ -33,7 +33,7 @@ export const GPU_BOOT_MINUTES = 5;
 export const MIN_SLOT_MINUTES = 15;
 export const MAX_SLOT_MINUTES = 8 * 60;
 // The GPU is started this long before a slot so the voice is ready at the start.
-export const SLOT_WARMUP_MINUTES = 20;
+export const SLOT_WARMUP_MINUTES = 30;
 
 const MINUTE = 60_000;
 
@@ -284,7 +284,7 @@ export function slotHoldsGpu(slot) {
   if (!real(slot) || slotKind(slot) !== 'test' || !slot.assigneeEmail) return false;
   if (slot.status === 'published') return true;
   // Owner 2026-11-23: an edited published slot (a draft again until republished)
-  // keeps its person's GPU on the NEW times at once (warms 20 min before the new
+  // keeps its person's GPU on the NEW times at once (warms 30 min before the new
   // start, runs to the new end). A different person waits until it is published.
   return slot.status === 'draft' && Boolean(slot.notified?.assigneeEmail)
     && sameNtuPerson(slot.notified.assigneeEmail, slot.assigneeEmail);
@@ -1306,7 +1306,7 @@ export function nextWarmState(previous, capacity, now) {
 
 /**
  * Ended test slots whose GPU warm-up ran and has not been released yet: released
- * at once, unless that person's next slot is already warming (a gap under 20 min).
+ * at once, unless that person's next slot is already warming (a gap under 30 min).
  */
 export function slotsToRelease(state, now) {
   const held = gpuHolds(state, now).map((hold) => normalizeEmail(hold.slot.assigneeEmail));

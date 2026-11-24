@@ -470,7 +470,7 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   const refused = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(30), end: at(50), assigneeEmail: 'nobody@gmail.com' });
   assert.equal(refused.status, 400, 'no test slot without an approved voice');
   assert.equal(refused.body.code, 'VOICE_NOT_APPROVED');
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(30), end: at(50), assigneeEmail: 'amy@gmail.com' });
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(45), end: at(65), assigneeEmail: 'amy@gmail.com' });
   await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'amy@gmail.com' });
   const slots = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
   assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { assigneeEmail: 'nobody@gmail.com' })).status, 400, 'nor handed to someone unapproved');
@@ -479,7 +479,7 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   const activity = await h.call('amy@gmail.com', 'POST', 'voices/x-amy-1/activity');
   assert.equal(activity.status, 200, JSON.stringify(activity.body));
   assert.equal(activity.body.demand, 'testing');
-  h.advance(15); // 15 min before the first slot: Amy's GPU warms
+  h.advance(15); // 30 min before the first slot: Amy's GPU warms
   await h.call(boss, 'POST', 'admin/tick');
   assert.equal(h.preloaded.length, 1);
   assert.equal(h.released.length, 0);
@@ -489,9 +489,9 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   assert.match(h.released[0], /^reserved:studio-p-/u);
   // Deleting a slot that never warmed releases nothing.
   assert.equal((await h.call(boss, 'DELETE', `admin/slots/${slots[1].id}`)).status, 200);
-  assert.equal(h.released.length, 1);  // Moving it back to soon (inside the 20 min warm-up): it warms at once, with no
+  assert.equal(h.released.length, 1);  // Moving it back to soon (inside the 30 min warm-up): it warms at once, with no
   // wait for the scheduled check.
-  assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { start: at(30), end: at(50) })).status, 200);
+  assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { start: at(45), end: at(65) })).status, 200);
   assert.equal(h.preloaded.length, 2, 'warmed on the move itself');
 });
 
