@@ -2963,3 +2963,16 @@
   lecturer finished early (completedAt) no longer blocks a new slot in its remaining time (assertNoClash uses
   slotEnd); a new test slot reopens testing after feedback (`workflow.reopenTesting`: clears testingClosedAt, sets
   testingReopenedAt; line map follows the new slot). Clash message in SGT. Lambda 467/467, client 591/591.
+- Same day: 05f7bf0 DEPLOYED dev + staging (Lambdas, studio). "Ask for new recordings" (request-recordings) withdrew
+  the set but left the one-time recording page locked (its email said "Record again"): the set is now flagged
+  `recordingReopened`, which `everSubmittedVoice` ignores. New "Reset to recording" on a set's page
+  (`POST admin/jobs/:id/reset-person`, `workflow.resetPerson`): withdraws all the person's sets (not while training),
+  cancels their upcoming test slots, reopens the recording page, logs "Reset to recording" in Clean up, optional
+  "record again" email + note. Restore clears the flag. Lambda 468/468 (+1 test), studio build. Not checked in a browser.
+- Same day: 3740270 DEPLOYED dev + staging (Lambdas, studio). Owner: Withdraw / Delete simplified, Reset folded into
+  Withdraw. Withdraw (`POST admin/jobs/:id/cancel` -> `workflow.withdrawPerson`) acts on the whole person: all sets
+  withdrawn, upcoming test slots AND recording sessions cancelled, recording page reopens, cleared from every staff
+  list (feedback too; set page returns to QC); optional "record again" email + note. Restore (`restorePerson`) undoes
+  all of it (sessions taken by someone else since stay cancelled; blocked if they sent a new set since). Delete =
+  removes the record for good (line-map "Delete" now really deletes; it used to withdraw). reset-person route removed.
+  Lambda 468/468, client 591/591, studio build. Not checked in a browser.
