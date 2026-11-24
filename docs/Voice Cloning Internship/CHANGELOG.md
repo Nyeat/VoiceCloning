@@ -2927,3 +2927,10 @@
   free time there is taken (emailed when the host confirms, or shown taken at once if already published).
   Lambda 461/461 (+1 test). Not deployed.
 - Same day: b05c5ff (with d905132) DEPLOYED dev + staging (main Lambdas, studio site); both branches at b05c5ff.
+- Same day: 5744a53 DEPLOYED dev + staging. Tools > Clean up (`client/src/studio/CleanUp.jsx`, route `/cleanup`): lists
+  every set (old unfinished uploads too) with why it looks stale; Withdraw / Restore / Delete for good
+  (`DELETE admin/jobs/:id`, `workflow.deleteJob` — record only, files stay in S3; cancels their future test slots if no
+  other live set). Withdraw/restore/delete logged in `state.cleanupLog` (last 100). Email now via Amazon SES
+  (`EMAIL_PROVIDER=ses`, `SES_REGION=us-east-1`, sender = EMAIL_FROM, verified there; SMTP is the fallback;
+  `@aws-sdk/client-sesv2` added). Lambda 464/464, client 589/589, studio build. SES send from the Lambda role not
+  yet confirmed (intern role cannot send or read IAM): use Super users > Send test email.

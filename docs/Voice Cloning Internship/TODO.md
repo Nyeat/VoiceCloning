@@ -3,6 +3,8 @@
 - [ ] Slide-text cleanup (2026-11-24, deployed): paste a real slide into the TTS page + studio tester and listen.
 - [ ] Lecturer one-time recording page (2026-11-24, deployed): live-test as a lecturer: send a set -> status page only; retrain ->
   "Retraining"; feedback -> "session finished"; withdraw all -> "withdrawn"; new booked session reopens recording.
+- [ ] SES email (2026-11-24, 5744a53): Super users > Send test email; if it fails with AccessDenied the Lambda role
+  needs ses:SendEmail on the us-east-1 identity (admin), SMTP is used meanwhile.
 - [ ] Staff availability, account based (2026-11-24, b05c5ff deployed): live-test signed in as each of
   two super users: both free 3-4 (A first) -> book 3-4 -> A's column red, B hatched -> A confirms or hands to B ->
   Publish emails lecturer + the other; delete -> "free again" email. Old slots named non-super users ("s") stay.
