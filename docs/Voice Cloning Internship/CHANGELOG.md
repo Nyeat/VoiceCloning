@@ -2911,3 +2911,5 @@
   ";" -> full stop, times kept, arrows/&/% -> words, brackets/symbols dropped; English only) used by LivePage
   generateTextToSpeech (TTS page) and VoiceTestBench read aloud. Tests: Lambda 460/460, client 589/589, studio +
   live-fast builds OK. Not deployed.
+- Same day: 9657f6a (with 31e0538) DEPLOYED dev + staging: main Lambdas, studio and live-fast (TTS page) sites; both
+  branches at 9657f6a. Not checked signed in.

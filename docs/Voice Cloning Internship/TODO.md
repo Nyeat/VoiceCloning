@@ -1,6 +1,7 @@
 # Active TODO
 
-- [ ] Lecturer one-time recording page (2026-11-24): live-test as a lecturer: send a set -> status page only; retrain ->
+- [ ] Slide-text cleanup (2026-11-24, deployed): paste a real slide into the TTS page + studio tester and listen.
+- [ ] Lecturer one-time recording page (2026-11-24, deployed): live-test as a lecturer: send a set -> status page only; retrain ->
   "Retraining"; feedback -> "session finished"; withdraw all -> "withdrawn"; new booked session reopens recording.
 - [ ] Staff availability per-person calendar (2026-11-24, deployed dev+staging): live-test with
   two super users: both free 3-4 (A first) -> book 3-4 -> A's column red, B hatched -> A confirms or hands to B ->
