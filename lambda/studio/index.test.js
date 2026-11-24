@@ -489,7 +489,10 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   assert.match(h.released[0], /^reserved:studio-p-/u);
   // Deleting a slot that never warmed releases nothing.
   assert.equal((await h.call(boss, 'DELETE', `admin/slots/${slots[1].id}`)).status, 200);
-  assert.equal(h.released.length, 1);
+  assert.equal(h.released.length, 1);  // Moving it back to soon (inside the 20 min warm-up): it warms at once, with no
+  // wait for the scheduled check.
+  assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { start: at(30), end: at(50) })).status, 200);
+  assert.equal(h.preloaded.length, 2, 'warmed on the move itself');
 });
 
 test('a super user can upload for someone: the voice is theirs to follow and test', async () => {

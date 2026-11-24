@@ -92,6 +92,7 @@ export function normalizeState(raw) {
     slots: Array.isArray(raw.slots) ? raw.slots : [],
     history: Array.isArray(raw.history) ? raw.history : [],
     cleanupLog: Array.isArray(raw.cleanupLog) ? raw.cleanupLog : [],
+    keptVoices: Array.isArray(raw.keptVoices) ? raw.keptVoices : [],
   };
 }
 
@@ -492,6 +493,13 @@ export function deleteJob(state, id, now = Date.now()) {
   if (!job) throw clientError(404, 'Job not found');
   if (job.status === 'training') throw clientError(409, 'Training is running on the GPU; wait for it to finish');
   state.jobs = state.jobs.filter((item) => item.id !== id);
+  // The voices it trained are not deleted: they stay testable in Quality check
+  // > Test any voice under the same name (owner 2026-11-24).
+  if (!job.fixture) {
+    const kept = studioTrainedVoices({ jobs: [job], keptVoices: [] });
+    const names = new Set(kept.map((voice) => voice.expName));
+    state.keptVoices = [...(state.keptVoices || []).filter((voice) => !names.has(voice.expName)), ...kept];
+  }
   const stillLive = state.jobs.some((other) => sameNtuPerson(other.ownerEmail, job.ownerEmail) && other.status !== 'cancelled');
   let slotsRemoved = 0;
   if (!stillLive) {
@@ -510,6 +518,26 @@ export function logCleanup(state, { actor, action, job, from = '', note = '', no
     at: iso(now), actor: normalizeEmail(actor), action, jobId: job.id,
     who: job.ownerName || job.ownerEmail, email: job.ownerEmail, label: job.label || '', status: from || job.status, note,
   }].slice(-100);
+}
+
+/**
+ * Every voice trained on this site: from each set's trained attempts, plus those
+ * kept from sets deleted in Clean up. [{ expName, label, ownerEmail }], label
+ * "<voice label> · <person> (try n)".
+ */
+export function studioTrainedVoices(state) {
+  const voices = new Map((state.keptVoices || []).map((voice) => [voice.expName, voice]));
+  for (const job of state.jobs.filter(real)) {
+    for (const attempt of job.attempts) {
+      if (attempt.result !== 'trained') continue;
+      voices.set(attempt.expName, {
+        expName: attempt.expName,
+        label: `${job.label} · ${job.ownerName || job.ownerEmail}${attempt.attempt > 1 ? ` (try ${attempt.attempt})` : ''}`,
+        ownerEmail: job.ownerEmail,
+      });
+    }
+  }
+  return [...voices.values()];
 }
 
 /** Every set, old unfinished uploads included, with what makes it look stale. */
@@ -1200,7 +1228,7 @@ export function voiceAccess(state, { email, voiceName, now, superuser }) {
 export function visibleVoices(state, { email, superuser }) {
   const own = approvedVoicesOf(state, email);
   if (!superuser) return own;
-  const trained = state.jobs.flatMap((job) => job.attempts.filter((attempt) => attempt.result === 'trained').map((attempt) => attempt.expName));
+  const trained = studioTrainedVoices(state).map((voice) => voice.expName);
   return [...new Set([...trained, ...own])];
 }
 

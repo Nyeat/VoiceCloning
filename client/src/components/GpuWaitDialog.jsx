@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Cpu, Loader2, PowerOff, X } from 'lucide-react';
+import { Loader2, PowerOff, X } from 'lucide-react';
 import { useGpuStatus } from '@/lib/gpuStatus.jsx';
 import { describeGpuStatus } from '@/lib/gpuStatusModel';
 
@@ -146,10 +146,10 @@ export default function GpuWaitDialog({ wait }) {
         type="button"
         onClick={() => setDismissedKey('')}
         className="fixed bottom-4 right-4 z-[95] inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-800 shadow-lg hover:bg-slate-50"
-        aria-label={`${wait.title}. Show GPU status`}
+        aria-label="Getting resources ready. Show details"
       >
         <Loader2 size={15} className="animate-spin text-primary" aria-hidden="true" />
-        <span>{wait.title}</span>
+        <span>Getting resources ready</span>
         <span className="tabular-nums text-slate-500">{formatDuration(waited)}</span>
         <span className="text-primary">Show</span>
       </button>
@@ -159,20 +159,21 @@ export default function GpuWaitDialog({ wait }) {
   const estimate = Math.max(1, Number(wait.estimateSeconds) || 60);
   const max = Math.max(estimate, Number(wait.maxSeconds) || estimate);
   const elapsed = Math.max(0, (now - (Number(wait.startedAt) || now)) / 1000);
-  // Never reach 100% before the GPU says ready; slow down past the estimate.
+  // Never reach 100% before it is ready; slow down past the estimate.
   const progress = elapsed <= estimate
     ? (elapsed / estimate) * 85
     : 85 + Math.min(1, (elapsed - estimate) / Math.max(1, max - estimate)) * 10;
-  const overdue = elapsed > max;
   const remaining = estimate - elapsed;
 
+  // Owner 2026-11-24: one plain message for every wait (GPU starting, engine
+  // loading, voice switching): "Getting resources ready", how long, and that's it.
   return (
-    <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="gpu-wait-title"
-        className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl sm:p-7"
+        className="relative w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl"
       >
         <button
           type="button"
@@ -182,49 +183,21 @@ export default function GpuWaitDialog({ wait }) {
         >
           <X size={16} />
         </button>
-        <div className="flex items-center gap-3">
-          <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <Cpu size={20} aria-hidden="true" />
-            <Loader2 size={44} className="absolute inset-0 animate-spin text-primary/40" aria-hidden="true" />
-          </span>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-600">Please wait</p>
-            <h2 id="gpu-wait-title" className="text-lg font-semibold tracking-tight text-slate-900">{wait.title}</h2>
-          </div>
+        <Loader2 size={32} className="mx-auto animate-spin text-primary" aria-hidden="true" />
+        <h2 id="gpu-wait-title" className="mt-3 text-lg font-semibold tracking-tight text-slate-900">Getting resources ready</h2>
+        <p className="mt-1 text-sm text-slate-600" aria-live="polite">
+          {remaining > 0 ? `About ${formatEstimate(remaining).replace('about ', '')} left.` : 'Almost there.'} This closes by itself.
+        </p>
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-primary transition-[width] duration-1000 ease-linear" style={{ width: `${progress}%` }} />
         </div>
-
-        {wait.message ? <p className="mt-4 text-sm leading-6 text-slate-600">{wait.message}</p> : null}
-
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-live="polite">
-          <div className="flex items-center justify-between text-sm">
-            <span className="flex items-center gap-1.5 font-medium text-slate-800">
-              <Clock size={14} aria-hidden="true" />
-              Estimated wait: {formatEstimate(estimate)}
-            </span>
-            <span className="tabular-nums text-slate-500">{formatDuration(elapsed)} elapsed</span>
-          </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
-            <div className="h-full rounded-full bg-primary transition-[width] duration-1000 ease-linear" style={{ width: `${progress}%` }} />
-          </div>
-          <p className="mt-2 text-xs text-slate-500">
-            {overdue
-              ? 'Taking longer than usual. It is still being prepared and retries automatically.'
-              : remaining > 0
-                ? `Roughly ${formatDuration(remaining)} left${max > estimate ? ` (can take up to ${formatEstimate(max).replace('about ', '')})` : ''}.`
-                : 'Almost there — finishing up.'}
-          </p>
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">This closes by itself when ready.</p>
-          <button
-            type="button"
-            onClick={() => setDismissedKey(wait.key)}
-            className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-semibold text-white hover:bg-primary/90"
-          >
-            OK, I'll wait
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setDismissedKey(wait.key)}
+          className="mt-5 inline-flex h-10 items-center rounded-lg px-5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+        >
+          OK
+        </button>
       </div>
     </div>
   );

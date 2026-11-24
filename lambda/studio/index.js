@@ -441,6 +441,20 @@ export function createHandler({
     return job;
   }
 
+  // A test slot added, moved or published inside its warm-up window starts
+  // warming now, not at the next scheduled check (up to 5 min later). Only
+  // then: no extra tick (and its emails) for anything else.
+  async function warmNow() {
+    try {
+      const { state } = await store.read();
+      if (!wf.gpuHolds(state, clock()).some((hold) => !hold.slot.warm)) return null;
+      return await service.tick({ force: true });
+    } catch (error) {
+      console.warn('[studio] warm-up tick failed', error.message);
+      return null;
+    }
+  }
+
   async function maybeTick() {
     try {
       return await service.tick();
@@ -808,6 +822,7 @@ export function createHandler({
             }
             return null;
           });
+          await warmNow();
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
@@ -859,6 +874,7 @@ export function createHandler({
           await releaseGpuOf(result.release);
           await sendFreeAgain(result.freeAgain);
           await sendSlotNotices(result.toNotify, result.overridden);
+          await warmNow();
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
@@ -886,6 +902,7 @@ export function createHandler({
           });
           const sent = await sendSlotNotices(result.toNotify, result.overridden);
           sent.push(...(await sendFreeAgain(result.freeAgain)));
+          await warmNow();
           return ok({ ...(await adminView((await store.read()).state, email)), published: sent }, {}, event);
         }
 
@@ -1036,8 +1053,11 @@ export async function studioVoiceScope(email, {
   const owners = {};
   // Readable names: "<voice label> · <lecturer> (try n)".
   const labels = {};
+  for (const voice of wf.studioTrainedVoices(state)) {
+    labels[voice.expName] = voice.label;
+    owners[voice.expName] = voice.ownerEmail;
+  }
   for (const job of state.jobs) {
-    job.attempts.forEach((attempt) => { if (attempt.result === 'trained') labels[attempt.expName] = `${job.label} · ${job.ownerName || job.ownerEmail}${attempt.attempt > 1 ? ` (try ${attempt.attempt})` : ''}`; });
     for (const name of [job.expName, job.approvedExpName, ...job.attempts.map((attempt) => attempt.expName)]) {
       if (name) owners[name] = job.ownerEmail;
     }
@@ -1055,12 +1075,5 @@ export async function studioVoiceScope(email, {
 export async function studioVoiceLabels({ store = sharedService().store } = {}) {
   if (!process.env.S3_BUCKET) return {};
   const { state } = await store.read();
-  const labels = {};
-  for (const job of state.jobs) {
-    if (job.fixture) continue;
-    for (const attempt of job.attempts) {
-      if (attempt.result === 'trained') labels[attempt.expName] = `${job.label} · ${job.ownerName || job.ownerEmail}${attempt.attempt > 1 ? ` (try ${attempt.attempt})` : ''}`;
-    }
-  }
-  return labels;
+  return Object.fromEntries(wf.studioTrainedVoices(state).map((voice) => [voice.expName, voice.label]));
 }

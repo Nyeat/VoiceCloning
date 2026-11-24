@@ -447,7 +447,11 @@ test('clean up: a stale set is deleted for good, its future test slots go, and i
   const training = wf.createJob(state, { id: 'j2', ownerEmail: 'other@example.com', expName: 'v2', now });
   training.status = 'training';
   assert.throws(() => wf.deleteJob(state, 'j2', now), /Training is running/);
+  job.attempts.push({ attempt: 1, expName: 'v1', result: 'trained' });
   const { slotsRemoved } = wf.deleteJob(state, 'j1', now);
+  // The record goes, the trained voice stays testable for super users.
+  assert.deepEqual(wf.studioTrainedVoices(state), [{ expName: 'v1', label: 'My voice · man', ownerEmail: 'man@example.com' }]);
+  assert.ok(wf.visibleVoices(state, { email: 'boss@x.com', superuser: true }).includes('v1'));
   wf.logCleanup(state, { actor: 'Boss@x.com', action: 'deleted', job, from: 'approved', now });
   assert.equal(slotsRemoved, 1);
   assert.equal(state.slots[0].status, 'cancelled');
