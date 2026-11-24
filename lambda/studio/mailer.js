@@ -208,12 +208,14 @@ export const templates = {
       ], studio ? { label: 'Open the feedback', url: `${studio}/feedback` } : null),
     };
   },
-  newRecordingsNeeded({ job, notes, env }) {
+  newRecordingsNeeded({ job, notes, env, reset = false }) {
     const { record } = studioLinks(env);
     return {
       subject: 'Please record your voice again',
       ...layout('We need new recordings', [
-        `We tried ${job.attempt} times but could not make a good copy of your voice from "${job.label}".`,
+        reset
+          ? 'Our team has reopened your recording page so you can record your voice again from the start.'
+          : `We tried ${job.attempt} times but could not make a good copy of your voice from "${job.label}".`,
         ...(notes ? [`Reviewer's note: ${notes}`] : []),
         'A quieter room and a steady distance from the microphone usually fix this.',
       ], record ? { label: 'Record again', url: record } : null),

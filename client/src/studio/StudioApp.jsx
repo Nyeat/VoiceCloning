@@ -28,7 +28,7 @@ import {
   addDays, dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
 } from './slotCalendar.js';
 import {
-  addSlot, addSuperuser, cancelJob, restoreJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
+  addSlot, addSuperuser, cancelJob, restoreJob, resetPerson, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
   googleSignIn, publishSlots, relativeFromNow, removeSuperuser, renameSuperuser, retryJob, reviewJob,
   sendFeedback,
 } from './studioApi.js';
@@ -184,6 +184,9 @@ function JobDetail({ overview, onAction, line }) {
   const { jobId } = useParams();
   const navigate = useNavigate();
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState(true);
+  const [resetNote, setResetNote] = useState('');
   const job = overview.jobs.find((item) => item.id === jobId);
   if (!job) return <Notice tone="warn">That recording set was not found. <button type="button" className="underline" onClick={() => navigate('/quality')}>Back</button></Notice>;
   const voices = trainedVoices(job);
@@ -201,8 +204,26 @@ function JobDetail({ overview, onAction, line }) {
           {job.status === 'failed' && <Button variant="dark" size="sm" onClick={() => onAction(() => retryJob(job.id))}><RefreshCw size={13} /> Retry training</Button>}
           {!['training', 'cancelled'].includes(job.status) && !confirmWithdraw && <Button variant="ghost" size="sm" onClick={() => setConfirmWithdraw(true)}><X size={13} /> Withdraw set</Button>}
           {job.status === 'cancelled' && <Button variant="dark" size="sm" onClick={() => onAction(() => restoreJob(job.id))}><RefreshCw size={13} /> Restore set</Button>}
+          {job.status !== 'training' && !confirmReset && <Button variant="ghost" size="sm" onClick={() => setConfirmReset(true)}><RefreshCw size={13} /> Reset to recording</Button>}
         </div>
       </div>
+
+      {confirmReset && (
+        <Notice tone="warn" className="space-y-2">
+          <p className="font-semibold [overflow-wrap:anywhere]">Reset {who(job)} back to the recording page?</p>
+          <ul className="list-disc space-y-0.5 pl-5 text-sm">
+            <li>Every set of theirs is withdrawn and their upcoming test slots are cancelled.</li>
+            <li>Their page goes back to the start: they can record and send a new set.</li>
+            <li>Nothing is deleted: recordings and trained voices are kept, and "Restore set" still works.</li>
+          </ul>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={resetEmail} onChange={(event) => setResetEmail(event.target.checked)} /> Email them to record again</label>
+          {resetEmail && <textarea className="w-full rounded-lg border border-slate-200 p-2 text-sm" rows={2} placeholder="Note for them (optional)" value={resetNote} onChange={(event) => setResetNote(event.target.value)} />}
+          <div className="flex gap-2 pt-1">
+            <Button variant="danger" size="sm" onClick={() => { setConfirmReset(false); onAction(() => resetPerson(job.id, { email: resetEmail, notes: resetEmail ? resetNote : '' })); }}>Reset to recording</Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmReset(false)}>Keep as is</Button>
+          </div>
+        </Notice>
+      )}
 
       {rider && <Card className="p-4 sm:p-5"><PersonTrip rider={rider} /></Card>}
 

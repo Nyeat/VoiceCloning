@@ -978,11 +978,31 @@ export function createHandler({
             if (!['review', 'failed'].includes(job.status)) throw wf.clientError(409, 'Only a voice in review or a failed run can be sent back');
             job.reviews.push({ attempt: job.attempt, expName: job.expName, decision: 'new-recordings', reasons: [], notes: String(body.notes || '').slice(0, 1000), reviewer: email, at: new Date(now).toISOString() });
             wf.cancelJob(job);
+            // They were asked to record again, so the recording page opens again.
+            job.recordingReopened = true;
             return { jobId: job.id };
           });
           const { state } = await store.read();
           const job = wf.findJob(state, result.jobId);
           await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env }));
+          return ok(await adminView((await store.read()).state, email), {}, event);
+        }
+
+        // Reset a person to the start: sets withdrawn, test slots cancelled, recording page open.
+        if (route === 'POST admin/jobs/:id/reset-person') {
+          const { result } = await updateState(store, (state) => {
+            const job = wf.findJob(state, parts[2]);
+            if (!job) throw wf.clientError(404, 'Job not found');
+            const { withdrawn, slotsRemoved } = wf.resetPerson(state, job.ownerEmail, now);
+            const note = `reset to recording${slotsRemoved ? `; ${slotsRemoved} test slot${slotsRemoved === 1 ? '' : 's'} removed` : ''}`;
+            for (const entry of withdrawn) wf.logCleanup(state, { actor: email, action: 'reset', job: entry.job, from: entry.from, note, now });
+            if (!withdrawn.length) wf.logCleanup(state, { actor: email, action: 'reset', job, note, now });
+            return { jobId: job.id };
+          });
+          if (body.email === true) {
+            const job = wf.findJob((await store.read()).state, result.jobId);
+            await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env, reset: true }));
+          }
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 

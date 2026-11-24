@@ -478,6 +478,7 @@ export function restoreJob(job, { now } = {}) {
   job.status = previous === 'training' ? 'queued' : previous;
   if (job.status === 'queued') job.queuedAt = iso(now ?? Date.now());
   delete job.cancelledFrom;
+  delete job.recordingReopened;
   return job;
 }
 
@@ -1158,7 +1159,34 @@ export function uploadWindowOpen(state, job, { now, superuser }) {
  */
 /** Sent a set at least once (withdrawn ones count): the recording page has been used. */
 export function everSubmittedVoice(state, email) {
-  return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && job.queuedAt);
+  // A set the team sent back for new recordings, or a person reset, no longer counts.
+  return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && job.queuedAt && !job.recordingReopened);
+}
+
+/**
+ * Owner 2026-11-24: put a person back to the start (the recording page). Every
+ * set of theirs is withdrawn (kept, restorable), their upcoming test slots are
+ * cancelled, and the recording page opens again. Booked recording sessions stay.
+ */
+export function resetPerson(state, email, now) {
+  const mine = state.jobs.filter((job) => sameNtuPerson(job.ownerEmail, email));
+  if (mine.some((job) => job.status === 'training')) throw clientError(409, 'Training is running on the GPU; wait for it to finish');
+  const withdrawn = [];
+  for (const job of mine) {
+    if (job.status !== 'cancelled') {
+      withdrawn.push({ job, from: job.status });
+      cancelJob(job);
+    }
+    job.recordingReopened = true;
+  }
+  let slotsRemoved = 0;
+  for (const slot of state.slots) {
+    if (slot.status !== 'cancelled' && slotKind(slot) === 'test' && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) > now) {
+      slot.status = 'cancelled';
+      slotsRemoved += 1;
+    }
+  }
+  return { jobs: mine, withdrawn, slotsRemoved };
 }
 
 export function hasSubmittedVoice(state, email) {
