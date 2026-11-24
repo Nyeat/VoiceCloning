@@ -2926,3 +2926,4 @@
   first (workflow.adoptHostlessBookings on add/move of free time; also re-picked when the booking is saved); later
   free time there is taken (emailed when the host confirms, or shown taken at once if already published).
   Lambda 461/461 (+1 test). Not deployed.
+- Same day: b05c5ff (with d905132) DEPLOYED dev + staging (main Lambdas, studio site); both branches at b05c5ff.
