@@ -2976,3 +2976,14 @@
   all of it (sessions taken by someone else since stay cancelled; blocked if they sent a new set since). Delete =
   removes the record for good (line-map "Delete" now really deletes; it used to withdraw). reset-person route removed.
   Lambda 468/468, client 591/591, studio build. Not checked in a browser.
+- Same day: 66cb319 DEPLOYED dev + staging (Lambdas, studio). Owner: Withdraw = the person's voice (one voice per
+  person): all their sets withdrawn (training, QC), upcoming TEST slots cancelled, recording page reopens; recording
+  sessions stay booked (they belong to the person). Restore removed (route, `restorePerson`, `restoreJob`, buttons);
+  Delete = record only. Lambda 467/467, client 591/591, studio build. Not checked in a browser.
+- Same day: 68dce37 DEPLOYED dev + staging (Lambdas, studio). "Ask for new recordings" now runs `withdrawPerson`
+  (= Withdraw, logged in Clean up). New "Reset for a new voice" on an approved set (`POST admin/jobs/:id/reset-person`,
+  `workflow.resetPerson`): nothing withdrawn; all their sets flagged `recordingReopened` (hidden from their page,
+  ignored by `hasSubmittedVoice`), recording page opens, line map shows them at Record, optional email. Only when
+  every live set is approved. One run per person: upload-for (`forEmail`) and submit refuse a second voice while one
+  is on the line (super users' own reference sets exempt). `latestTestSlotFor(..., since=createdAt)` so an earlier
+  run's slot is not the new set's. Lambda 469/469 (+2), client 592/592 (+1), studio build. Not checked in a browser.

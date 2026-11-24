@@ -397,3 +397,6 @@ These live in runtime configuration and will not appear in any branch diff:
   or hand it to another free staff member before it publishes. Calendar staff are super users only.
 - 2026-11-24 (owner): the staff availability calendar is account based: each super user marks only their own free
   time, and only the host (first to mark the time) confirms or hands on a booking on it.
+- 2026-11-24 (owner): one full run = one voice per person. Withdraw (and "ask for new recordings") takes that voice
+  off the line (sets, training, QC, test slots) and reopens recording; recording sessions stay; no Restore. Reset
+  (finished run only) starts a new run for another voice without withdrawing. No second voice while one is on the line.

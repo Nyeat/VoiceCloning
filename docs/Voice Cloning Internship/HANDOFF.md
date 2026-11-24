@@ -13,7 +13,7 @@ Last updated: 2026-11-23
 - 11-21 Voice Studio, ALL DEPLOYED dev+staging through 07b0494/4227e31 (see CHANGELOG 11-21): auto sign-up email login
   (Google hidden until client ID); staged lecturer page (one booking/one submission); VoiceTestBench (own Chat + mic,
   Read aloud progress/download, one dictionary); reminders + QC email; Gmail SMTP (needs app password:
-  scripts/set-email-password.ps1); console: stages, Run by, withdraw confirm + Restore; fixtures only for
+  scripts/set-email-password.ps1); console: stages, Run by, withdraw confirm, Reset for a new voice; fixtures only for
   STUDIO_FIXTURE_VIEWERS; owner Gmail super user (STUDIO_PASSWORD_SUPERUSERS). GPU: slot hold 20 min/whole slot/<1 h
   bridge, released after; super-user lockout on all GPU routes (shared/studioGpuGuard); coordinator owners
   "reserved:studio" (hard) / "held:studio" (soft 10 min); fixed GPU demand for slots, training, 30 min after super-user
@@ -21,7 +21,7 @@ Last updated: 2026-11-23
 - 11-23 Voice Studio redesign + later fixes (CHANGELOG 11-23, through 93835dd): approved voice before test slot, upload for someone, open recording, edit moves slot GPU, warm-up ensures profile, past slots hidden.
   11-23 later (32f6e35, DEPLOYED dev+staging 17:25 SGT): Staff availability (override + taken/free-again emails, hand-off, undo), Upload for anyone, Delete stale uploads, 12 dummies re-seeded. Staging again has open recording.
   Dev has all; STAGING was overwritten 16:33 SGT by a teammate's unpushed tree ("To record" list) -> his work merged in 5acac14; redeploy staging next. Email needs the LKC mailbox (TODO).
-- 11-24 6d039c8 DEPLOYED dev+staging: account-based availability, one-time recording page, QC test tab, slide-text cleanup, Tools > Clean up, GPU warm-up 30 min, slot moves warm at once, line map follows real test slots, retest after feedback, email via SES (blocked: needs admin; CHANGELOG 11-24). 3740270 DEPLOYED: Withdraw = reset whole person + clear staff lists (Restore undoes), Delete = record only.
+- 11-24 6d039c8 DEPLOYED dev+staging: account-based availability, one-time recording page, QC test tab, slide-text cleanup, Tools > Clean up, GPU warm-up 30 min, slot moves warm at once, line map follows real test slots, retest after feedback, email via SES (blocked: needs admin; CHANGELOG 11-24). Withdraw = person's voice (sets, test slots; recording sessions stay), no Restore (66cb319 DEPLOYED); Reset for a new voice + one run per person + re-record = withdraw (68dce37 DEPLOYED, CHANGELOG 11-24).
 - One tree: Dev `separate-containers-new` = Staging `codex/staging-multi-user-scaling` (same commit); runtime
   config owns the differences (Staging hides advanced settings, Dev does not autoscale, Dev has no Faculty).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected
