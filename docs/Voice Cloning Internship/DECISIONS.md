@@ -400,3 +400,6 @@ These live in runtime configuration and will not appear in any branch diff:
 - 2026-11-24 (owner): one full run = one voice per person. Withdraw (and "ask for new recordings") takes that voice
   off the line (sets, training, QC, test slots) and reopens recording; recording sessions stay; no Restore. Reset
   (finished run only: approved and tested) starts a new run for another voice without withdrawing. No second voice while one is on the line.
+- 2026-11-24 (owner): recording sessions are for staff only (account-based availability, first booking wins, others
+  emailed) plus reminder emails to the person; they never change the lecturer page. Testing voices and status are
+  shared by all super users; only free time / confirming is per account.

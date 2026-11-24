@@ -2990,3 +2990,10 @@
 - Same day: 7ba19c3 DEPLOYED dev + staging (Lambdas, studio). Reset only when nothing of theirs is on the line: every live
   set approved AND tested (testingClosedAt); button shows only then. Clean up: "Clear log" (confirm) ->
   `DELETE admin/cleanup-log` empties `state.cleanupLog` (super users only). Lambda 469/469, client 592/592, studio build.
+- Same day: 429476c + ac981d3 DEPLOYED dev + staging (Lambdas, studio). Owner: recording sessions are staff organisation +
+  emails only; they never open/close or show on the lecturer page. `recordingAccess` = open unless something of theirs
+  is on the line (superusers always); `uploadWindowOpen` + RECORDING_GRACE_MINUTES + job.recordingSlotId removed;
+  already-sent upload -> 409. Session emails say "sign in with the link below to record". Clean up rows offer
+  "Reset for a new voice" (`cleanupRecords` canReset/reset). Retrain: lecturer emailed "being retrained"
+  (`templates.retraining`, with ETA); page already showed Waiting to retrain / Retraining. Lambda 469/469, client
+  592/592, studio build. Not checked in a browser.
