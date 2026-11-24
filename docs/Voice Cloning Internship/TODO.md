@@ -2,7 +2,10 @@
 
 - [ ] Slide-text cleanup (2026-11-24, deployed): paste a real slide into the TTS page + studio tester and listen.
 - [ ] Lecturer one-time recording page (2026-11-24, deployed): live-test as a lecturer: send a set -> status page only; retrain ->
-  "Retraining"; feedback -> "session finished"; withdraw all -> "withdrawn"; new booked session reopens recording.
+  "Retraining" + retrain email; feedback -> "session finished"; Withdraw -> recording page again (sessions kept);
+  a booked session changes nothing on their page.
+- [ ] Live-test Reset for a new voice (2851d39 deployed): only after approved + tested; from set page and Clean up; their
+  page starts at recording; upload-for a 2nd voice is refused while one is in progress; Clear log.
 - [ ] Check on a phone (6d039c8 deployed): long names/emails wrap, GPU popup shows within ~1 s.
 - [ ] Owner to decide: keep a lecturer's GPU on ~10 min after a test slot ends, so a slot added right after does not
   cold-start (today it is released at the next 5-min check unless a slot already starts within 30 min).
