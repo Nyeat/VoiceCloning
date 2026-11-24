@@ -2,7 +2,7 @@
 // the phone strip, and the header each stop's page opens with.
 import React, { useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Headphones, Map, ShieldCheck, Users } from 'lucide-react';
+import { Headphones, LogOut, Map, ShieldCheck, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { STOPS, STOP_COPY, stopForPath } from './superLine.js';
 import { Brand } from './StudioChrome.jsx';
@@ -29,7 +29,7 @@ function StopLink({ stop, info, active }) {
     <NavLink
       to={stop.path}
       aria-current={active ? 'page' : undefined}
-      className={cn('relative flex min-h-[52px] items-center gap-3 rounded-lg px-2.5 py-2', active ? 'bg-white/10' : 'hover:bg-white/5')}
+      className={cn('relative flex min-h-[52px] items-center gap-3 rounded-xl px-2.5 py-2 transition-colors', active ? 'bg-white/[0.12] shadow-[inset_3px_0_0_#8ea6ff]' : 'hover:bg-white/[0.06]')}
     >
       <StationDot stop={stop} active={active} dark size="sm" />
       <span className="flex min-w-0 flex-1 flex-col">
@@ -47,22 +47,25 @@ function StopLink({ stop, info, active }) {
   );
 }
 
-const toolLink = ({ isActive }) => cn('flex min-h-11 items-center gap-3 rounded-lg px-2.5 text-sm', isActive ? 'bg-white/10 font-semibold text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white');
+const toolLink = ({ isActive }) => cn('flex min-h-11 items-center gap-3 rounded-xl px-2.5 text-sm transition-colors', isActive ? 'bg-white/[0.12] font-semibold text-white shadow-[inset_3px_0_0_#8ea6ff]' : 'text-slate-300 hover:bg-white/[0.06] hover:text-white');
+const sectionLabel = 'mx-2.5 mb-1.5 mt-5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500';
 
 /** Desktop sidebar: home, the six stops on a vertical line, then tools and admin. */
 export function SuperSidebar({ line, email, onSignOut }) {
   const { pathname } = useLocation();
   const current = stopForPath(pathname);
   return (
-    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-y-auto bg-slate-950 px-3 py-5 text-white lg:flex">
-      <div className="px-2"><Brand product="Voice Studio" tone="dark" /></div>
-      <span className="mx-2 mt-4 inline-flex w-fit items-center gap-1 rounded-full bg-amber-400/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-300"><ShieldCheck size={12} /> Super user</span>
-      <nav aria-label="Voice Studio" className="mt-5 flex flex-col gap-1">
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col overflow-y-auto border-r border-white/5 bg-gradient-to-b from-slate-950 to-[#0b1224] px-3 py-5 text-white lg:flex">
+      <div className="flex items-center justify-between gap-2 px-2">
+        <Brand product="Voice Studio" tone="dark" />
+      </div>
+      <span className="mx-2 mt-3 inline-flex w-fit items-center gap-1 rounded-full bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300 ring-1 ring-amber-300/20"><ShieldCheck size={12} /> Super user</span>
+      <nav aria-label="Voice Studio" className="mt-4 flex flex-col gap-1">
         <NavLink to="/" end className={toolLink}>
           <Map size={17} aria-hidden="true" /> <span className="flex-1">Line map</span>
           {line?.alertTotal > 0 && <span className="rounded-full bg-amber-400 px-2 text-[11px] font-bold text-stone-900">{line.alertTotal} for you</span>}
         </NavLink>
-        <p className="mx-2.5 mb-1 mt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">The line · in order</p>
+        <p className={sectionLabel}>The line · in order</p>
         <div className="relative flex flex-col gap-0.5">
           <span aria-hidden="true" className="absolute bottom-[26px] left-[21px] top-[26px] w-[3px] rounded bg-[#3b5bdb]" />
           {STOPS.map((stop) => <StopLink key={stop.key} stop={stop} info={line?.stops[stop.key]} active={current === stop.key} />)}
@@ -71,13 +74,18 @@ export function SuperSidebar({ line, email, onSignOut }) {
             <span className="text-xs font-semibold text-slate-400">End of line · voice done</span>
           </div>
         </div>
-        <p className="mx-2.5 mb-1 mt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Tools · any time</p>
+        <p className={sectionLabel}>Tools · any time</p>
         <NavLink to="/test" className={toolLink}><Headphones size={17} aria-hidden="true" /> Test any voice</NavLink>
         <NavLink to="/superusers" className={toolLink}><Users size={17} aria-hidden="true" /> Super users</NavLink>
       </nav>
-      <div className="mt-auto border-t border-white/10 px-2 pt-4 text-xs text-slate-400">
-        <p className="truncate">{email}</p>
-        <button type="button" onClick={onSignOut} className="mt-2 text-slate-300 hover:text-white">Sign out</button>
+      <div className="mt-auto pt-5">
+        <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.05] p-2.5 ring-1 ring-white/10">
+          <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#3b5bdb] text-xs font-bold uppercase">{String(email || '?').slice(0, 1)}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-semibold text-slate-100" title={email}>{email}</span>
+            <button type="button" onClick={onSignOut} className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-white"><LogOut size={11} aria-hidden="true" /> Sign out</button>
+          </span>
+        </div>
       </div>
     </aside>
   );

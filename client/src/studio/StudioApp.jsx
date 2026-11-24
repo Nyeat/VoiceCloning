@@ -41,6 +41,7 @@ import {
   bookingAt, freeTimeTaken, openHours, overlapBands, overriddenFor, overriddenOthers, staffFreeAt,
 } from './availability.js';
 import { StaffChip, StaffField, knownStaff, rememberStaff } from './StaffField.jsx';
+import { StaffAvailability } from './StaffAvailability.jsx';
 import { MobileLine, StageHeader, SuperSidebar } from './SuperLineChrome.jsx';
 import { LineMap } from './LineMap.jsx';
 import { PersonTrip, QualityList, RecordingStage, TestingNow, TrainingStage } from './LineStages.jsx';
@@ -717,201 +718,6 @@ function Schedule({ overview, onAction, kind = 'test' }) {
 
   const upcomingDays = [...new Set(slots.map((slot) => sgtDayKey(slot.start)))].sort();
 
-  // ── Staff availability (recording): day timeline left, side panel right ──
-  if (recording) {
-    const availabilityBlocks = daySlots.map((slot) => {
-      const booked = Boolean(slot.assigneeEmail);
-      const overridden = Boolean(slot.overriddenBy);
-      const time = `${sgtTime(slot.start)} – ${sgtTime(slot.end)}`;
-      return {
-        id: slot.id,
-        start: slot.start,
-        end: slot.end,
-        tone: slotTone(slot, nowMs),
-        staffFirst: true,
-        staff: slotHosts(slot).length ? slotHosts(slot) : ['No staff yet'],
-        title: overridden ? 'Overridden' : booked ? (slot.assigneeName || slot.assigneeEmail) : 'Available',
-        subtitle: overridden
-          ? `${time} · taken by ${(slot.overriddenBy.hostNames || []).join(', ') || 'a booking'}${slot.overriddenBy.assigneeName ? ` (${slot.overriddenBy.assigneeName})` : ''}`
-          : `${time}${booked && slot.assigneeName ? ` · ${slot.assigneeEmail}` : ''}`,
-        badge: slot.status === 'draft' && !overridden
-          ? { label: booked ? 'Booked · draft' : 'Draft', tone: booked ? 'booked' : 'draft' }
-          : { label: overridden ? 'Overridden' : booked ? 'Booked' : 'Free', tone: overridden ? 'overridden' : booked ? 'booked' : 'free' },
-      };
-    });
-    const dayStaff = addHosts([], daySlots.flatMap((slot) => slotHosts(slot)).join(','), 12);
-    const selectedBooking = draftOriginal?.assigneeEmail ? draftOriginal : null;
-    const overriddenByIt = selectedBooking ? slots.filter((slot) => slot.overriddenBy?.slotId === selectedBooking.id) : [];
-    // Who is free over the time being added or booked (the block itself, then the others).
-    const freeHere = draftRange && !selectedBooking
-      ? [...(draftOriginal && !draftOriginal.overriddenBy ? [draftOriginal] : []), ...(availability?.taken || [])]
-      : [];
-    const freeNames = addHosts([], freeHere.flatMap((slot) => slotHosts(slot)).join(','), 12);
-    return (
-      <div className="space-y-4">
-        <Card className="p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="max-w-2xl">
-              <h2 className="text-xl font-bold text-slate-900">Staff availability</h2>
-              <p className="mt-1 text-sm text-slate-600">Each of you marks when you can run a session. Overlaps show who is free at once; the first booking gets the time.</p>
-            </div>
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              {me && <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">Signed in as <StaffChip name={me} size="sm" /></span>}
-              <Button variant={drafts ? 'success' : 'outline'} disabled={!drafts} className="w-full sm:w-auto" onClick={() => onAction(publishSlots)}>
-                Publish {drafts ? `${drafts} change${drafts === 1 ? '' : 's'}` : '(nothing to publish)'}
-              </Button>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <Legend tones={copy.tones} />
-            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600"><span aria-hidden="true" className="h-2.5 w-4 rounded-sm border border-dashed border-slate-500" /> Dashed = draft</span>
-            {dayStaff.length > 0 && (
-              <span className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Staff</span>
-                {dayStaff.map((name) => <StaffChip key={name} name={name} size="sm" />)}
-              </span>
-            )}
-          </div>
-        </Card>
-
-        {takenFromMe.map((slot) => (
-          <div key={slot.id} role="status" className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            <CalendarClock size={18} className="shrink-0 text-amber-700" aria-hidden="true" />
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">Your {sgtTime(slot.start)} – {sgtTime(slot.end)} on {formatDay(sgtDayKey(slot.start))} was taken.</p>
-              <p className="text-xs">{(slot.overriddenBy.hostNames || []).join(', ') || 'Another staff member'} booked {slot.overriddenBy.assigneeName || 'a lecturer'} in that time, so your availability was overridden. Please pick another time.</p>
-            </div>
-            <Button size="sm" variant="dark" onClick={() => pickAnotherTime(slot, me)}>Pick another time</Button>
-            <Button size="sm" variant="ghost" onClick={() => dismiss(slot.id)}>Dismiss</Button>
-          </div>
-        ))}
-        {lastBooking && (
-          <div role="status" className="flex flex-wrap items-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white">
-            <CheckCircle2 size={18} className="shrink-0 text-emerald-400" aria-hidden="true" />
-            <p className="min-w-0 flex-1">
-              Booked <b>{lastBooking.label}</b>{lastBooking.runBy.length ? ` with ${lastBooking.runBy.join(', ')}` : ''}.
-              {lastBooking.overridden.length > 0 && ` ${lastBooking.overridden.join(', ')}'s availability at that time was overridden; they are emailed when you publish.`}
-            </p>
-            <Button size="sm" variant="outline" onClick={() => onAction(() => editSlot(lastBooking.id, { assigneeEmail: '', assigneeName: '', hostNames: lastBooking.hosts })).then((done) => { if (done) setLastBooking(null); })}>Undo</Button>
-            <button type="button" onClick={() => setLastBooking(null)} className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10" aria-label="Close"><X size={16} /></button>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <Card className="min-w-0 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={() => selectDay(addDays(day, -1))} disabled={day <= today} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30" aria-label="Previous day"><ChevronLeft size={18} /></button>
-                <h3 className="text-base font-bold text-slate-900">{formatDay(day)}</h3>
-                <button type="button" onClick={() => selectDay(addDays(day, 1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" aria-label="Next day"><ChevronRight size={18} /></button>
-                {day !== today && <Button size="sm" variant="ghost" onClick={() => { setDay(today); setMonth(monthOf(today)); }}>Today</Button>}
-              </div>
-              <p className="text-xs text-slate-500">Click empty time to add your availability; click a block to book or edit it.</p>
-            </div>
-            <div className="max-h-[min(680px,70dvh)] overflow-y-auto overscroll-contain pr-1 pt-2">
-              <DayTimeline
-                day={day}
-                hours={hours}
-                slots={availabilityBlocks}
-                bands={overlapBands(daySlots)}
-                nowMs={nowMs}
-                selectedId={draft?.id}
-                pending={draft && !draft.id && draft.day === day ? { start: draft.start, minutes: draft.minutes } : null}
-                onSlotClick={edit}
-                onSlotDelete={(slot) => onAction(() => deleteSlot(slot.id)).then((done) => { if (done && draft?.id === slot.id) setDraft(null); })}
-                onEmptyClick={(minutes) => { setOpenHoursFor(null); setDraft(draft && !draft.id ? { ...draft, day, start: minutes } : blankDraft({ day, start: minutes, hosts: me ? [me] : knownStaff().slice(0, 1) })); }}
-              />
-            </div>
-          </Card>
-
-          <div className="space-y-4">
-            {/* A booked session: who it is for, who runs it, and whose free time it took. */}
-            {selectedBooking && (
-              <Card className="p-4">
-                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-rose-700"><span className="h-2 w-2 rounded-full bg-rose-500" /> Booked · {selectedBooking.status === 'draft' ? 'draft' : 'published'}</p>
-                <p className="mt-1 text-lg font-bold text-slate-900">{selectedBooking.assigneeName || selectedBooking.assigneeEmail}</p>
-                <p className="text-xs text-slate-600">{formatDay(sgtDayKey(selectedBooking.start))} · {sgtTime(selectedBooking.start)} – {sgtTime(selectedBooking.end)} · {selectedBooking.assigneeEmail}</p>
-                {slotHosts(selectedBooking).length > 0 && <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">Host {slotHosts(selectedBooking).map((name) => <StaffChip key={name} name={name} size="sm" />)}</p>}
-              </Card>
-            )}
-            {selectedBooking && overriddenByIt.length > 0 && (
-              <Card className="p-4">
-                <p className="text-sm font-bold text-slate-900">Overridden availability</p>
-                <ul className="mt-2 space-y-1.5">
-                  {overriddenByIt.map((slot) => (
-                    <li key={slot.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-[repeating-linear-gradient(135deg,#f8fafc_0_6px,#ffffff_6px_12px)] px-3 py-2 ring-1 ring-slate-200">
-                      {slotHosts(slot).map((name) => <StaffChip key={name} name={name} size="sm" />)}
-                      <span className="text-[11px] text-slate-500">{sgtTime(slot.start)} – {sgtTime(slot.end)} · {slot.overriddenBy.notifiedAt ? 'emailed' : 'emailed when you publish'}</span>
-                      <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">Overridden</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-2 text-[11px] text-slate-500">Undoing or deleting this booking gives their time back (and emails them that it is free again).</p>
-              </Card>
-            )}
-            {/* Several staff free over the time being added or booked. */}
-            {freeNames.length > 1 && (
-              <Card className="p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-amber-700">Overlap · {sgtTime(draftRange.start)} – {sgtTime(draftRange.end)}</p>
-                <p className="mt-0.5 text-sm font-bold text-slate-900">{freeNames.length} staff are free</p>
-                <ul className="mt-2 space-y-1">
-                  {freeHere.map((slot) => (
-                    <li key={slot.id} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="flex flex-wrap gap-1">{slotHosts(slot).map((name) => <StaffChip key={name} name={name} size="sm" />)}</span>
-                      <span className="text-slate-500">free {sgtTime(slot.start)} – {sgtTime(slot.end)}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[11px] leading-snug text-amber-950">Whoever books a lecturer into this time first gets it. The others&apos; availability is overridden and they are emailed to pick another time.</p>
-              </Card>
-            )}
-            {draft && (
-              <div ref={composerRef} className="scroll-mt-32">
-                <SlotComposer
-                  key={draft.id || 'new'}
-                  kind={kind}
-                  draft={draft}
-                  setDraft={setDraft}
-                  people={people}
-                  staffSuggestions={staffSuggestions}
-                  onSave={save}
-                  onCancel={() => setDraft(null)}
-                  onDelete={() => onAction(() => deleteSlot(draft.id)).then((done) => { if (done) setDraft(null); })}
-                  availability={availability}
-                  me={me}
-                  onPickAnother={() => draftOriginal && pickAnotherTime(draftOriginal)}
-                />
-              </div>
-            )}
-            {!draft && openHoursFor && (
-              <OpenHours
-                day={openHoursFor.day}
-                who={openHoursFor.who}
-                hours={openHours(slots, openHoursFor.day, { nowMs, who: openHoursFor.who })}
-                onMarkFree={markFree}
-                onClose={() => setOpenHoursFor(null)}
-              />
-            )}
-            {!draft && !openHoursFor && (
-              <Card className="border-indigo-200 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-indigo-700">Your availability</p>
-                <p className="mt-0.5 text-sm font-bold text-slate-900">Mark when you are free on {formatDay(day)}</p>
-                <p className="mt-1 text-xs text-slate-600">Click an empty time on the day, or start here. To book a lecturer, click someone&apos;s green free time.</p>
-                <Button variant="dark" className="mt-3 w-full" onClick={() => setDraft(blankDraft({ day, start: day === today ? Math.min(22 * 60, Math.ceil(sgtMinutes(nowMs) / 60) * 60) : 9 * 60, hosts: me ? [me] : knownStaff().slice(0, 1) }))}>
-                  <CalendarClock size={15} /> Mark my availability
-                </Button>
-              </Card>
-            )}
-            <Card className="p-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Pick a day</p>
-              <MonthCalendar month={month} onMonth={setMonth} selected={day} onSelect={selectDay} marks={marks} today={today} />
-            </Card>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
       <Card className="p-5">
@@ -1208,8 +1014,18 @@ function UploadForSomeone() {
   const [params] = useSearchParams();
   const email = params.get('for') || '';
   const forPerson = email ? { email, name: params.get('name') || '' } : null;
+  const navigate = useNavigate();
   return (
     <Stage stopKey="record">
+      {/* A way straight back to the list this page was opened from (owner 2026-11-24). */}
+      <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur lg:top-2">
+        <Button variant="outline" size="sm" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/recording'))}>
+          <ChevronLeft size={15} aria-hidden="true" /> Back to Recording
+        </Button>
+        <p className="min-w-0 text-sm text-slate-600">
+          {forPerson ? <>Uploading for <b className="text-slate-900">{forPerson.name || forPerson.email}</b>{forPerson.name ? <span className="text-slate-500"> · {forPerson.email}</span> : null}</> : 'Upload for anyone'}
+        </p>
+      </div>
       <RecordWorkspace key={email} embedded forPerson={forPerson} />
     </Stage>
   );
@@ -1247,7 +1063,18 @@ function SuperuserConsole() {
           <MobileLine line={line} />
         </div>
         <main className="mx-auto max-w-[1680px] space-y-4 px-4 py-4 sm:px-6 sm:py-6 xl:px-8">
-          {busy && <div role="status" className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs text-white shadow-lg lg:bottom-auto lg:left-auto lg:right-4 lg:top-4 lg:translate-x-0"><Loader2 size={13} className="animate-spin" /> Working…</div>}
+          {/* Busy: a thin bar across the top plus a clear, calm pill (owner 2026-11-24: more visible, not flashy). */}
+          {busy && (
+            <>
+              <div aria-hidden="true" className="fixed inset-x-0 top-0 z-50 h-1 overflow-hidden bg-primary/15">
+                <div className="h-full w-1/3 animate-[studio-busy_1.1s_ease-in-out_infinite] rounded-full bg-primary" />
+              </div>
+              <div role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-xl lg:bottom-auto lg:left-auto lg:right-6 lg:top-5 lg:translate-x-0">
+                <Loader2 size={18} className="animate-spin text-primary" aria-hidden="true" /> Updating…
+              </div>
+              <style>{'@keyframes studio-busy{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}'}</style>
+            </>
+          )}
           {/* Errors float at the bottom so they are seen wherever the page is scrolled. */}
           {error && (
             <div role="alert" className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-xl items-start gap-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900 shadow-lg">
@@ -1258,7 +1085,7 @@ function SuperuserConsole() {
           {!data ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-slate-400" /></div> : (
             <Routes>
               <Route path="/" element={<LineMap line={line} now={now} />} />
-              <Route path="/sessions" element={<Stage stopKey="book"><Schedule key="recording" overview={data} onAction={onAction} kind="recording" /></Stage>} />
+              <Route path="/sessions" element={<Stage stopKey="book"><StaffAvailability overview={data} onAction={onAction} /></Stage>} />
               <Route path="/recording" element={<Stage stopKey="record"><RecordingStage overview={data} line={line} onAction={onAction} /></Stage>} />
               <Route path="/record" element={<UploadForSomeone />} />
               <Route path="/training" element={<Stage stopKey="train"><TrainingStage overview={data} onAction={onAction} /></Stage>} />

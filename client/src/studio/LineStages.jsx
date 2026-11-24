@@ -64,7 +64,9 @@ export function RecordingStage({ overview, line, onAction }) {
     .map((rider) => ({ rider, slot: latestRecordingSlot(overview.slots, rider.email) }))
     .sort((a, b) => Number(needsUpload(b.rider)) - Number(needsUpload(a.rider)) || String(a.slot?.start).localeCompare(String(b.slot?.start)));
   const submitted = overview.jobs
-    .filter((job) => job.queuedAt && !['uploading', 'cancelled'].includes(job.status) && now - Date.parse(job.queuedAt) < WEEK_MS)
+    // Only sets the Training stop still shows (queued, training, finished): deleted
+    // and already-approved ones have left, so they are not listed here either.
+    .filter((job) => job.queuedAt && ['queued', 'training', 'review', 'failed'].includes(job.status) && now - Date.parse(job.queuedAt) < WEEK_MS)
     .sort((a, b) => b.queuedAt.localeCompare(a.queuedAt));
   const riderOf = new Map(line.riders.map((rider) => [rider.email, rider]));
   // A half-finished upload in "To record" can be deleted too.

@@ -1,7 +1,8 @@
 # Active TODO
 
-- [ ] Staff availability (2026-11-23, deployed dev+staging): live-test with two staff super users (names on Super users
-  page): both free 3-4 -> one books -> other sees Overridden + email on Publish; Undo -> "free again" email.
+- [ ] Staff availability per-person calendar (2026-11-24, NOT deployed): deploy studio Lambda + site, then live-test with
+  two super users: both free 3-4 (A first) -> book 3-4 -> A's column red, B hatched -> A confirms or hands to B ->
+  Publish emails lecturer + the other; delete -> "free again" email. Old slots named non-super users ("s") stay.
 - [ ] Voice Studio redesign (2026-11-23, DEPLOYED; sign-in down meanwhile): owner creates a Google OAuth web client
   (origins https://d271zk8d8curic.cloudfront.net + https://d1zffrwq7b2rri.cloudfront.net), set VITE_GOOGLE_CLIENT_ID
   (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID (lambda/.env.deployment*), redeploy studio client + Lambdas. Then live-test: book recording session ->

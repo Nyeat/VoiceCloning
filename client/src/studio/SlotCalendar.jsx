@@ -105,32 +105,55 @@ const BADGE_TONES = {
 };
 
 /**
- * A day timeline. slots: [{ id, start, end, tone, title, subtitle, staff, badge?, staffFirst? }].
+ * A day timeline. slots: [{ id, start, end, tone, title, subtitle, staff, badge?, staffFirst?, column?, overlay? }].
  * bands: [{ start, end }] times where several people are free at once (an "Overlap" bracket).
+ * columns: [{ key, label }] one column per person (like a calendar per guest); a slot sits in
+ * `column` (index); `overlay` slots (bookings) lie on top of that person's free time.
+ * shades: [{ column, start, end, label }] hatched time inside a column (free time a booking took).
  */
-export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEmptyClick, selectedId, pending, nowMs, bands = [] }) {
+export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEmptyClick, selectedId, pending, nowMs, bands = [], columns = null, shades = [] }) {
   const [confirmId, setConfirmId] = useState('');
   const rows = [];
   for (let minutes = hours.start; minutes < hours.end; minutes += 30) rows.push(minutes);
   const top = (minutes) => ((minutes - hours.start) / 30) * ROW_PX;
   const nowMinutes = nowMs && sgtDayKey(nowMs) === day ? sgtMinutes(nowMs) : null;
-  const laneOf = layoutLanes(slots);
+  const count = columns?.length || 1;
+  // Lanes only among a column's own blocks; overlays span their column.
+  const laneOf = {};
+  for (let column = 0; column < count; column += 1) {
+    Object.assign(laneOf, layoutLanes(slots.filter((slot) => !slot.overlay && (columns ? slot.column === column : true))));
+  }
+  const colLeft = (column, fraction = 0) => `calc(4rem + (100% - 4.25rem) * ${(column + fraction) / count})`;
+  const colWidth = (fraction = 1, minus = 2) => `calc((100% - 4.25rem) * ${fraction / count} - ${minus}px)`;
+  const minutesIn = (value, fallback) => (sgtDayKey(value) === day ? sgtMinutes(value) : fallback);
   return (
-    <div className="relative" style={{ height: rows.length * ROW_PX }}>
+    <div>
+      {columns && (
+        <div className="sticky top-0 z-30 flex border-b border-slate-200 bg-white/95 pb-2 backdrop-blur">
+          <span className="w-16 shrink-0" />
+          {columns.map((column) => (
+            <div key={column.key} className="flex min-w-0 flex-1 justify-center px-1">{column.label}</div>
+          ))}
+        </div>
+      )}
+    <div className="relative mt-2" style={{ height: rows.length * ROW_PX }}>
       {rows.map((minutes) => {
         const past = nowMinutes !== null && minutes + 30 <= nowMinutes;
         return (
           <div key={minutes} className="absolute inset-x-0 flex" style={{ top: top(minutes), height: ROW_PX }}>
             <span className="w-16 shrink-0 -translate-y-2 pr-2 text-right text-[11px] text-slate-400">{minutes % 60 === 0 ? formatMinutes(minutes) : ''}</span>
             {onEmptyClick && !past ? (
-              <button
-                type="button"
-                onClick={() => onEmptyClick(minutes)}
-                className={cn('group flex-1 border-t text-left text-[11px] text-transparent hover:bg-primary/5 hover:text-primary', minutes % 60 === 0 ? 'border-slate-200' : 'border-dashed border-slate-100')}
-                aria-label={`Add at ${formatMinutes(minutes)}`}
-              >
-                <span className="pl-2">+ {formatMinutes(minutes)}</span>
-              </button>
+              Array.from({ length: count }, (_, column) => (
+                <button
+                  key={column}
+                  type="button"
+                  onClick={() => onEmptyClick(minutes, columns ? column : null)}
+                  className={cn('group min-w-0 flex-1 border-t text-left text-[11px] text-transparent hover:bg-primary/5 hover:text-primary', column > 0 && 'border-l border-l-slate-100', minutes % 60 === 0 ? 'border-slate-200' : 'border-dashed border-slate-100')}
+                  aria-label={`Add at ${formatMinutes(minutes)}${columns ? ` for ${columns[column].key}` : ''}`}
+                >
+                  <span className="pl-2">+ {formatMinutes(minutes)}</span>
+                </button>
+              ))
             ) : (
               <div className={cn('flex-1 border-t', minutes % 60 === 0 ? 'border-slate-200' : 'border-dashed border-slate-100', past && 'bg-slate-50')} />
             )}
@@ -151,13 +174,30 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
           </div>
         );
       })}
+      {shades.map((shade) => {
+        const from = minutesIn(shade.start, 0);
+        const to = minutesIn(shade.end, 24 * 60);
+        return (
+          <div key={`${shade.column}-${shade.start}-${shade.end}`} className="pointer-events-none absolute z-[15] flex items-end justify-end overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,rgba(100,116,139,0.28)_0_5px,rgba(255,255,255,0.55)_5px_10px)] ring-1 ring-slate-400/60" style={{ top: top(from) + 1, height: Math.max(ROW_PX - 2, ((to - from) / 30) * ROW_PX - 2), left: colLeft(shade.column), width: colWidth() }}>
+            {shade.label && <span className="m-1 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{shade.label}</span>}
+          </div>
+        );
+      })}
       {pending && (
-        <div className="pointer-events-none absolute left-16 right-1 z-10 rounded-lg border-2 border-dashed border-primary bg-primary/10 px-2 py-1 text-xs font-semibold text-primary" style={{ top: top(pending.start) + 1, height: Math.max(ROW_PX - 2, (pending.minutes / 30) * ROW_PX - 2) }}>
+        <div
+          className={cn('pointer-events-none absolute z-30 truncate rounded-lg border-2 border-dashed border-primary bg-primary/10 px-2 py-1 text-xs font-semibold text-primary', !(columns && pending.column != null) && 'left-16 right-1')}
+          style={{
+            top: top(pending.start) + 1,
+            height: Math.max(ROW_PX - 2, (pending.minutes / 30) * ROW_PX - 2),
+            ...(columns && pending.column != null ? { left: colLeft(pending.column), width: colWidth() } : {}),
+          }}
+        >
           New · {formatMinutes(pending.start)} – {formatMinutes(pending.start + pending.minutes)}
         </div>
       )}
       {slots.map((slot) => {
-        const { lane, lanes } = laneOf[slot.id] || { lane: 0, lanes: 1 };
+        const { lane, lanes } = slot.overlay ? { lane: 0, lanes: 1 } : (laneOf[slot.id] || { lane: 0, lanes: 1 });
+        const column = columns ? (slot.column ?? 0) : 0;
         const startMinutes = sgtDayKey(slot.start) === day ? sgtMinutes(slot.start) : 0;
         const endMinutes = sgtDayKey(slot.end) === day ? sgtMinutes(slot.end) : 24 * 60;
         const tone = TONES[slot.tone] || TONES.open;
@@ -169,14 +209,15 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
           // (a button cannot sit inside the block's own button).
           <div
             key={slot.id}
-            className="group absolute z-10"
+            className={cn('group absolute', slot.overlay ? 'z-20' : 'z-10')}
             onMouseLeave={() => { if (confirming) setConfirmId(''); }}
             style={{
               top: top(startMinutes) + 1,
               height: Math.max(ROW_PX - 2, ((endMinutes - startMinutes) / 30) * ROW_PX - 2),
-              // Several people at the same time sit side by side (4rem = time labels).
-              left: `calc(4rem + (100% - 4.25rem) * ${lane / lanes})`,
-              width: `calc((100% - 4.25rem) / ${lanes} - 2px)`,
+              // Several people at the same time sit side by side (4rem = time labels);
+              // a booking lies on its host's free time, inset so the green still shows.
+              left: slot.overlay ? `calc(${colLeft(column)} + 8px)` : colLeft(column, lane / lanes),
+              width: slot.overlay ? colWidth(1, 18) : colWidth(1 / lanes),
             }}
           >
             <Tag
@@ -250,6 +291,7 @@ export function DayTimeline({ day, hours, slots, onSlotClick, onSlotDelete, onEm
           </div>
         );
       })}
+    </div>
     </div>
   );
 }

@@ -2883,3 +2883,15 @@
   booking (bookingAt; was a silent 409), free time for several staff = one block each, errors now a bottom toast.
   Files: StudioApp.jsx, SlotCalendar.jsx, availability.js (+tests). Client studio 29/29, build OK. Deployed studio
   site to dev + staging; NOT visually checked signed in (Chrome not signed in to the console).
+- 2026-11-24: Staff availability is a per-person calendar (owner): one column per super user (header chips, "you"),
+  free time green, overlaps side by side; a booking is its own slot drawn red on its host's column, someone else's
+  free time under it hatched "Taken". Booking goes to whoever free then marked the time first (whole cover beats
+  partial; hosts of another overlapping booking skipped); others are overridden and emailed on Publish. Host must
+  confirm ("I'll run it") or hand it to another free staff member; Publish leaves unconfirmed bookings as drafts
+  (overview.awaitingHost). Staff must be super users (by name, else email; 400 otherwise; old names on a slot kept).
+  Free time over a booking is allowed now (shown taken, no email). Also: "Back to Recording" bar on the upload page,
+  sidebar polish, top progress bar + "Updating…" pill, Recording "Submitted" list only shows sets the Training stop
+  shows (deleted/approved ones dropped). Files: lambda/studio/workflow.js, index.js (+tests), client
+  StaffAvailability.jsx (new), SlotCalendar.jsx (columns/overlay/shades), availability.js (+test), StudioApp.jsx,
+  LineStages.jsx, SuperLineChrome.jsx. Lambda 459/459, client 584/584, studio build OK. Not deployed; not checked
+  signed in in a browser.

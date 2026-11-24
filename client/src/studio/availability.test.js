@@ -45,3 +45,19 @@ test("open hours skip bookings, the past and the person's own free time", () => 
   const open = openHours(slots, '2026-11-24', { nowMs: Date.parse(at(10)), who: 'Adam', from: 9, to: 17 }).map((r) => r.start);
   assert.deepEqual(open, [at(10), at(12), at(13), at(14), at(16)]);
 });
+
+test('first come hosts a booking; whole cover beats partial; busy hosts are skipped', async () => {
+  const { staffFreeFor, staffColumns, takenParts, awaitsHost } = await import('./availability.js');
+  const list = [
+    slot('part', 15, 16, { hostNames: ['Bea'], createdAt: '2026-11-20T00:00:00Z' }),
+    slot('teng', 14, 16, { hostNames: ['Teng Yu'], createdAt: '2026-11-21T00:00:00Z' }),
+    slot('adam', 14, 17, { hostNames: ['Adam'], createdAt: '2026-11-22T00:00:00Z' }),
+  ];
+  assert.deepEqual(staffFreeFor(list, { start: at(14), end: at(16) }), ['Teng Yu', 'Adam', 'Bea']);
+  const booked = [...list, slot('b', 14, 16, { assigneeEmail: 'lee@gmail.com', hostNames: ['Teng Yu'], status: 'draft' })];
+  assert.deepEqual(staffFreeFor(booked, { start: at(15), end: at(16) }), ['Bea', 'Adam']);
+  assert.deepEqual(staffColumns(booked), ['Teng Yu', 'Adam', 'Bea']);
+  assert.deepEqual(takenParts(booked[2], booked).map((p) => [p.start, p.end]), [[at(14), at(16)]]);
+  assert.deepEqual(takenParts(booked[1], booked), [], "the host's own time is not taken");
+  assert.equal(awaitsHost(booked[3]), true);
+});

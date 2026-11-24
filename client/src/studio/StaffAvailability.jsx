@@ -1,0 +1,489 @@
+// Staff availability (recording sessions), a calendar with a column per staff
+// member (owner 2026-11-24). Staff are super users. Each marks their free time
+// (green); overlapping free time sits side by side. Booking a lecturer at a
+// time gives the session to whoever free then marked the time first (red, on
+// their own column); everyone else free then is hatched ("taken") and emailed
+// on Publish to pick another time. The host confirms, or hands it to another
+// free staff member, before Publish sends it. Rules: lambda/studio/workflow.js.
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Trash2, UserCheck, X } from 'lucide-react';
+import { useAuth } from '@/auth/useAuth';
+import { cn } from '@/lib/utils';
+import { DayTimeline, MonthCalendar } from './SlotCalendar.jsx';
+import {
+  addDays, dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
+} from './slotCalendar.js';
+import { addSlot, deleteSlot, editSlot, formatSgt, publishSlots } from './studioApi.js';
+import { Button, Card } from './StudioChrome.jsx';
+import { StaffChip } from './StaffField.jsx';
+import { slotHosts } from './staffColors.js';
+import {
+  awaitsHost, overlapBands, overriddenFor, staffColumns, staffFreeFor, staffLabel, takenParts,
+} from './availability.js';
+
+const LENGTHS = [30, 45, 60, 90, 120, 180, 240];
+const START_STEPS = Array.from({ length: 96 }, (_, i) => i * 15);
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+const ME_KEY = 'voice-studio-me';
+const fieldClass = 'mt-1 block h-10 w-full rounded-lg border border-slate-300 px-3 text-sm';
+const sgtTime = (value) => formatSgt(value, { withDate: false });
+const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+const isBooking = (slot) => Boolean(slot?.assigneeEmail);
+
+function readMe() {
+  try { return window.localStorage.getItem(ME_KEY) || ''; } catch { return ''; }
+}
+function saveMe(name) {
+  try { window.localStorage.setItem(ME_KEY, name); } catch { /* per-viewer only */ }
+}
+
+function rangeOf(draft) {
+  const start = sgtIso(draft.day, draft.start);
+  return { start, end: new Date(Date.parse(start) + draft.minutes * 60_000).toISOString() };
+}
+
+function TimeFields({ draft, setDraft }) {
+  return (
+    <div className="grid grid-cols-1 gap-3">
+      <label className="block text-xs font-medium text-slate-600">Starts
+        <select value={draft.start} onChange={(event) => setDraft({ ...draft, start: Number(event.target.value) })} className={fieldClass}>
+          {START_STEPS.map((minutes) => <option key={minutes} value={minutes}>{formatMinutes(minutes)}</option>)}
+        </select>
+      </label>
+      <div className="text-xs font-medium text-slate-600">Length
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {[...new Set([...LENGTHS, draft.minutes])].sort((a, b) => a - b).map((value) => (
+            <button key={value} type="button" onClick={() => setDraft({ ...draft, minutes: value })} className={cn('h-9 rounded-full px-3 text-xs font-semibold sm:h-8', draft.minutes === value ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100')}>
+              {formatLength(value)}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Who is free: super users only, picked as chips (several at once on new time = one block each).
+function StaffPicker({ staff, value, onChange, single }) {
+  if (!staff.length) return <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Add staff under <b>Super users</b> (name + email) first. Only super users can be on this calendar.</p>;
+  return (
+    <div className="text-xs font-medium text-slate-600">{single ? 'Whose free time' : 'Who is free (super users)'}
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {staff.map((name) => {
+          const chosen = value.some((other) => same(other, name));
+          return (
+            <button
+              key={name}
+              type="button"
+              aria-pressed={chosen}
+              onClick={() => onChange(single ? [name] : chosen ? value.filter((other) => !same(other, name)) : [...value, name])}
+              className={cn('rounded-full transition', chosen ? 'ring-2 ring-slate-900 ring-offset-1' : 'opacity-60 hover:opacity-100')}
+            >
+              <StaffChip name={name} size="sm" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Who runs a booking: free staff in priority order (first come first), then any other super user.
+function HostPicker({ candidates, staff, value, onChange }) {
+  const others = staff.filter((name) => !candidates.some((other) => same(other, name)));
+  const row = (name, note, index) => {
+    const chosen = same(value, name);
+    return (
+      <label key={name} className={cn('flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 ring-1', chosen ? 'bg-white ring-slate-900' : 'ring-slate-200 hover:bg-white')}>
+        <input type="radio" name="booking-host" checked={chosen} onChange={() => onChange(name)} />
+        <StaffChip name={name} size="sm" />
+        <span className="text-[11px] font-normal text-slate-500">{note(index)}</span>
+      </label>
+    );
+  };
+  return (
+    <div className="text-xs font-medium text-slate-600">Who runs it
+      <div className="mt-1 space-y-1">
+        {candidates.length === 0 && <p className="rounded-lg bg-slate-100 px-2.5 py-2 text-[11px] font-normal text-slate-600">Nobody marked themselves free then. Pick a super user below, or leave it to sort out later.</p>}
+        {candidates.map((name, index) => row(name, (i) => (i === 0 ? 'marked this time first: gets it' : 'also free then'), index))}
+        {others.length > 0 && (
+          <details className="pt-1" open={candidates.length === 0 || others.some((name) => same(name, value))}>
+            <summary className="cursor-pointer text-[11px] text-slate-500">Someone not marked free</summary>
+            <div className="mt-1 space-y-1">{others.map((name) => row(name, () => 'not marked free then'))}</div>
+          </details>
+        )}
+        {value && (
+          <button type="button" onClick={() => onChange('')} className="text-[11px] font-normal text-slate-500 underline">Nobody yet</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Composer({ draft, setDraft, slots, staff, onSave, onDelete, onCancel, onBookHere }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const booking = draft.mode === 'booking';
+  const range = rangeOf(draft);
+  const candidates = booking ? staffFreeFor(slots, range, draft.id || '').filter((name) => staff.some((other) => same(other, name))) : [];
+  const host = booking ? (draft.hostTouched ? draft.host : candidates[0] || draft.host || '') : '';
+  const email = String(draft.person || '').trim();
+  const badEmail = Boolean(email) && !EMAIL_SHAPE.test(email);
+  const bumped = booking ? candidates.filter((name) => !same(name, host)) : [];
+  const canSave = booking ? EMAIL_SHAPE.test(email) : (draft.hosts || []).length > 0;
+  const title = booking ? (draft.id ? 'Edit booking' : 'Book a lecturer') : (draft.id ? 'Free time' : 'Mark free time');
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{title}</p>
+          <p className="text-sm font-semibold text-slate-900">{formatDay(draft.day)} · {formatMinutes(draft.start)} – {formatMinutes((draft.start + draft.minutes) % (24 * 60))}</p>
+        </div>
+        <button type="button" onClick={onCancel} className="-m-1 shrink-0 rounded-lg p-2 text-slate-400 hover:bg-slate-200" aria-label="Close"><X size={16} /></button>
+      </div>
+      {!draft.id && (
+        <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-200/70 p-1 text-xs font-semibold" role="tablist">
+          {[['free', 'Free time'], ['booking', 'Book a lecturer']].map(([mode, label]) => (
+            <button key={mode} type="button" role="tab" aria-selected={draft.mode === mode} onClick={() => setDraft({ ...draft, mode })} className={cn('h-8 rounded-md', draft.mode === mode ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900')}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      <TimeFields draft={draft} setDraft={setDraft} />
+      {booking ? (
+        <>
+          <label className="block text-xs font-medium text-slate-600">Lecturer&apos;s email
+            <input value={draft.person || ''} onChange={(event) => setDraft({ ...draft, person: event.target.value })} type="email" placeholder="name@ntu.edu.sg" aria-invalid={badEmail} className={cn(fieldClass, badEmail && 'border-rose-400')} />
+          </label>
+          <label className="block text-xs font-medium text-slate-600">Their name (optional)
+            <input value={draft.name || ''} onChange={(event) => setDraft({ ...draft, name: event.target.value })} maxLength={80} placeholder="e.g. Dr Lim" className={fieldClass} />
+          </label>
+          <HostPicker candidates={candidates} staff={staff} value={host} onChange={(name) => setDraft({ ...draft, host: name, hostTouched: true })} />
+          {bumped.length > 0 && (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-950">
+              <b>{bumped.join(', ')}</b> {bumped.length === 1 ? 'is' : 'are'} free then too. Once {host || 'the host'} confirms and you publish, they are emailed to pick another time.
+            </p>
+          )}
+        </>
+      ) : (
+        <StaffPicker staff={staff} value={draft.hosts || []} single={Boolean(draft.id)} onChange={(hosts) => setDraft({ ...draft, hosts })} />
+      )}
+      <div className="flex flex-wrap gap-2 pt-1">
+        <Button variant="dark" disabled={!canSave} onClick={() => onSave(booking ? { ...draft, host } : draft)}>
+          {draft.id ? 'Save changes' : booking ? 'Book' : (draft.hosts || []).length > 1 ? `Add ${(draft.hosts || []).length} free blocks` : 'Add free time'}
+        </Button>
+        {draft.id && !booking && <Button variant="outline" onClick={onBookHere}>Book a lecturer here</Button>}
+        {draft.id && (confirmDelete
+          ? <Button variant="danger" onClick={onDelete}>Confirm delete</Button>
+          : <Button variant="ghost" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete</Button>)}
+      </div>
+      <p className="text-[11px] text-slate-500">Everything here is a draft (dashed) until you press Publish.</p>
+    </div>
+  );
+}
+
+// The booking's host: confirm, or hand it to someone else free then.
+function HostStatus({ booking, slots, staff, onAction }) {
+  const hosts = slotHosts(booking);
+  const others = staffFreeFor(slots, booking, booking.id).filter((name) => !hosts.some((host) => same(host, name)) && staff.some((other) => same(other, name)));
+  const takenFrom = slots.filter((slot) => slot.overriddenBy?.slotId === booking.id);
+  return (
+    <Card className="p-4">
+      <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-rose-700"><span className="h-2 w-2 rounded-full bg-rose-500" /> Booked · {booking.status === 'draft' ? 'draft' : 'published'}</p>
+      <p className="mt-1 text-lg font-bold text-slate-900">{booking.assigneeName || booking.assigneeEmail}</p>
+      <p className="text-xs text-slate-600">{formatDay(sgtDayKey(booking.start))} · {sgtTime(booking.start)} – {sgtTime(booking.end)} · {booking.assigneeEmail}</p>
+      {hosts.length === 0 ? (
+        <p className="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">Nobody runs it yet. Edit it below to pick a super user.</p>
+      ) : awaitsHost(booking) ? (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+          <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-amber-950">Waiting for <StaffChip name={hosts[0]} size="sm" /> to confirm</p>
+          <p className="mt-1 text-[11px] text-amber-900">It is not sent until they confirm. They can take it, or hand it to someone else free then.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="dark" onClick={() => onAction(() => editSlot(booking.id, { confirmHost: true }))}><UserCheck size={14} /> {hosts[0]}: I&apos;ll run it</Button>
+            {others.map((name) => (
+              <Button key={name} size="sm" variant="outline" onClick={() => onAction(() => editSlot(booking.id, { hostNames: [name] }))}>Hand to {name}</Button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-emerald-800"><CheckCircle2 size={14} /> <StaffChip name={hosts[0]} size="sm" /> confirmed{booking.status === 'draft' ? ' · press Publish to send' : ''}</p>
+      )}
+      {takenFrom.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold text-slate-700">Free time this takes</p>
+          <ul className="mt-1 space-y-1">
+            {takenFrom.map((slot) => (
+              <li key={slot.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-[repeating-linear-gradient(135deg,#f1f5f9_0_6px,#ffffff_6px_12px)] px-2.5 py-1.5 text-[11px] text-slate-600 ring-1 ring-slate-200">
+                {slotHosts(slot).map((name) => <StaffChip key={name} name={name} size="sm" />)}
+                {sgtTime(slot.start)} – {sgtTime(slot.end)}
+                <span className="ml-auto font-semibold">{slot.overriddenBy.notifiedAt ? 'emailed' : 'emailed on publish'}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function StaffAvailability({ overview, onAction }) {
+  const auth = useAuth();
+  const nowMs = Date.parse(overview.now) || Date.now();
+  const today = sgtDayKey(nowMs);
+  const slots = useMemo(
+    () => overview.slots.filter((slot) => slot.kind === 'recording' && Date.parse(slot.end) > nowMs),
+    [overview.slots, nowMs],
+  );
+  const staff = useMemo(() => (overview.superusers || []).map(staffLabel).filter(Boolean), [overview.superusers]);
+  // One shared login: "who am I" is picked per browser, from the super users.
+  const [meChoice, setMeChoice] = useState(readMe);
+  const signedIn = (overview.superusers || []).find((user) => same(user.email, auth.user?.email || ''));
+  const me = staff.find((name) => same(name, meChoice)) || (signedIn ? staffLabel(signedIn) : '') || staff[0] || '';
+  const [day, setDay] = useState(today);
+  const [month, setMonth] = useState(monthOf(today));
+  const [draft, setDraft] = useState(null);
+  const [selectedId, setSelectedId] = useState('');
+  const composerRef = useRef(null);
+  useEffect(() => {
+    if (!draft || !window.matchMedia?.('(max-width: 1023px)').matches) return;
+    composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [draft?.id, draft?.day, draft?.start, draft?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selected = slots.find((slot) => slot.id === selectedId) || null;
+  const daySlots = slots.filter((slot) => sgtDayKey(slot.start) === day || sgtDayKey(slot.end) === day);
+  const columnKeys = useMemo(() => {
+    const keys = staffColumns(daySlots);
+    // Your own column is always there, so you can click straight into it.
+    if (me && !keys.some((key) => same(key, me))) keys.unshift(me);
+    return keys.length ? keys : [''];
+  }, [daySlots, me]);
+  const columnOf = (slot) => Math.max(0, columnKeys.findIndex((key) => same(key, slotHosts(slot)[0] || '')));
+  const hours = dayHours(daySlots, { nowMinutes: day === today ? sgtMinutes(nowMs) : null });
+
+  const blocks = daySlots.map((slot) => {
+    const booked = isBooking(slot);
+    const draftTag = slot.status === 'draft';
+    const waiting = awaitsHost(slot);
+    return {
+      id: slot.id,
+      start: slot.start,
+      end: slot.end,
+      column: columnOf(slot),
+      overlay: booked,
+      tone: booked ? (draftTag ? 'reservedDraft' : 'reserved') : (draftTag ? 'freeDraft' : 'free'),
+      title: booked ? (slot.assigneeName || slot.assigneeEmail) : 'Free',
+      subtitle: `${sgtTime(slot.start)} – ${sgtTime(slot.end)}${booked ? (waiting ? ' · waiting to confirm' : draftTag ? ' · confirmed, not published' : '') : draftTag ? ' · draft' : ''}`,
+      staff: [],
+    };
+  });
+  const shades = daySlots.flatMap((slot) => takenParts(slot, slots).map((part) => ({
+    column: columnOf(slot), start: part.start, end: part.end, label: 'Taken',
+  })));
+  const columns = columnKeys.map((key) => ({
+    key: key || 'nobody',
+    label: key ? (
+      <span className="flex min-w-0 items-center gap-1">
+        <StaffChip name={key} size="sm" />
+        {same(key, me) && <span className="text-[10px] font-semibold text-slate-400">you</span>}
+      </span>
+    ) : <span className="text-[11px] font-semibold text-slate-400">No host</span>,
+  }));
+
+  const waitingAll = slots.filter(awaitsHost).sort((a, b) => a.start.localeCompare(b.start));
+  const takenFromMe = overriddenFor(slots, me);
+  const drafts = overview.draftCount || 0;
+  const awaiting = overview.awaitingHost ?? waitingAll.length;
+  const marks = useMemo(() => {
+    const map = new Map();
+    for (const slot of slots) {
+      const key = sgtDayKey(slot.start);
+      map.set(key, [...(map.get(key) || []), isBooking(slot) ? 'reserved' : 'free']);
+    }
+    return map;
+  }, [slots]);
+
+  function goTo(key) {
+    setDay(key);
+    setMonth(monthOf(key));
+  }
+  function openSlot(block) {
+    const slot = slots.find((item) => item.id === block.id);
+    if (!slot) return;
+    goTo(sgtDayKey(slot.start));
+    setSelectedId(slot.id);
+    setDraft({
+      id: slot.id,
+      mode: isBooking(slot) ? 'booking' : 'free',
+      day: sgtDayKey(slot.start),
+      start: sgtMinutes(slot.start),
+      minutes: Math.round((Date.parse(slot.end) - Date.parse(slot.start)) / 60000),
+      hosts: slotHosts(slot),
+      host: slotHosts(slot)[0] || '',
+      hostTouched: isBooking(slot),
+      person: slot.assigneeEmail || '',
+      name: slot.assigneeName || '',
+    });
+  }
+  function newDraft(fields) {
+    setSelectedId('');
+    setDraft({ mode: 'free', day, start: 9 * 60, minutes: 60, hosts: me ? [me] : [], host: '', person: '', name: '', ...fields });
+  }
+  async function save(next) {
+    const { start, end } = rangeOf(next);
+    let done;
+    if (next.mode === 'booking') {
+      const body = { kind: 'recording', start, end, assigneeEmail: String(next.person).trim(), assigneeName: String(next.name || '').trim(), hostNames: next.host ? [next.host] : [] };
+      done = await onAction(async () => (next.id ? editSlot(next.id, body) : addSlot(body)));
+      if (done && !next.id) {
+        // Select the new booking so its host can confirm or hand it on right away.
+        setDraft(null);
+        setSelectedId(`pending:${start}|${body.assigneeEmail}`);
+        return;
+      }
+    } else if (next.id) {
+      done = await onAction(() => editSlot(next.id, { start, end, hostNames: next.hosts.slice(0, 1) }));
+    } else {
+      // Several staff free at once: one block each, so each person's time stands on its own.
+      done = await onAction(async () => {
+        let result;
+        for (const host of next.hosts) result = await addSlot({ kind: 'recording', start, end, hostNames: [host] });
+        return result;
+      });
+    }
+    if (done) setDraft(null);
+  }
+  // After booking: find the new slot once the overview refreshes.
+  useEffect(() => {
+    if (!selectedId.startsWith('pending:')) return;
+    const [start, email] = selectedId.slice(8).split('|');
+    const found = slots.find((slot) => slot.start === start && slot.assigneeEmail === email.toLowerCase());
+    if (found) setSelectedId(found.id);
+  }, [selectedId, slots]);
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-2xl">
+            <h2 className="text-xl font-bold text-slate-900">Staff availability</h2>
+            <p className="mt-1 text-sm text-slate-600">Each staff member has a column. Mark when you are free; overlapping time sits side by side. A booking goes to whoever marked that time first, who confirms it or hands it on.</p>
+          </div>
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            {staff.length > 0 && (
+              <label className="flex items-center gap-1.5 text-xs text-slate-500">I am
+                <select value={me} onChange={(event) => { setMeChoice(event.target.value); saveMe(event.target.value); }} className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm font-semibold text-slate-800">
+                  {staff.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </label>
+            )}
+            <Button variant={drafts ? 'success' : 'outline'} disabled={!drafts} className="w-full sm:w-auto" onClick={() => onAction(publishSlots)}>
+              Publish {drafts ? `${drafts} change${drafts === 1 ? '' : 's'}` : '(nothing to publish)'}
+            </Button>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-emerald-400 bg-emerald-100" /> Free</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-rose-400 bg-rose-100" /> Booked (on the host&apos;s column)</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-[repeating-linear-gradient(135deg,#94a3b8_0_3px,#fff_3px_6px)] ring-1 ring-slate-400" /> Taken by someone else&apos;s booking</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-dashed border-slate-500" /> Draft</span>
+          {awaiting > 0 && <span className="font-semibold text-amber-800 sm:ml-auto">{awaiting} booking{awaiting === 1 ? '' : 's'} waiting for the host to confirm (not published until then)</span>}
+        </div>
+      </Card>
+
+      {staff.length === 0 && (
+        <div role="status" className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">Only super users can be on this calendar. Add each staff member under <b>Super users</b> with their name and email first.</div>
+      )}
+
+      {waitingAll.map((slot) => {
+        const host = slotHosts(slot)[0];
+        const mine = same(host, me);
+        return (
+          <div key={slot.id} role="status" className={cn('flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm', mine ? 'border-amber-400 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-800')}>
+            <UserCheck size={18} className="shrink-0 text-amber-700" aria-hidden="true" />
+            <p className="min-w-0 flex-1">
+              <b>{mine ? 'You have' : `${host} has`}</b> a booking to confirm: {slot.assigneeName || slot.assigneeEmail}, {formatDay(sgtDayKey(slot.start))} {sgtTime(slot.start)} – {sgtTime(slot.end)}.
+            </p>
+            <Button size="sm" variant="dark" onClick={() => onAction(() => editSlot(slot.id, { confirmHost: true }))}>{mine ? "I'll run it" : `Confirm for ${host}`}</Button>
+            <Button size="sm" variant="ghost" onClick={() => openSlot({ id: slot.id })}>Hand on…</Button>
+          </div>
+        );
+      })}
+      {takenFromMe.map((slot) => (
+        <div key={slot.id} role="status" className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800">
+          <CalendarClock size={18} className="shrink-0 text-slate-500" aria-hidden="true" />
+          <p className="min-w-0 flex-1">Part of your free time {formatDay(sgtDayKey(slot.start))} {sgtTime(slot.start)} – {sgtTime(slot.end)} was taken: {(slot.overriddenBy.hostNames || []).join(', ') || 'someone'} runs {slot.overriddenBy.assigneeName || 'a lecturer'} {sgtTime(slot.overriddenBy.start)} – {sgtTime(slot.overriddenBy.end)}. Pick another time if you like.</p>
+          <Button size="sm" variant="outline" onClick={() => { goTo(sgtDayKey(slot.start)); newDraft({ day: sgtDayKey(slot.start), start: sgtMinutes(slot.overriddenBy.end), hosts: [me] }); }}>Pick another time</Button>
+        </div>
+      ))}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <Card className="min-w-0 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => goTo(addDays(day, -1))} disabled={day <= today} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30" aria-label="Previous day"><ChevronLeft size={18} /></button>
+              <h3 className="text-base font-bold text-slate-900">{formatDay(day)}</h3>
+              <button type="button" onClick={() => goTo(addDays(day, 1))} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" aria-label="Next day"><ChevronRight size={18} /></button>
+              {day !== today && <Button size="sm" variant="ghost" onClick={() => goTo(today)}>Today</Button>}
+            </div>
+            <p className="text-xs text-slate-500">Click an empty time in a column to mark that person free; click a block to book or edit it.</p>
+          </div>
+          <div className="max-h-[min(720px,72dvh)] overflow-y-auto overscroll-contain pr-1">
+            <DayTimeline
+              day={day}
+              hours={hours}
+              slots={blocks}
+              columns={columns}
+              shades={shades}
+              bands={overlapBands(daySlots)}
+              nowMs={nowMs}
+              selectedId={selectedId}
+              pending={draft && !draft.id && draft.day === day ? { start: draft.start, minutes: draft.minutes, column: draft.mode === 'free' ? Math.max(0, columnKeys.findIndex((key) => same(key, draft.hosts?.[0] || ''))) : null } : null}
+              onSlotClick={openSlot}
+              onSlotDelete={(block) => onAction(() => deleteSlot(block.id)).then((done) => { if (done && draft?.id === block.id) setDraft(null); })}
+              onEmptyClick={(minutes, column) => {
+                const who = column !== null && columnKeys[column] ? columnKeys[column] : me;
+                if (draft && !draft.id) setDraft({ ...draft, day, start: minutes, hosts: draft.mode === 'free' ? [who] : draft.hosts });
+                else newDraft({ day, start: minutes, hosts: who ? [who] : [] });
+              }}
+            />
+          </div>
+        </Card>
+
+        <div className="space-y-4">
+          {selected && isBooking(selected) && <HostStatus booking={selected} slots={slots} staff={staff} onAction={onAction} />}
+          {draft && (
+            <div ref={composerRef} className="scroll-mt-32">
+              <Composer
+                key={`${draft.id || 'new'}-${draft.mode}`}
+                draft={draft}
+                setDraft={setDraft}
+                slots={slots}
+                staff={staff}
+                onSave={save}
+                onCancel={() => { setDraft(null); setSelectedId(''); }}
+                onDelete={() => onAction(() => deleteSlot(draft.id)).then((done) => { if (done) { setDraft(null); setSelectedId(''); } })}
+                onBookHere={() => { setSelectedId(''); setDraft({ ...draft, id: undefined, mode: 'booking', host: '', hostTouched: false, person: '', name: '' }); }}
+              />
+            </div>
+          )}
+          {!draft && !selected && (
+            <Card className="border-indigo-200 p-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-indigo-700">{formatDay(day)}</p>
+              <p className="mt-0.5 text-sm font-bold text-slate-900">What do you want to do?</p>
+              <div className="mt-3 grid gap-2">
+                <Button variant="dark" disabled={!staff.length} onClick={() => newDraft({ start: day === today ? Math.min(22 * 60, Math.ceil(sgtMinutes(nowMs) / 60) * 60) : 9 * 60 })}>
+                  <CalendarClock size={15} /> Mark {me ? `${me} as` : 'staff'} free
+                </Button>
+                <Button variant="outline" onClick={() => newDraft({ mode: 'booking', start: 9 * 60 })}>Book a lecturer</Button>
+              </div>
+            </Card>
+          )}
+          <Card className="p-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Pick a day</p>
+            <MonthCalendar month={month} onMonth={setMonth} selected={day} onSelect={goTo} marks={marks} today={today} />
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -390,3 +390,5 @@ These live in runtime configuration and will not appear in any branch diff:
   draft. A given email must look like one (the server used to accept "asd"). "Run by" holds **several staff**
   (`hostNames[]`, max 8, each with a stable colour, like calendar guests); `hostName` is kept as the joined list
   for older readers.
+- 2026-11-24 (owner): recording bookings go to the staff member free then who marked the time first; they confirm
+  or hand it to another free staff member before it publishes. Calendar staff are super users only.

@@ -130,6 +130,10 @@ test('a recording session may be free (no person) and run by several staff', () 
   // Filling the person in later books it; clearing it frees it again.
   wf.editSlot(state, 'f1', { assigneeEmail: 'r@gmail.com', assigneeName: 'R', hostNames: ['Ms Lee'] }, T0);
   assert.deepEqual([state.slots[0].assigneeEmail, state.slots[0].hostName], ['r@gmail.com', 'Ms Lee']);
+  // A booking with a host waits for them to confirm before it publishes.
+  assert.deepEqual(wf.publishSlots(state, T0), []);
+  assert.equal(wf.awaitsHost(state.slots[0]), true);
+  wf.confirmHost(state, 'f1', T0);
   assert.deepEqual(wf.publishSlots(state, T0).map((n) => [n.kind, n.email]), [['recordingBooked', 'r@gmail.com']]);
   wf.editSlot(state, 'f1', { assigneeEmail: '', assigneeName: '' }, T0);
   assert.deepEqual(wf.publishSlots(state, T0).map((n) => [n.kind, n.email]), [['recordingCancelled', 'r@gmail.com']]);
@@ -138,6 +142,29 @@ test('a recording session may be free (no person) and run by several staff', () 
   assert.deepEqual(state.slots[1].hostNames, ['Dr Wong']);
   // Test slots still need a person.
   assert.throws(() => wf.editSlot(state, wf.addSlot(state, { id: 't1', start: at(200), end: at(220), assigneeEmail: 'a@ntu.edu.sg', now: T0 }).id, { assigneeEmail: '' }, T0), /person/u);
+});
+
+test('a booking goes to whoever free then marked the time first; whole cover beats partial', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  const staff = [{ email: 'adam@ntu.edu.sg', name: 'Adam' }, { email: 'teng@ntu.edu.sg', name: 'Teng Yu' }, { email: 'bea@ntu.edu.sg', name: '' }];
+  assert.throws(() => wf.addSlot(state, { id: 'x', kind: 'recording', start: at(60), end: at(120), hostNames: ['s'], now: T0, staff }), /not a super user/u);
+  wf.addSlot(state, { id: 'part', kind: 'recording', start: at(90), end: at(120), hostNames: ['bea@ntu.edu.sg'], now: T0, staff });
+  wf.addSlot(state, { id: 'teng', kind: 'recording', start: at(60), end: at(120), hostNames: ['teng@ntu.edu.sg'], now: T0, staff });
+  wf.addSlot(state, { id: 'adam', kind: 'recording', start: at(60), end: at(180), hostNames: ['adam'], now: T0, staff });
+  assert.deepEqual(state.slots.map((slot) => slot.hostName), ['bea@ntu.edu.sg', 'Teng Yu', 'Adam'], 'stored by super-user name, else email');
+  assert.deepEqual(wf.staffFreeFor(state, { start: at(60), end: at(120) }), ['Teng Yu', 'Adam', 'bea@ntu.edu.sg']);
+  const booking = wf.addSlot(state, { id: 'b', kind: 'recording', start: at(60), end: at(120), assigneeEmail: 'lee@gmail.com', now: T0, staff });
+  assert.deepEqual(booking.hostNames, ['Teng Yu']);
+  assert.equal(state.slots.find((s) => s.id === 'teng').overriddenBy, null, 'the host keeps their own free time');
+  assert.deepEqual(['adam', 'part'].map((id) => state.slots.find((s) => s.id === id).overriddenBy?.slotId), ['b', 'b']);
+  // Handing it to Adam: Teng Yu's time is overridden instead, and Adam must confirm.
+  wf.editSlot(state, 'b', { hostNames: ['Adam'] }, T0, staff);
+  assert.equal(state.slots.find((s) => s.id === 'adam').overriddenBy, null);
+  assert.equal(state.slots.find((s) => s.id === 'teng').overriddenBy.slotId, 'b');
+  assert.equal(booking.hostConfirmedAt, null);
+  // Adam is busy now, so the next booking then goes to the next free person.
+  assert.deepEqual(wf.staffFreeFor(state, { start: at(90), end: at(120) }), ['bea@ntu.edu.sg', 'Teng Yu']);
 });
 
 test('recording: open in a booked session, and any time before the person has submitted', () => {

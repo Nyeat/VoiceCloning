@@ -21,6 +21,7 @@ Last updated: 2026-11-23
 - 11-23 Voice Studio redesign + later fixes (CHANGELOG 11-23, through 93835dd): approved voice before test slot, upload for someone, open recording, edit moves slot GPU, warm-up ensures profile, past slots hidden.
   11-23 later (32f6e35, DEPLOYED dev+staging 17:25 SGT): Staff availability (override + taken/free-again emails, hand-off, undo), Upload for anyone, Delete stale uploads, 12 dummies re-seeded. Staging again has open recording.
   Dev has all; STAGING was overwritten 16:33 SGT by a teammate's unpushed tree ("To record" list) -> his work merged in 5acac14; redeploy staging next. Email needs the LKC mailbox (TODO).
+- 11-24 (local, NOT deployed): per-person availability calendar, first come hosts + confirms; see CHANGELOG 11-24.
 - One application tree. Dev `separate-containers-new` and Staging `codex/staging-multi-user-scaling`
   must point at the same commit; runtime config owns the deliberate differences (Staging hides
   advanced settings, Dev does not autoscale, Dev has no Faculty).
@@ -116,5 +117,4 @@ CONTRADICTION: the lecture badge showed `cs-nathanael-ng` while `client/env/stag
 3. Faculty publishing: start the Dev GPU, publish two profiles across two lecture categories, confirm
    Dev and Staging resolve the same pair, then settle the `gi.env` vs lecture-badge contradiction.
 4. Open Dev GI after starting its GPU; ask an administrator for CloudTrail attribution and orphan cleanup.
-Also open (BUGS.md): the Faculty full-screen "Starting the GPU" modal blocks authoring while capacity
-warms.
+Also open (BUGS.md): the Faculty full-screen "Starting the GPU" modal blocks authoring while capacity warms.

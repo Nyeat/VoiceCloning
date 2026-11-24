@@ -507,7 +507,9 @@ export function createHandler({
         // over (or a test the lecturer finished early) is not shown anywhere.
         .filter((slot) => slot.status !== 'cancelled' && wf.slotEnd(slot) > now)
         .sort((a, b) => a.start.localeCompare(b.start)),
-      draftCount: state.slots.filter((slot) => slot.status === 'draft').length,
+      draftCount: state.slots.filter((slot) => slot.status === 'draft' && !wf.awaitsHost(slot)).length,
+      // Bookings waiting for their host to confirm (Publish leaves them as drafts).
+      awaitingHost: state.slots.filter((slot) => wf.awaitsHost(slot)).length,
       people: [...new Map(state.jobs.filter((job) => job.status !== 'uploading').map((job) => [job.ownerEmail, {
         email: job.ownerEmail,
         name: job.ownerName,
@@ -795,7 +797,7 @@ export function createHandler({
             if (body.kind !== 'recording') for (const person of people) wf.assertVoiceApproved(state, person?.email);
             for (const person of people) {
               wf.addSlot(state, {
-                id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: person?.email, assigneeName: person?.name, hostName: body.hostName, hostNames: body.hostNames, actor: email, now,
+                id: newId(), kind: body.kind, start: body.start, end: body.end, assigneeEmail: person?.email, assigneeName: person?.name, hostName: body.hostName, hostNames: body.hostNames, actor: email, now, staff: wf.listSuperusers(state, env),
               });
             }
             return null;
@@ -821,9 +823,14 @@ export function createHandler({
             // Handing a test slot to someone else: they too need an approved voice.
             if (before.id && wf.slotKind(before) === 'test' && body.assigneeEmail !== undefined
               && !wf.sameNtuPerson(body.assigneeEmail, before.assigneeEmail)) wf.assertVoiceApproved(state, body.assigneeEmail);
+            // The host confirming a booking changes nothing else about it.
+            if (body.confirmHost === true) {
+              wf.confirmHost(state, parts[2], now);
+              return { release: '', freeAgain: [] };
+            }
             wf.editSlot(state, parts[2], {
               start: body.start, end: body.end, assigneeEmail: body.assigneeEmail, assigneeName: body.assigneeName, hostName: body.hostName, hostNames: body.hostNames,
-            }, now);
+            }, now, wf.listSuperusers(state, env));
             return { release: wf.gpuToRelease(state, before, now), freeAgain: wf.freeAgainNotices(state, env, now) };
           });
           await releaseGpuOf(result.release);

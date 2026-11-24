@@ -575,13 +575,16 @@ function hostFields(hostNames, hostName) {
   return { hostNames: hosts, hostName: hosts.join(', ') };
 }
 
-// ── Staff availability: the first booking wins ───────────────────────────
+// ── Staff availability: first come gets the booking ─────────────────────
 //
-// A free recording session (no lecturer) is a staff member's availability.
-// When one is booked for a lecturer, every other free session that overlaps
-// it is "overridden": it can no longer be booked, and its staff are emailed
-// on Publish to pick another time. Undoing the booking (clearing the person,
-// moving it away, deleting it) gives the overridden time back.
+// A free recording session (no lecturer) is one staff member's availability;
+// staff are super users (shown by their name, else their email). A booking is
+// its own recording session with a lecturer. It goes to the staff member free
+// then who marked the time first (covering the whole booking beats partly);
+// everyone else free then is "overridden" and emailed on Publish to pick
+// another time. The host confirms (or hands it to another free staff member)
+// before the booking can be published. Undoing, moving or deleting the
+// booking gives the overridden time back.
 
 function isFreeRecording(slot) {
   return slotKind(slot) === 'recording' && !slot.assigneeEmail;
@@ -595,51 +598,108 @@ function sameHost(names, name) {
   return names.some((other) => other.toLowerCase() === String(name).toLowerCase());
 }
 
-/** Re-applies the rule for one booking after it was added, edited or removed. Returns newly overridden slots. */
+// Names typed for a session must be super users (by name or email); stored as their display name
+// (name, else email). Names already on the slot stay (older sessions named staff freely).
+function superuserHosts(hosts, staff, keep = []) {
+  if (!staff) return hosts;
+  return hosts.map((name) => {
+    const entry = staff.find((item) => (item.name && item.name.trim().toLowerCase() === name.toLowerCase())
+      || sameNtuPerson(item.email, name));
+    if (entry) return entry.name?.trim() || entry.email;
+    if (sameHost(keep, name)) return name;
+    throw clientError(400, `${name} is not a super user. Add them under Super users (with their email) first.`);
+  });
+}
+
+/**
+ * Staff free over `range`, priority first: availability covering the whole
+ * range before partial, then whoever marked their time first. Staff already
+ * running another booking then are left out.
+ */
+export function staffFreeFor(state, range, ignoreId = '') {
+  const live = liveSlots(state).filter((slot) => slot.id !== ignoreId && slotKind(slot) === 'recording' && slotsOverlap(slot, range));
+  const busy = live.filter(isBookedRecording).flatMap((slot) => slot.hostNames || []);
+  const ranked = live
+    .map((slot, order) => ({ slot, order, covers: ms(slot.start) <= ms(range.start) && ms(slot.end) >= ms(range.end) }))
+    .filter(({ slot }) => isFreeRecording(slot))
+    .sort((a, b) => Number(b.covers) - Number(a.covers) || a.order - b.order);
+  const names = [];
+  for (const { slot } of ranked) {
+    for (const name of slot.hostNames || []) if (!sameHost(names, name) && !sameHost(busy, name)) names.push(name);
+  }
+  return names;
+}
+
+/** A booking whose host has not confirmed yet (it stays a draft until they do). */
+export function awaitsHost(slot) {
+  return slot.status === 'draft' && isBookedRecording(slot) && (slot.hostNames || []).length > 0 && !slot.hostConfirmedAt;
+}
+
+// Does `booking` take this free time? Only someone else's: the host's own free time is what they run it in.
+function takes(booking, slot) {
+  if (!isBookedRecording(booking) || slot.id === booking.id || !isFreeRecording(slot) || !slotsOverlap(slot, booking)) return false;
+  const hosts = slot.hostNames || [];
+  return !(hosts.length && hosts.every((name) => sameHost(booking.hostNames || [], name)));
+}
+
+function overrideBy(slot, booking, now, seen) {
+  slot.freeAgain = null; // taken again before the "free again" email went: no need to send it
+  slot.overriddenBy = {
+    slotId: booking.id,
+    start: booking.start,
+    end: booking.end,
+    assigneeName: booking.assigneeName || booking.assigneeEmail,
+    hostNames: [...(booking.hostNames || [])],
+    at: iso(now),
+    // Free time added over a booking already shows it taken: nobody needs an email about it.
+    notifiedAt: seen ? iso(now) : null,
+  };
+}
+
+// Free time not overridden yet: the first booking (in the order they were made) that takes it.
+function overrideFreeSlot(state, slot, now, seen = false) {
+  if (slot.overriddenBy || !isFreeRecording(slot)) return;
+  const booking = liveSlots(state).find((other) => takes(other, slot));
+  if (booking) overrideBy(slot, booking, now, seen);
+}
+
+/** Re-applies the rule for one booking after it was added, edited or removed. */
 function applyOverrides(state, booking, now) {
-  const stillBooked = isBookedRecording(booking);
+  const live = booking.status !== 'cancelled';
+  const freed = [];
   for (const slot of liveSlots(state)) {
-    if (slot.overriddenBy?.slotId === booking.id && !(stillBooked && slotsOverlap(slot, booking))) {
+    if (slot.overriddenBy?.slotId === booking.id && !(live && takes(booking, slot))) {
       // Staff already told their time was taken are told it is free again (freeAgainNotices).
       if (slot.overriddenBy.notifiedAt) slot.freeAgain = { ...slot.overriddenBy, at: iso(now) };
       slot.overriddenBy = null;
+      freed.push(slot);
     }
   }
-  if (!stillBooked) return [];
-  const hit = [];
-  for (const slot of liveSlots(state)) {
-    if (slot.id === booking.id || !isFreeRecording(slot) || !slotsOverlap(slot, booking)) continue;
-    if (slot.overriddenBy?.slotId === booking.id) {
-      // Same booking, new details (time, lecturer, staff): refresh what the banner says.
-      Object.assign(slot.overriddenBy, { start: booking.start, end: booking.end, assigneeName: booking.assigneeName, hostNames: [...(booking.hostNames || [])] });
-      continue;
+  if (live) {
+    for (const slot of liveSlots(state)) {
+      if (!takes(booking, slot)) continue;
+      if (slot.overriddenBy?.slotId === booking.id) {
+        // Same booking, new details (time, lecturer, staff): refresh what the banner says.
+        Object.assign(slot.overriddenBy, {
+          start: booking.start, end: booking.end, assigneeName: booking.assigneeName || booking.assigneeEmail, hostNames: [...(booking.hostNames || [])],
+        });
+      } else if (!slot.overriddenBy) overrideBy(slot, booking, now, false); // else an earlier booking keeps it
     }
-    if (slot.overriddenBy) continue; // the first booking keeps it
-    slot.freeAgain = null; // taken again before the "free again" email went: no need to send it
-    slot.overriddenBy = {
-      slotId: booking.id,
-      start: booking.start,
-      end: booking.end,
-      assigneeName: booking.assigneeName || booking.assigneeEmail,
-      hostNames: [...(booking.hostNames || [])],
-      at: iso(now),
-      notifiedAt: null,
-    };
-    hit.push(slot);
   }
-  return hit;
+  // Time given back may still sit under another booking.
+  for (const slot of freed) {
+    overrideFreeSlot(state, slot, now);
+    if (slot.overriddenBy) slot.freeAgain = null;
+  }
 }
 
-function assertTimeNotTaken(state, slot) {
-  // Availability cannot be added over time that is already booked (it would be overridden at once).
-  if (!isFreeRecording(slot) || slot.overriddenBy) return;
-  const booking = liveSlots(state).find((other) => other.id !== slot.id && isBookedRecording(other) && slotsOverlap(other, slot));
-  if (booking) {
-    const error = clientError(409, `${booking.assigneeName || booking.assigneeEmail} is already booked then`
-      + `${booking.hostNames?.length ? ` with ${booking.hostNames.join(', ')}` : ''}. Pick another time.`);
-    error.code = 'SLOT_TAKEN';
-    throw error;
-  }
+/** The host takes the booking (one shared login, so anyone may press it for them). */
+export function confirmHost(state, id, now) {
+  const slot = findSlot(state, id);
+  if (!slot) throw clientError(404, 'Slot not found');
+  if (!isBookedRecording(slot) || !(slot.hostNames || []).length) throw clientError(400, 'Only a booked session with a host can be confirmed');
+  slot.hostConfirmedAt = iso(now);
+  return slot;
 }
 
 /**
@@ -705,12 +765,23 @@ function checkAssignee(slotType, assigneeEmail) {
 }
 
 export function addSlot(state, {
-  id, kind = 'test', start, end, assigneeEmail = '', assigneeName = '', hostName = '', hostNames, actor, now,
+  id, kind = 'test', start, end, assigneeEmail = '', assigneeName = '', hostName = '', hostNames, actor, now, staff,
 }) {
   const slotType = kind === 'recording' ? 'recording' : 'test';
   const times = validateTimes(start, end, now);
   checkAssignee(slotType, assigneeEmail);
   assertNoClash(state, times, '', slotType, assigneeEmail);
+  const hosts = hostFields(hostNames, hostName);
+  if (slotType === 'recording') {
+    hosts.hostNames = superuserHosts(hosts.hostNames, staff);
+    // A booking with nobody named goes to whoever free then marked the time first.
+    if (normalizeEmail(assigneeEmail) && !hosts.hostNames.length) {
+      hosts.hostNames = staffFreeFor(state, times).filter((name) => {
+        try { superuserHosts([name], staff); return true; } catch { return false; }
+      }).slice(0, 1);
+    }
+    hosts.hostName = hosts.hostNames.join(', ');
+  }
   const slot = {
     id,
     kind: slotType,
@@ -719,22 +790,26 @@ export function addSlot(state, {
     assigneeEmail: normalizeEmail(assigneeEmail),
     assigneeName: cleanText(assigneeName, 80),
     // Who runs it (the super user account is shared, so the login does not say).
-    ...hostFields(hostNames, hostName),
+    ...hosts,
     createdBy: normalizeEmail(actor),
+    createdAt: iso(now),
     updatedAt: iso(now),
     // What the assignee was last told (person + time), so Publish emails only real changes.
     notified: null,
     preloadedAt: null,
     reminderSentAt: null,
     overriddenBy: null,
+    hostConfirmedAt: null,
   };
-  if (slotType === 'recording') assertTimeNotTaken(state, slot);
   state.slots.push(slot);
-  if (slotType === 'recording') applyOverrides(state, slot, now);
+  if (slotType === 'recording') {
+    applyOverrides(state, slot, now);
+    overrideFreeSlot(state, slot, now, true); // free time added over a booking shows taken at once
+  }
   return slot;
 }
 
-export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, hostName, hostNames }, now) {
+export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, hostName, hostNames }, now, staff) {
   const slot = findSlot(state, id);
   if (!slot) throw clientError(404, 'Slot not found');
   const times = validateTimes(start ?? slot.start, end ?? slot.end, now);
@@ -751,18 +826,20 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
     throw error;
   }
   assertNoClash(state, times, id, slotKind(slot), assigneeEmail ?? slot.assigneeEmail);
-  if (slotKind(slot) === 'recording' && !normalizeEmail(assigneeEmail ?? slot.assigneeEmail)) {
-    // Moved availability: still overridden only while it overlaps the booking that took it.
-    const booking = slot.overriddenBy ? findSlot(state, slot.overriddenBy.slotId) : null;
-    const candidate = { ...slot, ...times, assigneeEmail: '' };
-    if (!booking || !slotsOverlap(booking, candidate)) candidate.overriddenBy = null;
-    assertTimeNotTaken(state, candidate);
-    slot.overriddenBy = candidate.overriddenBy;
+  const hosts = hostNames !== undefined || hostName !== undefined ? hostFields(hostNames, hostName) : null;
+  if (hosts && slotKind(slot) === 'recording') {
+    hosts.hostNames = superuserHosts(hosts.hostNames, staff, slot.hostNames || []);
+    hosts.hostName = hosts.hostNames.join(', ');
   }
+  // The host confirmed this booking as it was: a new host, lecturer or time needs confirming again.
+  const changed = (hosts && hosts.hostName.toLowerCase() !== (slot.hostNames || []).join(', ').toLowerCase())
+    || (assigneeEmail !== undefined && normalizeEmail(assigneeEmail) !== slot.assigneeEmail)
+    || times.start !== slot.start || times.end !== slot.end;
   Object.assign(slot, times, {
     ...(assigneeEmail !== undefined ? { assigneeEmail: normalizeEmail(assigneeEmail) } : {}),
     ...(assigneeName !== undefined ? { assigneeName: cleanText(assigneeName, 80) } : {}),
-    ...(hostNames !== undefined || hostName !== undefined ? hostFields(hostNames, hostName) : {}),
+    ...(hosts || {}),
+    ...(changed ? { hostConfirmedAt: null } : {}),
     updatedAt: iso(now),
     preloadedAt: null,
     reminderSentAt: null,
@@ -774,7 +851,13 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
   // An edited published slot goes back to draft until it is published again,
   // so lecturers never see a half-edited schedule.
   if (slot.status === 'published') slot.status = 'draft';
-  if (slotKind(slot) === 'recording') applyOverrides(state, slot, now);
+  if (slotKind(slot) === 'recording') {
+    // Moved free time: still overridden only while the booking that took it overlaps it.
+    const by = slot.overriddenBy ? findSlot(state, slot.overriddenBy.slotId) : null;
+    if (slot.overriddenBy && !(by && takes(by, slot))) slot.overriddenBy = null;
+    applyOverrides(state, slot, now);
+    overrideFreeSlot(state, slot, now, true);
+  }
   return slot;
 }
 
@@ -805,7 +888,8 @@ export function removeSlot(state, id) {
  */
 export function publishSlots(state, now) {
   const toNotify = [];
-  for (const slot of state.slots.filter((item) => item.status === 'draft')) {
+  // A booking waits for its host to confirm (or hand it on) before it goes out.
+  for (const slot of state.slots.filter((item) => item.status === 'draft' && !awaitsHost(item))) {
     slot.status = 'published';
     slot.publishedAt = iso(now);
     const before = slot.notified;
