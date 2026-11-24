@@ -442,7 +442,7 @@ export function createHandler({
             email,
           });
           if (studioVoices) {
-            if (studioVoices.has(voiceName)) voices.push({ ...summary, isMine: true, ownedByCaller: summary.isMine, ...(studioLabels[voiceName] ? { studioLabel: studioLabels[voiceName] } : {}) });
+            if (studioVoices.has(voiceName) || (studioAll && trainedNames.includes(voiceName))) voices.push({ ...summary, isMine: true, ownedByCaller: summary.isMine, ...(studioLabels[voiceName] ? { studioLabel: studioLabels[voiceName] } : {}) });
           } else if (scope === 'all' || summary.isMine) voices.push(summary);
         }
 

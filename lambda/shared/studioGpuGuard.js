@@ -32,9 +32,10 @@ export async function studioGpuAccess({ identity, voiceProfileId = '', studioSco
   }
   const ownerKey = scope.superuser ? STUDIO_GPU_OWNER : studioPersonOwner(identity.email);
   const id = String(voiceProfileId || '').trim();
-  // A named voice must be one Voice Studio lists for this person now (super users:
-  // voices trained through Voice Studio only); a raw model load needs a free GPU.
-  if (id ? scope.voiceNames.some((name) => buildVoiceProfileId(name) === id) : scope.allVoices) return { refusal: null, ownerKey };
+  // Super users may use any voice (Quality check > Test any voice, incl. voices
+  // whose Studio record was deleted in Clean up); a lecturer only the voice
+  // Voice Studio lists for them now.
+  if (scope.allVoices || (id && scope.voiceNames.some((name) => buildVoiceProfileId(name) === id))) return { refusal: null, ownerKey };
   return { refusal: { status: 403, message: scope.superuser ? STUDIO_GPU_RESERVED : STUDIO_VOICE_NOT_NOW }, ownerKey };
 }
 

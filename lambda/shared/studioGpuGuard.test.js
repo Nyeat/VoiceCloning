@@ -14,6 +14,8 @@ test('non-studio callers are never affected', async () => {
 test('super user: any voice when free, refused while a slot holds the GPU', async () => {
   const identity = { email: 'boss@ntu.edu.sg', studio: true };
   assert.equal(await studioGpuRefusal({ identity, voiceProfileId: 'anyone-v1', studioScope: scopeOf({ superuser: true, allVoices: true, voiceNames: ['anyone'] }) }), null);
+  // A voice with no Studio record (trained elsewhere, or deleted in Clean up) is still testable.
+  assert.equal(await studioGpuRefusal({ identity, voiceProfileId: 'other-v1', studioScope: scopeOf({ superuser: true, allVoices: true, voiceNames: [] }) }), null);
   const held = await studioGpuRefusal({ identity, voiceProfileId: 'anyone-v1', studioScope: scopeOf({ superuser: true, allVoices: false, voiceNames: [] }) });
   assert.deepEqual(held, { status: 403, message: STUDIO_GPU_RESERVED });
 });
