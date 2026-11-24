@@ -180,7 +180,7 @@ audio {
    page horizontally, and form fields are 16px on phones so iOS does not zoom
    in when one is focused. */
 .vs-root {
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere; /* unlike break-word, also lets squeezed boxes shrink (owner 2026-11-24) */
   overflow-x: clip;
   -webkit-text-size-adjust: 100%;
 }

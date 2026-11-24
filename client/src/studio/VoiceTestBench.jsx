@@ -86,7 +86,8 @@ function useVoiceReady(voiceName) {
         }
         setState((current) => ({ ...current, status: current.status === 'ready' ? 'ready' : 'starting', error: message }));
       }
-      timer = window.setTimeout(check, 10_000);
+      // Starting: ask often so the popup shows the real state quickly (owner 2026-11-24).
+      timer = window.setTimeout(check, 4_000);
     }
     setState({ status: 'checking', capacity: null, error: '' });
     check();
@@ -104,9 +105,26 @@ const SWITCH_MINUTES = 2;
 // reopening and reloads, so it never restarts at 0s.
 function useVoiceWait(voiceName, gpu) {
   const previous = useRef(null);
-  const wait = gpu.status === 'starting' && gpu.capacity
-    ? voiceCapacityWait(gpu.capacity, previous.current, voiceName)
-    : null;
+  // Owner 2026-11-24: show the popup at once, not only after the first answer
+  // (which can take several seconds on a cold voice). A voice that is already
+  // warm answers within a second, so it gets no flash of popup.
+  const [checkingSince, setCheckingSince] = useState(0);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (gpu.status !== 'checking') { setSlow(false); return undefined; }
+    setCheckingSince(Date.now());
+    const id = window.setTimeout(() => setSlow(true), 1_000);
+    return () => window.clearTimeout(id);
+  }, [gpu.status, voiceName]);
+  let wait = null;
+  if (gpu.status === 'starting' && gpu.capacity) wait = voiceCapacityWait(gpu.capacity, previous.current, voiceName);
+  else if (gpu.status === 'checking' && slow && voiceName) {
+    // Same voiceId as the answer that follows, so it carries on as one wait.
+    wait = previous.current?.voiceId === voiceName ? previous.current : {
+      voiceId: voiceName, state: 'CHECKING', estimateSeconds: 60, maxSeconds: 900,
+      startedAt: checkingSince || Date.now(), key: `${voiceName}:checking:${checkingSince}`,
+    };
+  }
   useEffect(() => { previous.current = wait; });
   return wait;
 }
