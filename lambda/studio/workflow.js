@@ -1092,8 +1092,10 @@ export function upcomingSlotFor(state, email, now, kind = 'test') {
  * the admin view lists only upcoming slots, so an ended slot would otherwise look
  * like "no slot". { id, start, end, status, finishedAt } or null.
  */
-export function latestTestSlotFor(state, email) {
-  const mine = state.slots.filter((slot) => slot.status !== 'cancelled' && slotKind(slot) === 'test' && sameNtuPerson(slot.assigneeEmail, email));
+export function latestTestSlotFor(state, email, since = '') {
+  // since: a set's createdAt, so a test slot from an earlier run (before a reset) is not this set's.
+  const mine = state.slots.filter((slot) => slot.status !== 'cancelled' && slotKind(slot) === 'test' && sameNtuPerson(slot.assigneeEmail, email)
+    && (!since || slotEnd(slot) > ms(since)));
   const latest = mine.reduce((best, slot) => (!best || ms(slot.start) > ms(best.start) ? slot : best), null);
   return latest ? { id: latest.id, start: latest.start, end: iso(slotEnd(latest)), status: latest.status } : null;
 }
@@ -1177,8 +1179,25 @@ export function withdrawPerson(state, email, now) {
   return { withdrawn, slotsRemoved };
 }
 
-export function hasSubmittedVoice(state, email) {
-  return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && !['uploading', 'cancelled'].includes(job.status));
+/**
+ * Reset a person whose run is finished (owner 2026-11-24): one full run is one
+ * voice, so this starts a new run for another voice. Nothing is withdrawn: their
+ * finished voices stay testable from Quality check. Their recording page opens
+ * again and their page no longer shows the old run.
+ */
+export function resetPerson(state, email) {
+  const mine = state.jobs.filter((job) => sameNtuPerson(job.ownerEmail, email) && job.status !== 'cancelled' && !job.recordingReopened);
+  if (!mine.length) throw clientError(409, 'Nothing to reset: they can already record');
+  if (mine.some((job) => !['approved', 'scheduled'].includes(job.status))) {
+    throw clientError(409, 'Their voice is still on its way (not approved yet); withdraw it instead');
+  }
+  for (const job of mine) job.recordingReopened = true;
+  return { reset: mine };
+}
+
+export function hasSubmittedVoice(state, email, exceptId = '') {
+  // A reset run no longer counts: they may send a new set for another voice.
+  return state.jobs.some((job) => job.id !== exceptId && sameNtuPerson(job.ownerEmail, email) && !['uploading', 'cancelled'].includes(job.status) && !job.recordingReopened);
 }
 
 // Emails before a booked session. Recording: the day before, then on the

@@ -98,3 +98,10 @@ test('stopForPath maps console routes to stops', () => {
   assert.equal(stopForPath('/record'), 'record');
   assert.equal(stopForPath('/'), '');
 });
+
+test('a person reset after a finished run is back at recording, without an alert', () => {
+  const job = { id: 'j', ownerEmail: 'a@x', status: 'approved', createdAt: '2026-11-20T00:00:00Z', recordingReopened: true, feedback: [] };
+  const position = positionOf({ jobs: [job], recordingSlots: [], testSlots: [], now: Date.parse('2026-11-24T00:00:00Z') });
+  assert.equal(position.stop, 'record');
+  assert.equal(position.alert, false);
+});

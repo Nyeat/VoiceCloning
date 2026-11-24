@@ -469,7 +469,8 @@ export function createHandler({
     const superuser = superuserOf(state, email, passwordAccount);
     const estimates = new Map(wf.estimateQueue(state, { now, env }).map((entry) => [entry.jobId, entry]));
     const jobs = state.jobs
-      .filter((job) => (wf.sameNtuPerson(job.ownerEmail, email) || (job.submittedBy && wf.sameNtuPerson(job.submittedBy, email))) && job.status !== 'cancelled')
+      // A reset run (recordingReopened) is over for them: their page starts fresh.
+      .filter((job) => (wf.sameNtuPerson(job.ownerEmail, email) || (job.submittedBy && wf.sameNtuPerson(job.submittedBy, email))) && job.status !== 'cancelled' && !job.recordingReopened)
       .map((job) => wf.lecturerJob(job, estimates.get(job.id)))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return {
@@ -515,7 +516,7 @@ export function createHandler({
     return {
       jobs: state.jobs
         .filter((job) => job.status !== 'uploading' || now - Date.parse(job.createdAt) < 24 * 3600_000)
-        .map((job) => ({ ...wf.publicJob(job, estimates.get(job.id)), testSlot: wf.latestTestSlotFor(state, job.ownerEmail) }))
+        .map((job) => ({ ...wf.publicJob(job, estimates.get(job.id)), testSlot: wf.latestTestSlotFor(state, job.ownerEmail, job.createdAt) }))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
       queue: wf.orderQueue(state.jobs).map((job) => job.id),
       slots: state.slots
@@ -621,6 +622,11 @@ export function createHandler({
           if (!superuser && wf.hasSubmittedVoice(state, email)) {
             throw wf.clientError(409, 'Your recordings are already submitted. We email you as your voice moves along.');
           }
+          // One voice, one run per person (owner 2026-11-24): a super user cannot start a
+          // second voice for someone whose run is not finished and reset.
+          if (forEmail && wf.hasSubmittedVoice(state, owner)) {
+            throw wf.clientError(409, `${body.forName || owner} already has a voice on the line. When it is finished, Reset them for another voice (or Withdraw it).`);
+          }
           const open = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, owner) && ['uploading', 'queued'].includes(job.status));
           if (open.length >= 5) throw wf.clientError(429, `${forEmail || 'You'} already ${forEmail ? 'has' : 'have'} 5 recording sets waiting. Please wait for them to train.`);
           const expName = nextVoiceName(owner, await service.takenVoiceNames(state), STUDIO_IDENTITY);
@@ -678,7 +684,13 @@ export function createHandler({
         }
         if (files.length === 0) throw wf.clientError(400, 'None of the files reached storage; please upload again');
         await updateState(store, (state) => {
-          wf.submitJob(ownJob(state, parts[1], email), { files, now });
+          const sending = ownJob(state, parts[1], email);
+          // Two sets started side by side: only one may go on the line (a super user's own reference sets are exempt).
+          const ownReference = superuserOf(state, email, passwordAccount) && !sending.submittedBy;
+          if (!ownReference && wf.hasSubmittedVoice(state, sending.ownerEmail, sending.id)) {
+            throw wf.clientError(409, 'This person already has a voice on the line. When it is finished, Reset them for another voice (or Withdraw it).');
+          }
+          wf.submitJob(sending, { files, now });
           return null;
         });
         await service.tick({ force: true }).catch((error) => console.warn('[studio] tick after submit failed', error.message));
@@ -960,15 +972,32 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
+        // Reset a finished person so they can record another voice (nothing withdrawn).
+        if (route === 'POST admin/jobs/:id/reset-person') {
+          const { result } = await updateState(store, (state) => {
+            const job = wf.findJob(state, parts[2]);
+            if (!job) throw wf.clientError(404, 'Job not found');
+            const { reset } = wf.resetPerson(state, job.ownerEmail);
+            for (const item of reset) wf.logCleanup(state, { actor: email, action: 'reset', job: item, from: item.status, note: 'new run for another voice', now });
+            return { jobId: job.id };
+          });
+          if (body.email === true) {
+            const job = wf.findJob((await store.read()).state, result.jobId);
+            await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env, reset: true }));
+          }
+          return ok(await adminView((await store.read()).state, email), {}, event);
+        }
+
         if (route === 'POST admin/jobs/:id/request-recordings') {
           const { result } = await updateState(store, (state) => {
             const job = wf.findJob(state, parts[2]);
             if (!job) throw wf.clientError(404, 'Job not found');
             if (!['review', 'failed'].includes(job.status)) throw wf.clientError(409, 'Only a voice in review or a failed run can be sent back');
             job.reviews.push({ attempt: job.attempt, expName: job.expName, decision: 'new-recordings', reasons: [], notes: String(body.notes || '').slice(0, 1000), reviewer: email, at: new Date(now).toISOString() });
-            wf.cancelJob(job);
-            // They were asked to record again, so the recording page opens again.
-            job.recordingReopened = true;
+            // Recording again is a withdraw (owner 2026-11-24): sets and test slots go, recording page opens.
+            const { withdrawn, slotsRemoved } = wf.withdrawPerson(state, job.ownerEmail, now);
+            const note = ['asked for new recordings', slotsRemoved && `${slotsRemoved} test slot${slotsRemoved === 1 ? '' : 's'} cancelled`].filter(Boolean).join('; ');
+            for (const entry of withdrawn) wf.logCleanup(state, { actor: email, action: 'withdrawn', job: entry.job, from: entry.from, note, now });
             return { jobId: job.id };
           });
           const { state } = await store.read();

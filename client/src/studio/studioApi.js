@@ -89,6 +89,7 @@ export const recordTestActivity = () => api.post('/studio/admin/test-activity', 
 export const recordVoiceActivity = (voiceName) => api.post(`/studio/voices/${enc(voiceName)}/activity`, {}).then((res) => res.data);
 export const sendTestEmail = () => api.post('/studio/admin/test-email', {}).then((res) => res.data);
 export const deleteJob = (jobId) => api.delete(`/studio/admin/jobs/${enc(jobId)}`).then((res) => res.data);
+export const resetPerson = (jobId, { email = false, notes = '' } = {}) => api.post(`/studio/admin/jobs/${enc(jobId)}/reset-person`, { email, notes }).then((res) => res.data);
 export const requestRecordings = (jobId, notes) => api.post(`/studio/admin/jobs/${enc(jobId)}/request-recordings`, { notes }).then((res) => res.data);
 export const addSuperuser = (email, name) => api.post('/studio/admin/superusers', { email, name }).then((res) => res.data);
 export const renameSuperuser = (email, name) => api.put(`/studio/admin/superusers/${enc(email)}`, { name }).then((res) => res.data);

@@ -494,3 +494,24 @@ test('withdraw takes the voice off the line and its test slots, keeps recording 
   busy.status = 'training';
   assert.throws(() => wf.withdrawPerson(state, 'b@ntu.edu.sg', T0), /Training is running/u);
 });
+
+test('reset a finished person: nothing withdrawn, recording opens, a new set is allowed, old test slot is not the new set\'s', () => {
+  const state = wf.emptyState();
+  const done = job(state, 'a1', 'a@ntu.edu.sg', 0);
+  done.status = 'approved';
+  done.approvedExpName = 'a1-voice';
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  wf.addSlot(state, { id: 't1', kind: 'test', start: at(60), end: at(120), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  assert.equal(wf.hasSubmittedVoice(state, 'a@ntu.edu.sg'), true);
+  const { reset } = wf.resetPerson(state, 'a@ntu.edu.sg');
+  assert.equal(reset.length, 1);
+  assert.equal(done.status, 'approved', 'not withdrawn');
+  assert.equal(state.slots[0].status, 'draft', 'slots untouched');
+  assert.equal(wf.hasSubmittedVoice(state, 'a@ntu.edu.sg'), false);
+  assert.equal(wf.recordingAccess(state, { email: 'a@ntu.edu.sg', now: T0 + 200 * MIN, superuser: false }).reason, 'open');
+  assert.throws(() => wf.resetPerson(state, 'a@ntu.edu.sg'), /Nothing to reset/u);
+  assert.equal(wf.latestTestSlotFor(state, 'a@ntu.edu.sg', at(200)), null, 'earlier run\'s slot is not the new set\'s');
+  const busy = job(state, 'b1', 'b@ntu.edu.sg', 0);
+  busy.status = 'review';
+  assert.throws(() => wf.resetPerson(state, 'b@ntu.edu.sg'), /withdraw it instead/u);
+});

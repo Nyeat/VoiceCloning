@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { cancelJob, deleteJob, formatSgt } from './studioApi.js';
 import { Button, Card, StatusPill } from './StudioChrome.jsx';
 
-const ACTION_COPY = { deleted: 'Deleted', withdrawn: 'Withdrew', restored: 'Restored' };
+const ACTION_COPY = { deleted: 'Deleted', withdrawn: 'Withdrew', restored: 'Restored', reset: 'Reset for a new voice' };
 
 export function CleanUp({ overview, onAction }) {
   const [filter, setFilter] = useState('stale');

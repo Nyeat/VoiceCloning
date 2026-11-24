@@ -515,6 +515,35 @@ test('a super user can upload for someone: the voice is theirs to follow and tes
   assert.ok(h.sent.some((m) => m.to.includes(lee)), 'and is emailed the receipt');
 });
 
+test('one voice, one run: no second voice for someone until their run is reset', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const lee = 'lee@gmail.com';
+  const send = async () => {
+    const created = await h.call(boss, 'POST', 'submissions', { label: 'Lee voice', forEmail: lee, forName: 'Dr Lee' });
+    if (created.status !== 200) return created;
+    const presigned = await h.call(boss, 'POST', `submissions/${created.body.jobId}/presign`, { files: [{ name: 'a.wav', type: 'audio/wav' }] });
+    return h.call(boss, 'POST', `submissions/${created.body.jobId}/submit`, { keys: presigned.body.uploads.map((u) => u.key) });
+  };
+  assert.equal((await send()).status, 200);
+  const blocked = await send();
+  assert.equal(blocked.status, 409, 'second voice while the first is on the line');
+  assert.match(blocked.body.error || JSON.stringify(blocked.body), /already has a voice/u);
+  const { updateState } = await import('./store.js');
+  let firstId = '';
+  await updateState(h.store, (state) => {
+    const first = state.jobs.find((job) => job.ownerEmail === lee);
+    first.status = 'approved';
+    first.approvedExpName = first.expName;
+    firstId = first.id;
+    return null;
+  });
+  assert.equal((await h.call(boss, 'POST', `admin/jobs/${firstId}/reset-person`, {})).status, 200, 'reset the finished run');
+  assert.equal((await h.call(lee, 'GET', 'me')).body.jobs.length, 0, 'their page starts fresh');
+  assert.equal((await h.call(lee, 'GET', 'me')).body.recording.allowed, true, 'and can record again');
+  assert.equal((await send()).status, 200, 'a new voice after the reset');
+});
+
 test('sessions and test slots that are over are not sent to the console', async () => {
   const h = harness();
   const boss = 'boss@ntu.edu.sg';

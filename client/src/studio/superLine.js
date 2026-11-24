@@ -88,6 +88,8 @@ export function positionOf({ jobs, recordingSlots, testSlots, now }) {
     return { stop: 'record', alert: true, note: 'Recorded · upload audio', at: null, href: '/recording' };
   }
   if (!job) return null;
+  // Reset after a finished run: back at the start, free to record another voice.
+  if (job.recordingReopened) return { stop: 'record', alert: false, note: 'Reset · can record a new voice', at: null, href: '/recording' };
   const review = `/review/${encodeURIComponent(job.id)}`;
   switch (job.status) {
     case 'uploading':

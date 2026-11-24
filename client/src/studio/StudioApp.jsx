@@ -29,7 +29,7 @@ import {
 } from './slotCalendar.js';
 import {
   addSlot, addSuperuser, cancelJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
-  googleSignIn, publishSlots, relativeFromNow, removeSuperuser, renameSuperuser, retryJob, reviewJob,
+  googleSignIn, publishSlots, relativeFromNow, removeSuperuser, renameSuperuser, resetPerson, retryJob, reviewJob,
   sendFeedback,
 } from './studioApi.js';
 import {
@@ -186,6 +186,7 @@ function JobDetail({ overview, onAction, line }) {
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [withdrawEmail, setWithdrawEmail] = useState(false);
   const [withdrawNote, setWithdrawNote] = useState('');
+  const [confirmReset, setConfirmReset] = useState(false);
   const job = overview.jobs.find((item) => item.id === jobId);
   if (!job) return <Notice tone="warn">That recording set was not found. <button type="button" className="underline" onClick={() => navigate('/quality')}>Back</button></Notice>;
   const voices = trainedVoices(job);
@@ -201,9 +202,26 @@ function JobDetail({ overview, onAction, line }) {
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={job.status} />
           {job.status === 'failed' && <Button variant="dark" size="sm" onClick={() => onAction(() => retryJob(job.id))}><RefreshCw size={13} /> Retry training</Button>}
-          {!['training', 'cancelled'].includes(job.status) && !confirmWithdraw && <Button variant="ghost" size="sm" onClick={() => setConfirmWithdraw(true)}><X size={13} /> Withdraw</Button>}
+          {['approved', 'scheduled'].includes(job.status) && !job.recordingReopened && !confirmReset && <Button variant="outline" size="sm" onClick={() => { setConfirmReset(true); setConfirmWithdraw(false); }}><RefreshCw size={13} /> Reset for a new voice</Button>}
+          {!['training', 'cancelled'].includes(job.status) && !confirmWithdraw && <Button variant="ghost" size="sm" onClick={() => { setConfirmWithdraw(true); setConfirmReset(false); }}><X size={13} /> Withdraw</Button>}
         </div>
       </div>
+
+      {confirmReset && (
+        <Notice tone="info" className="space-y-2">
+          <p className="font-semibold [overflow-wrap:anywhere]">Reset {who(job)} for a new voice?</p>
+          <ul className="list-disc space-y-0.5 pl-5 text-sm">
+            <li>Nothing is withdrawn: this voice stays approved and testable in Quality check.</li>
+            <li>Their page starts fresh at recording, so they (or you, uploading for them) can start one new run.</li>
+          </ul>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={withdrawEmail} onChange={(event) => setWithdrawEmail(event.target.checked)} /> Email them to record again</label>
+          {withdrawEmail && <textarea className="w-full rounded-lg border border-slate-200 p-2 text-sm" rows={2} placeholder="Note for them (optional)" value={withdrawNote} onChange={(event) => setWithdrawNote(event.target.value)} />}
+          <div className="flex gap-2 pt-1">
+            <Button variant="dark" size="sm" onClick={() => { setConfirmReset(false); onAction(() => resetPerson(job.id, { email: withdrawEmail, notes: withdrawEmail ? withdrawNote : '' })); }}>Reset</Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmReset(false)}>Keep</Button>
+          </div>
+        </Notice>
+      )}
 
       {confirmWithdraw && (
         <Notice tone="warn" className="space-y-2">
