@@ -2954,3 +2954,8 @@
   live-fast builds. NOT deployed; not checked in a browser on a phone.
 - Same day: cdd5f9d (not deployed): the tester's 1 s placeholder popup no longer carries into the real wait, so the
   popup clock and a dismissal follow the coordinator's start time across reloads/reopened tabs again. Client 589/589.
+- Same day: cc0acf9 (not deployed): line map showed "Approved · no slot" for a lecturer with a live test slot — it
+  relied on job status `scheduled`, which nothing sets any more. Position now follows the person's latest test slot
+  (admin overview jobs carry `testSlot` from `workflow.latestTestSlotFor`, ended slots included): draft -> stop 5 "Slot
+  drafted · publish it"; published -> stop 6 "Test slot"/"Testing now"/"Slot over · no feedback yet"; feedback -> done.
+  Lambda 466/466, client 590/590, studio build. Needs a Lambda + studio deploy.

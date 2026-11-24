@@ -3,7 +3,7 @@
 - [ ] Slide-text cleanup (2026-11-24, deployed): paste a real slide into the TTS page + studio tester and listen.
 - [ ] Lecturer one-time recording page (2026-11-24, deployed): live-test as a lecturer: send a set -> status page only; retrain ->
   "Retraining"; feedback -> "session finished"; withdraw all -> "withdrawn"; new booked session reopens recording.
-- [ ] Deploy 4382300 (studio site only) and check on a phone: long names/emails wrap, GPU popup shows within ~1 s.
+- [ ] Deploy cc0acf9 (Lambda + studio site; includes 4382300/cdd5f9d) and check on a phone: long names/emails wrap, GPU popup shows within ~1 s.
 - [ ] Live GPU check (staging): slot warms 30 min before; a GPU switching off -> new one starts at once with the popup.
 - [ ] Email is DOWN (tested 2026-11-24 15:08 SGT, staging): SES AccessDenied for Liu_Teng_Yu_Intern2026-LambdaExecutionRole
   (needs admin: ses:SendEmail + ses:SendRawEmail on arn:aws:ses:us-east-1:329599637774:identity/*), and the O365
