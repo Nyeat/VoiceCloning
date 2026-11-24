@@ -2938,3 +2938,9 @@
   Studio record was deleted in Clean up: it listed only voices on Studio records. Super users now get every trained
   voice (`voice-profile` scope=studio adds all trained names when allVoices; `studioGpuGuard` allows any voice id for
   allVoices). Lambda 464/464.
+- Same day: 753576b DEPLOYED dev + staging (Lambdas, studio, live-fast). f209d3a reverted (owner: Test any voice lists
+  only voices trained on Voice Studio). Deleting a record in Clean up keeps its trained voices testable
+  (`state.keptVoices`, `workflow.studioTrainedVoices`); records deleted before this (e.g. "man") lost their entry.
+  A test slot added/moved/published inside its 20 min warm-up starts warming at once (`warmNow`, forced tick only
+  when a GPU hold has no warm state yet), not at the next 5-min idle-check. GPU wait popup (all sites) is now one
+  line: "Getting resources ready", time left, OK. Lambda 464/464, client 589/589, both builds.
