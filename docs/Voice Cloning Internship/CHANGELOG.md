@@ -2987,3 +2987,6 @@
   every live set is approved. One run per person: upload-for (`forEmail`) and submit refuse a second voice while one
   is on the line (super users' own reference sets exempt). `latestTestSlotFor(..., since=createdAt)` so an earlier
   run's slot is not the new set's. Lambda 469/469 (+2), client 592/592 (+1), studio build. Not checked in a browser.
+- Same day: 7ba19c3 DEPLOYED dev + staging (Lambdas, studio). Reset only when nothing of theirs is on the line: every live
+  set approved AND tested (testingClosedAt); button shows only then. Clean up: "Clear log" (confirm) ->
+  `DELETE admin/cleanup-log` empties `state.cleanupLog` (super users only). Lambda 469/469, client 592/592, studio build.

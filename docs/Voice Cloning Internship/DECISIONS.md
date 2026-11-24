@@ -399,4 +399,4 @@ These live in runtime configuration and will not appear in any branch diff:
   time, and only the host (first to mark the time) confirms or hands on a booking on it.
 - 2026-11-24 (owner): one full run = one voice per person. Withdraw (and "ask for new recordings") takes that voice
   off the line (sets, training, QC, test slots) and reopens recording; recording sessions stay; no Restore. Reset
-  (finished run only) starts a new run for another voice without withdrawing. No second voice while one is on the line.
+  (finished run only: approved and tested) starts a new run for another voice without withdrawing. No second voice while one is on the line.
