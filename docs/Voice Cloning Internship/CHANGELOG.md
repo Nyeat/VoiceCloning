@@ -2952,3 +2952,5 @@
   rows and table cells shrink instead of squeezing/overflowing); the tester's GPU popup shows after 1 s of checking
   (not after the first coordinator answer) and polls every 4 s while starting (was 10 s). Client 589/589, studio and
   live-fast builds. NOT deployed; not checked in a browser on a phone.
+- Same day: cdd5f9d (not deployed): the tester's 1 s placeholder popup no longer carries into the real wait, so the
+  popup clock and a dismissal follow the coordinator's start time across reloads/reopened tabs again. Client 589/589.
