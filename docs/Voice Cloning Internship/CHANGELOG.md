@@ -2959,3 +2959,7 @@
   (admin overview jobs carry `testSlot` from `workflow.latestTestSlotFor`, ended slots included): draft -> stop 5 "Slot
   drafted · publish it"; published -> stop 6 "Test slot"/"Testing now"/"Slot over · no feedback yet"; feedback -> done.
   Lambda 466/466, client 590/590, studio build. Needs a Lambda + studio deploy.
+- Same day: 6d039c8 DEPLOYED dev + staging (Lambdas, studio; also ships 4382300, cdd5f9d, cc0acf9). A test slot the
+  lecturer finished early (completedAt) no longer blocks a new slot in its remaining time (assertNoClash uses
+  slotEnd); a new test slot reopens testing after feedback (`workflow.reopenTesting`: clears testingClosedAt, sets
+  testingReopenedAt; line map follows the new slot). Clash message in SGT. Lambda 467/467, client 591/591.
