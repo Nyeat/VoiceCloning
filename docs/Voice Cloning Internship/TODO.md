@@ -1,5 +1,10 @@
 # Active TODO
 
+- [ ] Live-test the broken-voice path (28eca7d): book a slot for a voice that cannot speak -> after 2 failures the
+  slot shows "Voice not loaded" (super user) / "reported to the team" (lecturer), GPU released, one admin email, banner.
+  Nathanael: switch his approved voice to cs-nathanael-ng_4 (works) or have him re-record (>= 10 min) and retrain.
+- [ ] Worker (next AMI): boot warm-up should report a failed claimed voice instead of exit 1 (no restart loop, no
+  Dean fallback on a studio GPU), and log GPT-SoVITS's 400 reason.
 - [ ] Slide-text cleanup (2026-11-24, deployed): paste a real slide into the TTS page + studio tester and listen.
 - [ ] Lecturer one-time recording page (2026-11-24, deployed): live-test as a lecturer: send a set -> status page only; retrain ->
   "Retraining" + retrain email; feedback -> "session finished"; Withdraw -> recording page again (sessions kept);

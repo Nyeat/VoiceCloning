@@ -3048,3 +3048,21 @@
   After merge: Lambda 488/488, client 604/604, gpu-worker 41/41, studio build. EMAIL_FROM read back after deploy:
   no-reply@lkcmedicine.org, provider ses, both envs. gpu-worker changes (knownTextLabels) were NOT redeployed by me.
   Not checked in a browser.
+
+- Same day (night): 28eca7d DEPLOYED dev + staging (Lambdas + coordinators via deploy-lambda.ps1; studio + training
+  clients via deploy-client.ps1). Incident 19:00-21:00 SGT: cs-nathanael-ng_6 (trained on one 29 s sample) loads but
+  every synthesis 400s in GPT-SoVITS; his slot "warmed" for an hour: boot warm-up exit 1 -> systemd restart loop ->
+  ELB kill -> ASG replacement -> 5 s reassign retries ("tts failed" x hundreds) -> scale-in killed the replacement ->
+  coordinator scaled a 2nd GPU while his first was booting. Fix (lambda/model-coordinator, shared/modelCoordinator.js,
+  shared/voiceFailureDiagnosis.js, studio/*, client voiceCapacity + studio pages):
+  every site: 2 synthesis failures (boot re-claim or switch) mark the voice VOICE_FAILED (DynamoDB VOICEFAIL, 7 d) -> no
+  GPU started/switched/retried; prepare/peek/synthesize answer VOICE_FAILED + root cause (training-quality-report length,
+  "too short: re-record" under 10 min). Studio people (reserved:studio-p-): own GPU only, never another's idle GPU,
+  never a 2nd while theirs is alive; ASG replacement becomes theirs, dead reservations dropped; reserved GPUs exempt
+  from idle scale-in; release also removes a still-booting GPU. Slot warm-up stops on VOICE_FAILED, GPU released,
+  super users emailed once, console banner; lecturer sees "reported to the team". Withdraw / reset / new-recordings
+  release the GPU. Submitting needs >= 10 min audio (page + server). Tests: coordinator 97/97, Lambda 503/503, client
+  605/605, studio build; live: both coordinators answer voice-failures, live studio bundle has the new screens.
+  NOT tested live with a real broken voice. Not changed: worker/AMI (boot script still exits 1 once; coordinator now
+  stops it on the 2nd claim and the GPU falls back to Dean before the studio releases it), live-fast/gi/chatbot/mc
+  clients (they get the 422 VOICE_FAILED error text but not the new notice).

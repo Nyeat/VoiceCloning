@@ -1,5 +1,8 @@
 # Bugs
 
+- Fixed 2026-11-25 (28eca7d deployed): a voice that cannot speak looped GPUs for an hour (boot restart loop, health
+  kills, 5 s reassign retries, scale-in of the replacement, a 2nd GPU for one person). Now marked VOICE_FAILED after 2
+  failures and reported. Root GPT-SoVITS 400 text for cs-nathanael-ng_6 not captured (only "tts failed").
 - Fixed 2026-11-23: Voice Studio delete (recording sessions, test slots, super users, pronunciations) silently failed —
   CloudFront's SigV4 Lambda origin answers 403 "signature does not match" to any DELETE with a body (POST/PUT fine).
   studioApi.js now sends DELETE without a body; the pronunciation word goes in the query string.

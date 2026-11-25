@@ -25,6 +25,9 @@ Last updated: 2026-11-23
 - 11-25 a47877a DEPLOYED dev+staging (Lambdas + studio): published test slot edits held until Publish (`slot.pending`, Discard),
   email from no-reply@lkcmedicine.org via SES (Gmail ok; NTU mailboxes get nothing: needs NTU IT), teammate's Part 2
   specialty terms merged in (CHANGELOG 11-25).
+- 11-25 night 28eca7d DEPLOYED dev+staging (Lambdas, coordinators, studio + training clients): broken voices marked
+  VOICE_FAILED after 2 failures (no GPU loops, root cause shown, admins emailed), studio one-person-one-GPU hard rule,
+  replacement GPU adoption, withdraw releases GPU, >= 10 min audio to submit (CHANGELOG 11-25). Next: live-test it; fix Nathanael's voice.
 - One tree: Dev `separate-containers-new` = Staging `codex/staging-multi-user-scaling` (same commit); runtime
   config owns the differences (Staging hides advanced settings, Dev does not autoscale, Dev has no Faculty).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected
