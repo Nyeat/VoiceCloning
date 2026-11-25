@@ -22,6 +22,9 @@ Last updated: 2026-11-23
   11-23 later (32f6e35, DEPLOYED dev+staging 17:25 SGT): Staff availability (override + taken/free-again emails, hand-off, undo), Upload for anyone, Delete stale uploads, 12 dummies re-seeded. Staging again has open recording.
   Dev has all; STAGING was overwritten 16:33 SGT by a teammate's unpushed tree ("To record" list) -> his work merged in 5acac14; redeploy staging next. Email needs the LKC mailbox (TODO).
 - 11-24 6d039c8 DEPLOYED dev+staging: account-based availability, one-time recording page, QC test tab, slide-text cleanup, Tools > Clean up, GPU warm-up 30 min, slot moves warm at once, line map follows real test slots, retest after feedback, email via SES (blocked: needs admin; CHANGELOG 11-24). Withdraw = person's voice (sets, test slots; recording sessions stay), no Restore (66cb319 DEPLOYED); Reset for a new voice + one run per person + re-record = withdraw (68dce37 DEPLOYED); Reset only after approved+tested, Clear log (7ba19c3 DEPLOYED); sessions = staff + emails only, Reset in Clean up, retrain email (429476c + ac981d3 DEPLOYED, CHANGELOG 11-24).
+- 11-25 a47877a DEPLOYED dev+staging (Lambdas + studio): published test slot edits held until Publish (`slot.pending`, Discard),
+  email from no-reply@lkcmedicine.org via SES (Gmail ok; NTU mailboxes get nothing: needs NTU IT), teammate's Part 2
+  specialty terms merged in (CHANGELOG 11-25).
 - One tree: Dev `separate-containers-new` = Staging `codex/staging-multi-user-scaling` (same commit); runtime
   config owns the differences (Staging hides advanced settings, Dev does not autoscale, Dev has no Faculty).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected

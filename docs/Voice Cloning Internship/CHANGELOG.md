@@ -3042,3 +3042,9 @@
   (DKIM-verified domain; no mailbox needed, replies go nowhere). Live Lambdas NOT yet updated (pasted AWS keys expired).
 - Same day: EMAIL_FROM no-reply@lkcmedicine.org now LIVE on dev + staging Lambdas (env-only update, var counts unchanged
   49/62; old env snapshotted in scratchpad). Code 62b2880 (held slot edits) still NOT deployed.
+- Same day: a47877a DEPLOYED dev + staging (Lambdas via deploy-lambda.ps1, studio client via deploy-client.ps1 -Mode studio).
+  a47877a = merge of origin/separate-containers-new (teammate's 27806c7/d42f6e0 Part 2 specialty terms, already live) into
+  this branch, so the deploy kept their work; both branches at a47877a. Includes 62b2880 (held slot edits) + 5d16fe8.
+  After merge: Lambda 488/488, client 604/604, gpu-worker 41/41, studio build. EMAIL_FROM read back after deploy:
+  no-reply@lkcmedicine.org, provider ses, both envs. gpu-worker changes (knownTextLabels) were NOT redeployed by me.
+  Not checked in a browser.

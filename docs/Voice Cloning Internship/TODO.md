@@ -10,9 +10,11 @@
 - [ ] Owner to decide: keep a lecturer's GPU on ~10 min after a test slot ends, so a slot added right after does not
   cold-start (today it is released at the next 5-min check unless a slot already starts within 30 min).
 - [ ] Live GPU check (staging): slot warms 30 min before; a GPU switching off -> new one starts at once with the popup.
-- [ ] Email is DOWN (tested 2026-11-24 15:08 SGT, staging): SES AccessDenied for Liu_Teng_Yu_Intern2026-LambdaExecutionRole
-  (needs admin: ses:SendEmail + ses:SendRawEmail on arn:aws:ses:us-east-1:329599637774:identity/*), and the O365
-  fallback fails 535 5.7.139 "SmtpClientAuthentication is disabled for the Mailbox" (IT must enable SMTP AUTH on it).
+- [ ] Email (2026-11-25): sends via SES from "LKCMedicine Voice Studio" <no-reply@lkcmedicine.org> (DKIM-verified
+  domain; live on dev + staging, in .env.deployment*). Gmail gets it in the inbox. NTU mailboxes get NOTHING from SES
+  (QC emails to all 8 super users: Send 8-9, Delivery 2, Bounce 0; code already emails every super user). Needs NTU IT:
+  message trace/quarantine for amazonses.com mail, allow it. To send as lkc-digitallearning@ntu.edu.sg again, NTU IT must
+  also add SES DKIM CNAMEs for ntu.edu.sg (DMARC p=quarantine). Still to do: Super users > Send test email from Gmail.
 - [ ] Staff availability, account based (2026-11-24, b05c5ff deployed): live-test signed in as each of
   two super users: both free 3-4 (A first) -> book 3-4 -> A's column red, B hatched -> A confirms or hands to B ->
   Publish emails lecturer + the other; delete -> "free again" email. Old slots named non-super users ("s") stay.
@@ -20,9 +22,6 @@
   (origins https://d271zk8d8curic.cloudfront.net + https://d1zffrwq7b2rri.cloudfront.net), set VITE_GOOGLE_CLIENT_ID
   (client/env/*/studio.env) + STUDIO_GOOGLE_CLIENT_ID (lambda/.env.deployment*), redeploy studio client + Lambdas. Then live-test: book recording session ->
   reminders, two people in one 20-min test slot get two GPUs at -20 min, feedback releases the GPU.
-- [ ] Email (owner 2026-11-23: send from lkc-digitallearning@ntu.edu.sg, not Gmail): .env.deployment* now point at
-  smtp.office365.com:587 with that address. Admin must confirm SMTP AUTH is on for it and give its password; after the
-  redeploy the owner runs scripts/set-email-password.ps1 -Env staging / dev, then "Send me a test email".
 
 
 - [ ] Live test 7d1b06f: book a test slot ~25 min ahead; super user tests at the same time on a separate GPU (no lock,
@@ -301,5 +300,5 @@
 - [ ] Decide whether generated config sample WAVs should be uploaded and persisted, instead of only saving sample metadata.
 - [ ] Reconcile current deployment/source-of-truth docs now that older handoff files were renamed with `(Outdated)`.
 - [ ] Decide whether repo-managed deployment should also check in `gpu-worker.service` and `live-gateway.service`; only `systemd/gpu-inference-worker.service` is currently present in the repo.
-- [ ] Deploy + live-test held slot edits (2026-11-25): move a published test slot, Save -> lecturer page/GPU unchanged,
-  "Changes not published" shown; Publish -> "moved" email, warms for the new time; Discard -> back to published.
+- [ ] Live-test held slot edits (2026-11-25, a47877a DEPLOYED dev + staging): move a published test slot, Save -> lecturer
+  page/GPU unchanged, "Changes not published" shown; Publish -> "moved" email, warms for the new time; Discard -> back.
