@@ -196,12 +196,14 @@ export function sanitizeTrainingConfig(input) {
   return out;
 }
 
-export function createJob(state, { id, ownerEmail, ownerName = '', expName, label = '', consent = null, trainingConfig = null, now }) {
+export function createJob(state, { id, ownerEmail, ownerName = '', expName, label = '', specialty = '', consent = null, trainingConfig = null, now }) {
   const job = {
     id,
     ownerEmail: normalizeEmail(ownerEmail),
     ownerName: cleanText(ownerName, 80),
     label: cleanText(label, 80) || 'My voice',
+    // The clinical specialty they read terms for (Part 2), so reviewers know which words to check.
+    ...(cleanText(specialty, 120) ? { specialty: cleanText(specialty, 120) } : {}),
     ...(isFixtureEmail(ownerEmail) ? { fixture: true } : {}),
     expName,
     // What the lecturer agreed to on the recording portal, kept with the set.
@@ -1434,6 +1436,7 @@ export function lecturerJob(job, estimate) {
   return {
     id: job.id,
     label: job.label,
+    ...(job.specialty ? { specialty: job.specialty } : {}),
     // Set when a super user uploaded it for someone: who it is for.
     ...(job.submittedBy ? { forEmail: job.ownerEmail, forName: job.ownerName || '' } : {}),
     status: lecturerStatus(job.status),

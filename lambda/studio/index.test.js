@@ -14,7 +14,8 @@ const SESSION_KEYS = (() => {
 const T0 = Date.parse('2026-11-20T01:00:00Z');
 const MIN = 60_000;
 
-function harness({ realAuth = false, googleVerifier = null } = {}) {
+function harness({ realAuth = false, googleVerifier = null, callModel = undefined } = {}) {
+  const written = [];
   let now = T0;
   let ids = 0;
   const sent = [];
@@ -44,7 +45,8 @@ function harness({ realAuth = false, googleVerifier = null } = {}) {
     presign: async (key) => ({ url: `https://s3/${key}` }),
     head: async () => ({ size: 1000 }),
     readJson: async () => null,
-    writeJson: async () => {},
+    writeJson: async (key, value) => { written.push({ key, value }); },
+    ...(callModel ? { callModel } : {}),
     applyPronunciation: async () => ({ ready: true }),
     preloadVoice: async (name, ownerKey) => { preloaded.push(name); preloadedOwners.push(ownerKey); },
     releaseSlotGpu: async (ownerKey) => { released.push(ownerKey); },
@@ -66,7 +68,7 @@ function harness({ realAuth = false, googleVerifier = null } = {}) {
     return { status: res.statusCode, body: JSON.parse(res.body) };
   };
   return {
-    call, sent, started, store, trained, preloaded, preloadedOwners, released,
+    call, sent, started, store, trained, preloaded, preloadedOwners, released, written,
     advance: (minutes) => { now += minutes * MIN; },
     finishWorker: (expName, status = 'complete') => { worker = { status, expName }; if (status === 'complete') trained.add(expName); },
   };
@@ -576,4 +578,69 @@ test('sessions and test slots that are over are not sent to the console', async 
   assert.equal((await h.call(boss, 'GET', 'admin/overview')).body.slots.length, 1, 'running is shown');
   h.advance(45);
   assert.equal((await h.call(boss, 'GET', 'admin/overview')).body.slots.length, 0, 'over: gone');
+});
+
+test('Part 2: a submission saves the script read for each recording, for training to label with', async () => {
+  const h = harness();
+  const user = 'dana@ntu.edu.sg';
+  const created = await h.call(user, 'POST', 'submissions', { label: 'Dana', specialty: 'GI bleeding', consent: { accepted: true, version: 'test-1' } });
+  const id = created.body.jobId;
+  const presigned = await h.call(user, 'POST', `submissions/${id}/presign`, { files: [{ name: 'reading.wav', type: 'audio/wav' }, { name: 'terms.wav', type: 'audio/wav' }] });
+  const [reading, terms] = presigned.body.uploads.map((u) => u.key);
+  const submitted = await h.call(user, 'POST', `submissions/${id}/submit`, {
+    keys: [reading, terms],
+    sources: { [reading]: 'recorded', [terms]: 'recorded' },
+    knownText: { [terms]: 'Melaena means black, tarry stool.', 'training/datasets/other/raw/x.wav': 'Not this set.' },
+  });
+  assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
+  const saved = h.written.find((entry) => entry.key.endsWith('/known-text.json'));
+  assert.ok(saved, 'known text written beside the raw audio');
+  assert.match(saved.key, /^training\/datasets\/[^/]+\/known-text\.json$/u);
+  assert.deepEqual(saved.value.files, { 'terms.wav': 'Melaena means black, tarry stool.' });
+  assert.equal(saved.value.specialty, 'GI bleeding');
+  assert.equal(submitted.body.jobs[0].specialty, 'GI bleeding');
+});
+
+test('Part 2: a submission without known text writes no known-text file', async () => {
+  const h = harness();
+  await submit(h, 'erin@ntu.edu.sg', 'Erin');
+  assert.equal(h.written.filter((entry) => entry.key.endsWith('/known-text.json')).length, 0);
+});
+
+test('Part 2: term list and scenario routes call the AI with validated input', async () => {
+  const asked = [];
+  const callModel = async (messages) => {
+    asked.push(messages.at(-1).content);
+    return asked.length === 1
+      ? { terms: Array.from({ length: 50 }, (_, i) => `term ${i}`) }
+      : { title: 'Ward round', paragraphs: ['We discuss term 1 and term 2 together today on the ward.'] };
+  };
+  const h = harness({ callModel });
+  const list = await h.call('fay@ntu.edu.sg', 'POST', 'specialty/terms', { specialty: 'Cardiology', count: 50 });
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  assert.equal(list.body.terms.length, 50);
+  assert.match(asked[0], /Cardiology/u);
+  const scenario = await h.call('fay@ntu.edu.sg', 'POST', 'specialty/scenarios', { specialty: 'Cardiology', terms: ['term 1', 'term 2'] });
+  assert.equal(scenario.status, 200, JSON.stringify(scenario.body));
+  assert.equal(scenario.body.title, 'Ward round');
+  assert.equal((await h.call('fay@ntu.edu.sg', 'POST', 'specialty/terms', { specialty: 'Cardiology', count: 7 })).status, 400);
+});
+
+test('Part 2: generating without an OpenAI key says it is not set up', async () => {
+  const h = harness();
+  const res = await h.call('gus@ntu.edu.sg', 'POST', 'specialty/terms', { specialty: 'Cardiology', count: 50 });
+  assert.equal(res.status, 503);
+  assert.match(res.body.error, /OpenAI key/u);
+});
+
+test('Part 2: AI generation is refused once a person has submitted, and counted per day', async () => {
+  const callModel = async () => ({ terms: Array.from({ length: 50 }, (_, i) => `term ${i}`) });
+  const h = harness({ callModel });
+  const hana = 'hana@ntu.edu.sg';
+  assert.equal((await h.call(hana, 'POST', 'specialty/terms', { specialty: 'GI', count: 50 })).status, 200);
+  const { state } = await h.store.read();
+  assert.equal(state.aiUsage[hana].terms, 1, 'the call is counted');
+  await submit(h, hana, 'Hana');
+  const refused = await h.call(hana, 'POST', 'specialty/terms', { specialty: 'GI', count: 50 });
+  assert.equal(refused.status, 403);
 });

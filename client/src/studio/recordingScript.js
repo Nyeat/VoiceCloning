@@ -13,7 +13,7 @@ export const SCRIPT_TIPS = [
   'Record in a quiet room, about a hand-span from the microphone, and keep that distance.',
   'Pause briefly after every sentence. If you stumble, pause and read the whole sentence again.',
   'Follow the mood cue for each section — that is what lets your voice sound natural in every situation.',
-  'Record one section at a time; each becomes its own file. Take a break whenever you like.',
+  'Each part is one recording: turn the pages as you read, and press Pause whenever you need a break.',
 ];
 
 const NEUTRAL_CUE = { mood: 'Neutral', cue: 'Your normal, clear lecturing voice.' };

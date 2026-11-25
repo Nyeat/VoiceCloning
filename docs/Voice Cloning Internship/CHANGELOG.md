@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-11-25 — Recording Part 2: specialty medical terms + known-text labels (DEPLOYED dev + staging)
+
+- Same day ~10:50 SGT: DEPLOYED `d42f6e0` to dev + staging — main Lambdas + coordinators (deploy-lambda),
+  `OPENAI_API_KEY` merged onto both main functions (console-style, not in git), studio sites (deploy-client
+  -Mode studio). Live bundles contain the two-part UI; `POST /api/studio/specialty/terms` 401 unsigned on both.
+- Training worker: dev box pulled `separate-containers-new` to `d42f6e0` and restarted `gpu-worker` only
+  (healthz 200). Staging box NOT pulled (branch `codex/staging-multi-user-scaling` not moved): its
+  `pipeline.js` + new `knownTextLabels.js` were copied in (staging's file + only this diff, so its
+  `skipDenoise=false` default is kept); backup `/home/ubuntu/pipeline.js.bak-part2-20261125`; healthz 200.
+- Follow-up security fix `d42f6e0`: the AI routes need recording access and are capped per person per day
+  (10 term lists, 80 scenarios; 429 past that) — Voice Studio accepts any Google account.
+- Not yet tested: a signed-in Generate, and a real Part 2 recording through training.
+
+- Voice Studio recording tab is now two parts: Part 1 the standard script (unchanged), Part 2 the
+  medical terms of the lecturer's specialty. Terms come from AI generation (50 or 100), a pasted list
+  or an XLSX/CSV upload (column A term, B optional own sentence), are reviewed, then read inside short
+  AI-written clinical scenarios (connected 8–18-word sentences: sentence-sized clips, teaching prosody).
+- New Lambda routes `POST /api/studio/specialty/terms` and `/specialty/scenarios` (one small OpenAI call
+  each, inside the ~30 s limit). Needs `OPENAI_API_KEY` set on the live function; `specialty` is saved on the job.
+- Labelling fix: a Part 2 recording is submitted with the text read; Lambda writes
+  `training/datasets/<voice>/known-text.json`, and the training worker relabels that recording's clips
+  with the script (order-preserving, spelling-tolerant alignment to Whisper's words) before the quality
+  gate. Clips that do not match keep Whisper's text; Whisper's manifest is kept as `asr/asr-whisper.txt`.
+- Tests: Lambda 485, client 604, gpu-worker 41 pass; `vite build --mode studio` ok. Not run on real
+  audio or in a browser. Deploy needs: Lambda (+ key), training worker restart on EC2, `dist-studio`.
+
 ## 2026-10-22 — Unsigned staging TTS; lab playback (repo only, not deployed)
 
 - Staging Live Fast/TTS (`dfzrfr93t2ruf`) showed `Sign in to use the voice assistant`: staging Lambda

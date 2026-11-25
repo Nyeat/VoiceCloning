@@ -7,9 +7,9 @@ const enc = encodeURIComponent;
 export const getMe = () => api.get('/studio/me').then((res) => res.data);
 
 // consent: the record the lecturer accepted (super users send none).
-export async function createSubmission({ label, name, consent = null, trainingConfig = null, forPerson = null }) {
+export async function createSubmission({ label, name, specialty = '', consent = null, trainingConfig = null, forPerson = null }) {
   return (await api.post('/studio/submissions', {
-    label, name, ...(consent ? { consent } : {}), ...(trainingConfig ? { trainingConfig } : {}),
+    label, name, ...(specialty ? { specialty } : {}), ...(consent ? { consent } : {}), ...(trainingConfig ? { trainingConfig } : {}),
     ...(forPerson?.email ? { forEmail: forPerson.email, forName: forPerson.name || '' } : {}),
   })).data;
 }
@@ -46,9 +46,21 @@ export async function uploadAndSubmit(jobId, items, { onProgress } = {}) {
   await Promise.all([worker(), worker(), worker()]);
 
   const sources = {};
-  uploads.forEach((upload, index) => { sources[upload.key] = items[index].source; });
-  return (await api.post(`/studio/submissions/${enc(jobId)}/submit`, { keys: uploads.map((u) => u.key), sources })).data;
+  // Part 2 readings carry the text that was read; training labels their clips with it.
+  const knownText = {};
+  uploads.forEach((upload, index) => {
+    sources[upload.key] = items[index].source;
+    if (items[index].knownText) knownText[upload.key] = items[index].knownText;
+  });
+  return (await api.post(`/studio/submissions/${enc(jobId)}/submit`, {
+    keys: uploads.map((u) => u.key), sources, ...(Object.keys(knownText).length ? { knownText } : {}),
+  })).data;
 }
+
+// Part 2: an AI term list for a specialty (count 50 or 100), and one reading
+// scenario (≤12 terms) per call so each stays well inside the API time limit.
+export const generateSpecialtyTerms = ({ specialty, focus = '', count }) => api.post('/studio/specialty/terms', { specialty, focus, count }).then((res) => res.data.terms);
+export const writeSpecialtyScenario = ({ specialty, terms }) => api.post('/studio/specialty/scenarios', { specialty, terms }).then((res) => res.data);
 
 function putWithProgress(url, file, onLoaded) {
   return new Promise((resolve, reject) => {
