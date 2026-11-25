@@ -1,5 +1,7 @@
 # Bugs
 
+- Fixed in code 2026-11-25 (915ea21, NOT deployed): retraining a name reused its old sliced clips ("sliced audio already
+  exists"), ignoring new recordings (cs-nathanael-ng_5: 25-min WAV never sliced, quality gate failed on 3 old clips).
 - Fixed 2026-11-25 (28eca7d deployed): a voice that cannot speak looped GPUs for an hour (boot restart loop, health
   kills, 5 s reassign retries, scale-in of the replacement, a 2nd GPU for one person). Now marked VOICE_FAILED after 2
   failures and reported. Root GPT-SoVITS 400 text for cs-nathanael-ng_6 not captured (only "tts failed").

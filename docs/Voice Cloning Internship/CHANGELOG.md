@@ -3075,3 +3075,11 @@
   To deploy: deploy-lambda.ps1 staging+dev, deploy-client.ps1 all modes staging+dev.
 - Same day (owner reversal): one-test-slot-per-person rule removed and the next-slot GPU bridge restored (both as before
   3f05670). Lambda 505/505. Still NOT deployed (AWS keys expired).
+
+- Same day 21:53-22:10 SGT: DEPLOYED ff977cd (3f05670 + reversal) dev + staging: Lambdas + coordinators; clients studio,
+  training, live-fast, record (both), chatbot, chatbot-text, mc (staging). Not deployed: dev chatbot (build must run from
+  separate-containers-new; dev has no chatbot-text/mc). Fixed in code, NOT deployed: 915ea21 training worker never reuses
+  clips sliced from different recordings (raw-inputs.json stamp; raw folder rebuilt from S3) - cs-nathanael-ng_5 failed
+  "kept 1/3 clips" because the box still held 3 clips sliced from the earlier 2 short readings of that name and skipped
+  slicing his new 25-min WAV. gpu-worker 43/43. Deploy = deploy-worker.ps1 (restarts gpu-worker + inference + live
+  gateway on the fixed GPU), then Retry his set.
