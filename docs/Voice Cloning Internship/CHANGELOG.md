@@ -3090,3 +3090,7 @@
   /home/ubuntu/hand-edits-backup-20261125/ and reset; everything else was already in the branch. separate-containers-new
   fast-forwarded to fd19f0f (one tree). Dev fixed GPU i-03f258d470a2fa73f was stopped: its worker still needs
   deploy-worker.ps1 -Env dev when started. Next: Retry cs-nathanael-ng_5 in Voice Studio.
+
+- Same day 22:35 SGT: dev fixed GPU i-03f258d470a2fa73f started; worker deployed (separate-containers-new = d2cdb84; gpu-worker,
+  inference, live gateway healthy); dev chatbot client deployed from separate-containers-new. Everything is now deployed
+  on dev + staging at d2cdb84.
