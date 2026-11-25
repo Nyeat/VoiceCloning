@@ -69,7 +69,7 @@ async function defaultPreloadVoice(voiceName, ownerKey, ownerEmail = '') {
   return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey });
 }
 
-// A person's GPU once they are done (slot over, or
+// A person's GPU once they are done (slot over with none within the hour, or
 // feedback sent): released so it shuts down now rather than after the idle timer.
 async function defaultReleaseSlotGpu(ownerKey) {
   const { releaseCoordinatedOwner } = await import('../shared/modelCoordinator.js');
@@ -270,7 +270,7 @@ export function createStudioService({
     }
 
     // Each test slot holds a GPU of its person's own from 30 min before it to
-    // its end: ask for their voice on
+    // its end (and across a short gap to their next): ask for their voice on
     // every tick, and keep the warm-up state on the slot for everyone to see.
     // Several people in one slot each get their own GPU, warmed in parallel.
     const preloaded = [];

@@ -487,11 +487,7 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   assert.equal(refused.status, 400, 'no test slot without an approved voice');
   assert.equal(refused.body.code, 'VOICE_NOT_APPROVED');
   await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(45), end: at(65), assigneeEmail: 'amy@gmail.com' });
-  // One test slot per person (2026-11-25): Amy's second is refused; Ben gets his own.
-  const second = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'amy@gmail.com' });
-  assert.equal(second.status, 409);
-  assert.equal(second.body.code, 'ONE_TEST_SLOT');
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'ben@gmail.com' });
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'amy@gmail.com' });
   const slots = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
   assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { assigneeEmail: 'nobody@gmail.com' })).status, 400, 'nor handed to someone unapproved');
   // Amy chatting with her approved voice keeps the fixed GPU on; others cannot.

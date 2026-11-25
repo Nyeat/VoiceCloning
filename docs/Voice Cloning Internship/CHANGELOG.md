@@ -3073,3 +3073,5 @@
   one test slot per person (retest after it is over ok), next-slot GPU bridge removed; feedback form on the lecturer
   page after the test time if not sent. Tests: Lambda 505/505, coordinator 98/98, client 605/605, studio build.
   To deploy: deploy-lambda.ps1 staging+dev, deploy-client.ps1 all modes staging+dev.
+- Same day (owner reversal): one-test-slot-per-person rule removed and the next-slot GPU bridge restored (both as before
+  3f05670). Lambda 505/505. Still NOT deployed (AWS keys expired).
