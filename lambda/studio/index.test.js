@@ -734,3 +734,40 @@ test('a submission under 10 minutes of audio is refused', async () => {
   const missing = await h.call(user, 'POST', `submissions/${created.body.jobId}/submit`, { keys: presigned.body.uploads.map((u) => u.key) });
   assert.equal(missing.status, 400);
 });
+
+// Lecturer page through a retest (2026-11-25): slot over without feedback ->
+// feedback asked on their page; a retest booked -> that slot is shown instead;
+// retest running -> testing; retest over -> feedback asked again.
+test('lecturer page follows a retest: feedback after the slot, then the new slot', async () => {
+  const h = harness();
+  const boss = 'boss@ntu.edu.sg';
+  const amy = 'amy@gmail.com';
+  const { updateState } = await import('./store.js');
+  await updateState(h.store, (state) => {
+    state.jobs.push({ id: 'j1', ownerEmail: amy, status: 'approved', approvedExpName: 'x-amy-1', expName: 'x-amy-1', sourceExpName: 'x-amy-1', attempts: [], trainingConfig: {}, notifications: [], feedback: [], reviews: [{ at: new Date(T0).toISOString() }], files: [] });
+    return null;
+  });
+  const at = (m) => new Date(T0 + m * MIN).toISOString();
+  assert.equal((await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(10), end: at(30), assigneeEmail: amy })).status, 200);
+  await h.call(boss, 'POST', 'admin/slots/publish', {});
+  h.advance(20);
+  let page = (await h.call(amy, 'GET', 'me')).body;
+  assert.ok(page.activeSlot, 'in the slot: testing');
+  h.advance(15);
+  page = (await h.call(amy, 'GET', 'me')).body;
+  assert.equal(page.activeSlot, null);
+  assert.ok(page.testedSlot, 'slot over: the page asks for feedback');
+  assert.equal(page.mySlot, null);
+  const retest = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(120), end: at(140), assigneeEmail: amy });
+  assert.equal(retest.status, 200, JSON.stringify(retest.body));
+  await h.call(boss, 'POST', 'admin/slots/publish', {});
+  page = (await h.call(amy, 'GET', 'me')).body;
+  assert.equal(page.mySlot.start, at(120), 'retest booked: shown as their next test time');
+  h.advance(90);
+  page = (await h.call(amy, 'GET', 'me')).body;
+  assert.equal(page.activeSlot.start, at(120), 'retest running: testing again');
+  h.advance(25);
+  page = (await h.call(amy, 'GET', 'me')).body;
+  assert.equal(page.activeSlot, null);
+  assert.equal(page.testedSlot.start, at(120), 'retest over: feedback asked for this one');
+});
