@@ -3,7 +3,7 @@
 // (stop 4) and who is testing (stop 6). Stops 1 and 5 reuse the schedule.
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Clock, Cpu, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Cpu, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { STOPS } from './superLine.js';
 import { deleteJob, formatSgt, relativeFromNow, runTick } from './studioApi.js';
@@ -271,6 +271,31 @@ export function PersonTrip({ rider }) {
 }
 
 /** Stop 6: who is testing now and whose slot is next. Feedback is listed below it. */
+// Voices that could not be loaded on a GPU (any site), with why. Shown at the
+// top of the console until handled; the super users were also emailed.
+export function VoiceFailures({ overview }) {
+  const failures = overview?.voiceFailures || [];
+  if (failures.length === 0) return null;
+  return (
+    <Card className="border-rose-200 bg-rose-50/60 p-4">
+      <p className="flex items-center gap-2 text-sm font-semibold text-rose-800">
+        <AlertTriangle size={16} aria-hidden="true" /> {failures.length === 1 ? 'A voice could not be loaded' : `${failures.length} voices could not be loaded`}
+      </p>
+      <ul className="mt-2 space-y-1.5 text-[13px] text-rose-900">
+        {failures.slice(0, 5).map((failure) => (
+          <li key={failure.modelKey}>
+            <b>{failure.voiceName || failure.voiceProfileId}</b>
+            {failure.ownerName || failure.ownerEmail ? ` (${failure.ownerName || failure.ownerEmail})` : ''}
+            {' — '}{failure.action === 'rerecord' ? 'needs re-recording' : 'needs retraining'}: {failure.reason || 'produces no speech'}
+            {failure.failedAt ? <span className="text-rose-700/80"> · {formatSgt(failure.failedAt)}</span> : null}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-rose-700/80">No GPU is kept on or retried for these voices. A retrained voice is checked afresh.</p>
+    </Card>
+  );
+}
+
 export function TestingNow({ overview }) {
   const now = Date.parse(overview.now) || Date.now();
   const current = overview.currentSlots || [];
@@ -288,15 +313,21 @@ export function TestingNow({ overview }) {
         {current.length === 0 ? <p className="text-sm text-slate-600">Nobody is testing right now.</p> : current.map((slot) => {
           const warm = slot.warm || null;
           const ready = warm?.state === 'READY';
-          const late = warm && !ready && warm.estimatedReadyAt && now > Date.parse(warm.estimatedReadyAt);
+          const failed = warm?.state === 'VOICE_FAILED';
+          const late = warm && !ready && !failed && warm.estimatedReadyAt && now > Date.parse(warm.estimatedReadyAt);
           return (
             <div key={slot.id}>
               <h2 className="text-lg font-bold text-slate-900">{slot.assigneeName || slot.assigneeEmail}</h2>
               <p className="flex items-center gap-1.5 text-sm text-slate-600">
                 {slot.phase === 'slot' ? `${formatSgt(slot.start, { withDate: false })} to ${formatSgt(slot.end, { withDate: false })} · own GPU` : `GPU warming up for ${formatSgt(slot.start, { withDate: false })}`}
-                {slot.phase !== 'slot' && !ready && !late && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
+                {slot.phase !== 'slot' && !ready && !late && !failed && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
                 {ready && ' · voice loaded'}
               </p>
+              {failed && (
+                <p className="mt-1 rounded-lg bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
+                  Voice not loaded ({warm.action === 'rerecord' ? 'needs re-recording' : 'needs retraining'}): {warm.reason || 'it produces no speech.'} Their GPU was released; they see &ldquo;reported to the team&rdquo;.
+                </p>
+              )}
               {late && (
                 <p className="mt-1 rounded-lg bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
                   Warm-up is running late: expected ready at {formatSgt(warm.estimatedReadyAt, { withDate: false })}, still {String(warm.state || '').toLowerCase()}.{warm.message ? ` ${warm.message}` : ''} They see a &ldquo;come back shortly&rdquo; message meanwhile.

@@ -365,6 +365,49 @@ export function chooseSynthesisAdmission({
     : { type: 'queue-full', capacityAction };
 }
 
+// A voice that cannot speak (its weights load but every synthesis fails, at
+// boot or on a switch). After VOICE_FAILURE_THRESHOLD failures it is marked
+// failed: no site starts, switches or retries a GPU for it again until it is
+// retrained (a new model) or an admin clears the mark. Owner 2026-11-25: a
+// broken voice is reported, never retried forever on fresh GPUs.
+export const VOICE_FAILURE_THRESHOLD = 2;
+export function voiceFailed(record) {
+  return Boolean(record && record.entity === 'VOICEFAIL'
+    && (record.failed === true || Number(record.failures || 0) >= VOICE_FAILURE_THRESHOLD));
+}
+
+// Voice Studio people (owner "reserved:studio-p-…"): one person, one GPU, hard
+// rule (owner 2026-11-25). Their GPU is the one they own; it is never another
+// idle GPU switched over, and a second one is never bought while theirs is
+// alive (starting, switching or ready). Returns what to do with their own GPU.
+//   ownGpu: the person's live GPU or null
+//   → { type: 'route' } handled by the caller (voice already on it)
+//   → { type: 'reassign', worker } their idle READY GPU switches to this voice
+//   → { type: 'wait', reason: 'busy' | 'starting' }
+//   → { type: 'scale' } they have no GPU at all
+export function studioPersonAction({ ownGpu = null, requestedModelKey = '' } = {}) {
+  if (!ownGpu) return { type: 'scale' };
+  if (ownGpu.state === 'READY' && ownGpu.reachable !== false) {
+    if (ownGpu.modelKey === requestedModelKey) return { type: 'route', worker: ownGpu };
+    const idle = Number(ownGpu.active || 0) === 0 && Number(ownGpu.queued || 0) === 0;
+    return idle ? { type: 'reassign', worker: ownGpu } : { type: 'wait', reason: 'busy' };
+  }
+  return { type: 'wait', reason: 'starting' };
+}
+
+// The GPU the ASG launched to replace a person's GPU that died (failed health
+// check): a worker nobody owns that came up after the dead one was last seen.
+// It becomes theirs (owner 2026-11-25: the replacement is the reserved one; the
+// dead one's reservation is dropped). Returns the worker or null.
+export function replacementGpu({ workers = [], ownedInstanceIds = new Set(), deadLastSeenAt = 0, slackMs = 2 * 60_000 } = {}) {
+  if (!deadLastSeenAt) return null;
+  return workers
+    .filter((worker) => worker.state !== 'DRAINING'
+      && !ownedInstanceIds.has(worker.instanceId)
+      && Number(worker.firstSeenAt || 0) >= deadLastSeenAt - slackMs)
+    .sort((a, b) => Number(a.firstSeenAt || 0) - Number(b.firstSeenAt || 0))[0] || null;
+}
+
 // Per-GPU scale-in. Picks the GPU that has been idle the longest, where idle
 // means: READY, nothing speaking or waiting, not event-locked, and neither the
 // GPU nor its voice has been used/selected for `idleMs` (an open page that keeps
@@ -382,11 +425,15 @@ export function scaleInCandidates({
   now = Date.now(),
   idleMs = 15 * 60_000,
   releasedWorkerIds = [],
+  // GPUs reserved for one person right now (a Voice Studio test slot): never
+  // removed for being idle; only their owner's release removes them.
+  reservedWorkerIds = [],
   minSize = 0,
   desired = 0,
   lastDemandByModel = {},
 } = {}) {
   if (Number(desired) - 1 < Number(minSize)) return [];
+  const reserved = new Set(reservedWorkerIds.filter(Boolean));
   const holders = new Map();
   for (const worker of workers) {
     if (worker.state === 'READY' && worker.reachable !== false && worker.modelKey) {
@@ -404,14 +451,18 @@ export function scaleInCandidates({
     (holders.get(worker.modelKey) || 0) > 1 ? 0 : Number(lastDemandByModel[worker.modelKey] || 0),
   );
   return workers
-    .filter((worker) => (
-      worker.state === 'READY'
-      && worker.reachable !== false
-      && worker.residencyLocked !== true
-      && Number(worker.active || 0) === 0
-      && Number(worker.queued || 0) === 0
-      && (released.has(worker.instanceId) || now - idleSince(worker) >= idleMs)
-    ))
+    .filter((worker) => {
+      const nothingRunning = Number(worker.active || 0) === 0 && Number(worker.queued || 0) === 0;
+      // A released GPU goes whatever state it is in: one still booting (or
+      // stuck retrying a voice that cannot load) is not "busy" (2026-11-25).
+      if (released.has(worker.instanceId)) return worker.state !== 'READY' || nothingRunning;
+      return worker.state === 'READY'
+        && worker.reachable !== false
+        && worker.residencyLocked !== true
+        && !reserved.has(worker.instanceId)
+        && nothingRunning
+        && now - idleSince(worker) >= idleMs;
+    })
     .sort((a, b) => Number(released.has(b.instanceId)) - Number(released.has(a.instanceId))
       || idleSince(a) - idleSince(b)
       || Number(b.firstSeenAt || 0) - Number(a.firstSeenAt || 0));

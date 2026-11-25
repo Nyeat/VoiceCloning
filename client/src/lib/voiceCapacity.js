@@ -1,4 +1,4 @@
-const BLOCKING_STATES = new Set(['CHECKING', 'STARTING', 'WARMING', 'LIMIT', 'ERROR', 'PAUSED']);
+const BLOCKING_STATES = new Set(['CHECKING', 'STARTING', 'WARMING', 'LIMIT', 'ERROR', 'PAUSED', 'VOICE_FAILED']);
 
 export function normalizeVoiceCapacity(value = {}) {
   const state = String(value?.state || 'CHECKING').trim().toUpperCase();
@@ -33,6 +33,11 @@ export function voiceCapacityNotice(capacity = {}) {
   // notice at all, even with one slot left.
   if (value.state === 'PAUSED') {
     return value.message || 'The GPU has been turned off by an administrator, so voice features are unavailable for now.';
+  }
+  // A voice that cannot speak: nothing is loading, so no wait popup; the
+  // server's message carries the reason (e.g. training audio too short).
+  if (value.state === 'VOICE_FAILED') {
+    return value.message || 'This voice could not be loaded. It has been reported to the admin team.';
   }
   if (value.state === 'CHECKING') return 'Getting this voice ready…';
   if (value.state === 'STARTING' && value.sharedBoot) {
@@ -76,6 +81,7 @@ export function voiceCapacityTitle(capacity = {}) {
   const value = normalizeVoiceCapacity(capacity);
   if (value.simulated) return 'Dev capacity simulation';
   if (value.state === 'PAUSED') return 'Voice features are off';
+  if (value.state === 'VOICE_FAILED') return 'This voice could not be loaded';
   if (value.state === 'STARTING') return value.sharedBoot ? 'Waiting for the GPU that is starting' : 'Starting a GPU with this voice';
   if (value.state === 'WARMING') return 'Switching a GPU to this voice';
   return 'Getting this voice ready';

@@ -68,6 +68,8 @@ function throwIfGpuPaused() {
 // staging: MODEL_QUEUE_FULL/TIMEOUT reached Test your voice as a bare 503).
 export const FORWARDED_CAPACITY_CODES = new Set([
   'MODEL_CAPACITY_STARTING',
+  // A voice that cannot speak: the page shows why instead of retrying.
+  'VOICE_FAILED',
   'MODEL_CAPACITY_LIMIT',
   'DEV_CAPACITY_SIMULATED',
   'MODEL_QUEUE_FULL',
@@ -98,14 +100,41 @@ export function capacityErrorResponse(error, corsHeaders = {}) {
         scaleStarted: error.scaleStarted === true,
         voiceProfileId: error.voiceProfileId || '',
       }),
+      ...(error.voiceFailure ? { voiceFailure: error.voiceFailure } : {}),
     }),
   };
 }
 
+// A voice that cannot speak (coordinator VOICE_FAILED): add the root cause from
+// what training left behind, so every site says WHY (owner 2026-11-25).
+export async function explainVoiceFailure(failure = {}, { readJson } = {}) {
+  const { diagnoseVoiceFailure } = await import('./voiceFailureDiagnosis.js');
+  const reader = readJson || (async (key) => {
+    const { getObject, headObject } = await import('./s3.js');
+    if (!(await headObject(key))) return null;
+    return JSON.parse((await getObject(key)).toString('utf-8'));
+  });
+  try {
+    return await diagnoseVoiceFailure(failure.voiceProfileId, { readJson: reader, error: failure.error });
+  } catch {
+    return diagnoseVoiceFailure('', { error: failure.error });
+  }
+}
+async function withVoiceFailureReason(result) {
+  if (!result?.voiceFailure) return result;
+  const diagnosis = await explainVoiceFailure(result.voiceFailure);
+  return {
+    ...result,
+    voiceFailure: { ...result.voiceFailure, ...diagnosis },
+    message: `${result.message || result.error || 'This voice could not be loaded.'} Reason: ${diagnosis.reason}`,
+  };
+}
+
 function throwCoordinatorError(result) {
-  const error = new Error(result.error || `Model coordinator request failed (${result.statusCode || 500})`);
+  const error = new Error((result.voiceFailure && result.message) || result.error || `Model coordinator request failed (${result.statusCode || 500})`);
   error.statusCode = Number(result.statusCode) || 500;
   error.code = result.code;
+  if (result.voiceFailure) error.voiceFailure = result.voiceFailure;
   error.retryAfterSeconds = result.retryAfterSeconds;
   error.scaleStarted = result.scaleStarted;
   error.voiceProfileId = result.voiceProfileId;
@@ -116,7 +145,7 @@ export async function coordinatedInferencePostBinary(routePath, body = {}, heade
   throwIfGpuPaused();
   if (!functionName()) return inferencePostBinary(routePath, body, headers);
   const result = await invokeCoordinator({ action: 'synthesize', routePath, body, headers });
-  if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
+  if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(await withVoiceFailureReason(result || {}));
   return {
     buffer: Buffer.from(result.bodyBase64 || '', 'base64'),
     contentType: result.contentType || 'application/octet-stream',
@@ -137,7 +166,7 @@ export async function coordinatedInferencePost(routePath, body = {}, headers = {
   }
   throwIfGpuPaused();
   const result = await invokeCoordinator({ action: 'synthesize', routePath, body, headers });
-  if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
+  if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(await withVoiceFailureReason(result || {}));
   let parsed;
   try {
     parsed = JSON.parse(Buffer.from(result.bodyBase64 || '', 'base64').toString('utf8'));
@@ -170,7 +199,7 @@ export async function peekCoordinatedModel(body = {}) {
   }
   const result = await invokeCoordinator({ action: 'peek', body });
   if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
-  return result;
+  return withVoiceFailureReason(result);
 }
 
 // The voice-cloning (training) site, where each person tests only their own
@@ -209,6 +238,21 @@ export function studioPersonOwner(email) {
   const key = String(email || '').trim().toLowerCase();
   if (!key) return '';
   return `reserved:studio-p-${crypto.createHash('sha256').update(`vcs-studio:${key}`).digest('hex').slice(0, 20)}`;
+}
+
+/** Voices the coordinator marked as unable to speak (any site), with their root cause. */
+export async function listVoiceFailures() {
+  if (!functionName()) return [];
+  const result = await invokeCoordinator({ action: 'voice-failures' });
+  if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
+  return Promise.all((result.failures || []).map(async (failure) => ({ ...failure, ...(await explainVoiceFailure(failure)) })));
+}
+
+/** An admin retries a voice marked failed (e.g. after fixing its files). */
+export async function clearVoiceFailure(modelKey) {
+  const result = await invokeCoordinator({ action: 'clear-voice-failure', modelKey });
+  if (result && Number(result.statusCode) >= 400) throwCoordinatorError(result);
+  return result;
 }
 
 /** Gives an owner's GPUs back; each is removed as soon as nothing runs on it. */
@@ -327,5 +371,5 @@ export async function prepareCoordinatedModel(body = {}, {
     ...(singleGpu ? { singleGpu: true } : {}),
   });
   if (!result || Number(result.statusCode) >= 400) throwCoordinatorError(result || {});
-  return { ...result, coordinatorConfigured: true };
+  return { ...(await withVoiceFailureReason(result)), coordinatorConfigured: true };
 }

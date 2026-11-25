@@ -198,6 +198,21 @@ export const templates = {
       ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },
+  voiceFailed({ failure, env }) {
+    const { studio } = studioLinks(env);
+    const who = failure.ownerName || failure.ownerEmail || '';
+    const voice = failure.voiceName || failure.voiceProfileId || 'A voice';
+    return {
+      subject: `Voice could not be loaded: ${voice}${who ? ` (${who})` : ''}`,
+      ...layout('A voice could not be loaded on the GPU', [
+        `${voice}${who ? ` (${who})` : ''} loads but does not produce speech, so no GPU is being kept on or retried for it.`,
+        `Reason: ${failure.reason || 'unknown'}`,
+        failure.action === 'rerecord'
+          ? 'Next step: ask them to re-record (at least 10 minutes) and retrain. Withdraw their voice in Voice Studio to reopen their recording page.'
+          : 'Next step: retrain the voice; if it fails again, ask for new recordings.',
+      ], studio ? { label: 'Open Voice Studio', url: studio } : null),
+    };
+  },
   slotReminder({ slot, env }) {
     const { studio } = studioLinks(env);
     return {

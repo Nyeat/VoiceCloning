@@ -76,6 +76,11 @@ async function defaultReleaseSlotGpu(ownerKey) {
   return releaseCoordinatedOwner(ownerKey);
 }
 
+async function defaultListVoiceFailures() {
+  const { listVoiceFailures } = await import('../shared/modelCoordinator.js');
+  return listVoiceFailures();
+}
+
 async function personOwner(email) {
   const { studioPersonOwner } = await import('../shared/modelCoordinator.js');
   return studioPersonOwner(email);
@@ -105,6 +110,8 @@ export function createStudioService({
   applyPronunciation = (voiceName) => inferencePost('/inference/start', { pronunciationVoice: voiceName }),
   preloadVoice = defaultPreloadVoice,
   releaseSlotGpu = defaultReleaseSlotGpu,
+  // Voices the GPU coordinator marked as unable to speak (any site).
+  listVoiceFailures = defaultListVoiceFailures,
   // Part 2 term lists and scenarios. OPENAI_API_KEY is a console-set secret on the Lambda.
   callModel = createOpenAiCaller({ apiKey: env.OPENAI_API_KEY || '', model: env.STUDIO_TERMS_MODEL || undefined }),
 } = {}) {
@@ -265,10 +272,14 @@ export function createStudioService({
     // every tick, and keep the warm-up state on the slot for everyone to see.
     // Several people in one slot each get their own GPU, warmed in parallel.
     const preloaded = [];
+    const voiceFailedPeople = [];
     const holds = wf.gpuHolds(state, now).filter((hold) => !testingDone(state, hold.slot.assigneeEmail));
     await Promise.all(holds.map(async (hold) => {
       const voiceName = wf.preloadVoiceFor(state, hold.slot);
       if (!voiceName) return;
+      // This voice cannot speak: reported, GPU given back, nothing more tried
+      // (owner 2026-11-25). A newly approved voice for them warms as usual.
+      if (wf.warmFailed(hold.slot, voiceName)) return;
       let capacity = null;
       try {
         capacity = await preloadVoice(voiceName, await personOwner(hold.slot.assigneeEmail), hold.slot.assigneeEmail);
@@ -280,11 +291,30 @@ export function createStudioService({
       await updateState(store, (draft) => {
         const current = wf.findSlot(draft, hold.slot.id);
         if (!current) return { skipWrite: true };
-        current.warm = wf.nextWarmState(current.warm, capacity, now);
+        current.warm = wf.nextWarmState(current.warm, capacity, now, voiceName);
         if (current.warm.state === 'READY' && !current.preloadedAt) current.preloadedAt = new Date(now).toISOString();
         return null;
       });
+      if (capacity?.state === 'VOICE_FAILED') voiceFailedPeople.push(hold.slot.assigneeEmail);
     }));
+
+    // Their voice cannot load: stop and give their GPU back at once (also one
+    // still booting), instead of keeping it warm for a voice that never speaks.
+    for (const email of [...new Set(voiceFailedPeople)]) {
+      try {
+        await releaseSlotGpu(await personOwner(email));
+        await updateState(store, (draft) => {
+          for (const slot of draft.slots.filter((item) => wf.sameNtuPerson(item.assigneeEmail, email) && wf.warmFailed(item))) {
+            slot.gpuReleasedAt = slot.gpuReleasedAt || new Date(now).toISOString();
+          }
+          return null;
+        });
+      } catch (error) {
+        console.warn(`[studio] GPU release after a voice failure failed (retried next tick): ${error.message}`);
+      }
+    }
+
+    await reportVoiceFailures(now);
 
     // A person's slot is over and none follows soon: give their GPU back (shuts down now).
     const finished = wf.slotsToRelease(state, now);
@@ -313,6 +343,32 @@ export function createStudioService({
       }
     }
     return { skipped: false, demand, dispatched, preloaded, workerReachable: Boolean(worker), gpuStart };
+  }
+
+  // Voices that cannot speak, from every site: kept for the console and emailed
+  // to the super users once each (owner 2026-11-25: report errors to admins).
+  async function reportVoiceFailures(now) {
+    let failures = [];
+    try {
+      failures = await listVoiceFailures();
+    } catch (error) {
+      console.warn('[studio] could not read voice failures', error.message);
+      return;
+    }
+    if (!failures?.length) return;
+    const claim = await updateState(store, (draft) => {
+      const fresh = wf.mergeVoiceFailures(draft, failures, now);
+      for (const entry of fresh) entry.reportedAt = new Date(now).toISOString();
+      return { fresh: fresh.map((entry) => ({ ...entry })) };
+    });
+    const fresh = claim.result?.fresh || [];
+    if (fresh.length === 0) return;
+    const { state } = await store.read();
+    const to = superuserEmails(state);
+    if (to.length === 0) return;
+    for (const failure of fresh) {
+      await mailer.send(to, templates.voiceFailed({ failure, env })).catch((error) => console.warn('[studio] voice failure email failed', error.message));
+    }
   }
 
   // Sent feedback on every approved voice: no GPU is warmed for them any more.
@@ -539,6 +595,8 @@ export function createHandler({
       }])).values()],
       // Test slots holding a GPU now (one per person).
       currentSlots: wf.gpuHolds(state, now).map((hold) => ({ ...hold.slot, phase: hold.phase })),
+      // Voices that could not be loaded on a GPU (any site), newest first, with why.
+      voiceFailures: [...(state.voiceFailures || [])].reverse().slice(0, 20),
       superusers: wf.listSuperusers(state, env),
       // Tools > Clean up: every set (old unfinished uploads too) and the log.
       records: wf.cleanupRecords(state, now),
@@ -692,6 +750,10 @@ export function createHandler({
           if (found) files.push({ name: key.slice(prefix.length), bytes: Number(found.ContentLength || found.size || 0), source: sources[key] === 'recorded' ? 'recorded' : 'upload' });
         }
         if (files.length === 0) throw wf.clientError(400, 'None of the files reached storage; please upload again');
+        // Minimum recording length (owner 2026-11-25: at least 10 min), counted
+        // over the files that reached storage.
+        const seconds = body.seconds && typeof body.seconds === 'object' ? body.seconds : {};
+        const totalSeconds = wf.assertEnoughAudio(Object.fromEntries(files.map((file) => [file.name, seconds[`${prefix}${file.name}`]])));
         // Part 2 readings come with the script they read; training labels those clips with it
         // instead of the speech recogniser's guess at the medical terms.
         const known = knownTextFiles(body.knownText, { prefix, keys: files.map((file) => `${prefix}${file.name}`) });
@@ -706,6 +768,7 @@ export function createHandler({
             throw wf.clientError(409, 'This person already has a voice on the line. When it is finished, Reset them for another voice (or Withdraw it).');
           }
           wf.submitJob(sending, { files, now });
+          sending.totalSeconds = Math.round(totalSeconds);
           return null;
         });
         await service.tick({ force: true }).catch((error) => console.warn('[studio] tick after submit failed', error.message));
@@ -988,8 +1051,10 @@ export function createHandler({
             const { withdrawn, slotsRemoved } = wf.withdrawPerson(state, job.ownerEmail, now);
             const note = slotsRemoved ? `${slotsRemoved} test slot${slotsRemoved === 1 ? '' : 's'} cancelled` : '';
             for (const entry of withdrawn) wf.logCleanup(state, { actor: email, action: 'withdrawn', job: entry.job, from: entry.from, note, now });
-            return { jobId: job.id };
+            return { jobId: job.id, ownerEmail: job.ownerEmail };
           });
+          // Their test slots are gone, so their GPU goes too (also one still starting).
+          await releaseGpuOf(result.ownerEmail);
           if (body.email === true) {
             const job = wf.findJob((await store.read()).state, result.jobId);
             await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env, reset: true }));
@@ -1039,8 +1104,9 @@ export function createHandler({
             if (!job) throw wf.clientError(404, 'Job not found');
             const { reset } = wf.resetPerson(state, job.ownerEmail);
             for (const item of reset) wf.logCleanup(state, { actor: email, action: 'reset', job: item, from: item.status, note: 'new run for another voice', now });
-            return { jobId: job.id };
+            return { jobId: job.id, ownerEmail: job.ownerEmail };
           });
+          await releaseGpuOf(result.ownerEmail);
           if (body.email === true) {
             const job = wf.findJob((await store.read()).state, result.jobId);
             await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env, reset: true }));
@@ -1058,8 +1124,9 @@ export function createHandler({
             const { withdrawn, slotsRemoved } = wf.withdrawPerson(state, job.ownerEmail, now);
             const note = ['asked for new recordings', slotsRemoved && `${slotsRemoved} test slot${slotsRemoved === 1 ? '' : 's'} cancelled`].filter(Boolean).join('; ');
             for (const entry of withdrawn) wf.logCleanup(state, { actor: email, action: 'withdrawn', job: entry.job, from: entry.from, note, now });
-            return { jobId: job.id };
+            return { jobId: job.id, ownerEmail: job.ownerEmail };
           });
+          await releaseGpuOf(result.ownerEmail);
           const { state } = await store.read();
           const job = wf.findJob(state, result.jobId);
           await service.notify(job.id, 'newRecordingsNeeded', job.ownerEmail, templates.newRecordingsNeeded({ job, notes: body.notes, env }));

@@ -46,14 +46,17 @@ export async function uploadAndSubmit(jobId, items, { onProgress } = {}) {
   await Promise.all([worker(), worker(), worker()]);
 
   const sources = {};
+  // Measured length of each file: the server needs at least 10 minutes in total.
+  const seconds = {};
   // Part 2 readings carry the text that was read; training labels their clips with it.
   const knownText = {};
   uploads.forEach((upload, index) => {
     sources[upload.key] = items[index].source;
+    seconds[upload.key] = Math.round(Number(items[index].duration) || 0);
     if (items[index].knownText) knownText[upload.key] = items[index].knownText;
   });
   return (await api.post(`/studio/submissions/${enc(jobId)}/submit`, {
-    keys: uploads.map((u) => u.key), sources, ...(Object.keys(knownText).length ? { knownText } : {}),
+    keys: uploads.map((u) => u.key), sources, seconds, ...(Object.keys(knownText).length ? { knownText } : {}),
   })).data;
 }
 

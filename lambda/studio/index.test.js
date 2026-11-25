@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHandler, createStudioService } from './index.js';
 import { generateKeyPairSync } from 'node:crypto';
 import { createMemoryStore } from './store.js';
+import * as wf from './workflow.js';
 import { normalizeAccounts } from './accounts.js';
 import { createLiveAuthGuard } from '../shared/liveAuth.js';
 
@@ -14,7 +15,7 @@ const SESSION_KEYS = (() => {
 const T0 = Date.parse('2026-11-20T01:00:00Z');
 const MIN = 60_000;
 
-function harness({ realAuth = false, googleVerifier = null, callModel = undefined } = {}) {
+function harness({ realAuth = false, googleVerifier = null, callModel = undefined, preloadAnswer = null, voiceFailures = [] } = {}) {
   const written = [];
   let now = T0;
   let ids = 0;
@@ -48,7 +49,8 @@ function harness({ realAuth = false, googleVerifier = null, callModel = undefine
     writeJson: async (key, value) => { written.push({ key, value }); },
     ...(callModel ? { callModel } : {}),
     applyPronunciation: async () => ({ ready: true }),
-    preloadVoice: async (name, ownerKey) => { preloaded.push(name); preloadedOwners.push(ownerKey); },
+    preloadVoice: async (name, ownerKey) => { preloaded.push(name); preloadedOwners.push(ownerKey); return preloadAnswer ? preloadAnswer(name) : undefined; },
+    listVoiceFailures: async () => voiceFailures,
     releaseSlotGpu: async (ownerKey) => { released.push(ownerKey); },
   });
   const handler = createHandler({
@@ -80,9 +82,14 @@ async function submit(h, user, label) {
   const id = created.body.jobId;
   const presigned = await h.call(user, 'POST', `submissions/${id}/presign`, { files: [{ name: 'take 1.wav', type: 'audio/wav' }] });
   assert.equal(presigned.status, 200, JSON.stringify(presigned.body));
-  const submitted = await h.call(user, 'POST', `submissions/${id}/submit`, { keys: presigned.body.uploads.map((u) => u.key) });
+  const submitted = await h.call(user, 'POST', `submissions/${id}/submit`, withAudio(presigned.body.uploads.map((u) => u.key)));
   assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
   return id;
+}
+
+// A submission needs at least 10 minutes of audio (owner 2026-11-25).
+function withAudio(keys, seconds = 600) {
+  return { keys, seconds: Object.fromEntries(keys.map((key) => [key, seconds])) };
 }
 
 test('full workflow: queue, train, review, retrain, approve, book, test, feedback', async () => {
@@ -527,7 +534,7 @@ test('a super user can upload for someone: the voice is theirs to follow and tes
   const id = created.body.jobId;
   const presigned = await h.call(boss, 'POST', `submissions/${id}/presign`, { files: [{ name: 'a.wav', type: 'audio/wav' }] });
   assert.equal(presigned.status, 200, 'the uploader finishes the upload');
-  const submitted = await h.call(boss, 'POST', `submissions/${id}/submit`, { keys: presigned.body.uploads.map((u) => u.key) });
+  const submitted = await h.call(boss, 'POST', `submissions/${id}/submit`, withAudio(presigned.body.uploads.map((u) => u.key)));
   assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
   const mine = submitted.body.jobs.find((job) => job.id === id);
   assert.equal(mine.forEmail, lee, 'the uploader sees who it is for');
@@ -545,7 +552,7 @@ test('one voice, one run: no second voice for someone until their run is reset',
     const created = await h.call(boss, 'POST', 'submissions', { label: 'Lee voice', forEmail: lee, forName: 'Dr Lee' });
     if (created.status !== 200) return created;
     const presigned = await h.call(boss, 'POST', `submissions/${created.body.jobId}/presign`, { files: [{ name: 'a.wav', type: 'audio/wav' }] });
-    return h.call(boss, 'POST', `submissions/${created.body.jobId}/submit`, { keys: presigned.body.uploads.map((u) => u.key) });
+    return h.call(boss, 'POST', `submissions/${created.body.jobId}/submit`, withAudio(presigned.body.uploads.map((u) => u.key)));
   };
   assert.equal((await send()).status, 200);
   const blocked = await send();
@@ -590,6 +597,7 @@ test('Part 2: a submission saves the script read for each recording, for trainin
   const submitted = await h.call(user, 'POST', `submissions/${id}/submit`, {
     keys: [reading, terms],
     sources: { [reading]: 'recorded', [terms]: 'recorded' },
+    seconds: { [reading]: 300, [terms]: 300 },
     knownText: { [terms]: 'Melaena means black, tarry stool.', 'training/datasets/other/raw/x.wav': 'Not this set.' },
   });
   assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
@@ -643,4 +651,74 @@ test('Part 2: AI generation is refused once a person has submitted, and counted 
   await submit(h, hana, 'Hana');
   const refused = await h.call(hana, 'POST', 'specialty/terms', { specialty: 'GI', count: 50 });
   assert.equal(refused.status, 403);
+});
+
+// 2026-11-25: Nathanael's voice (trained on 29 s) could not speak, and his slot
+// kept "warming" for an hour while GPUs restarted. Now the warm-up stops, his
+// GPU is given back at once, and the super users are told why, once.
+test('a slot whose voice cannot load stops warming, frees the GPU and reports to admins once', async () => {
+  const failure = {
+    modelKey: 'mk-nat6', voiceProfileId: 'cs-nat_6-v1', runName: 'cs-nat_6', failures: 2, failedAt: T0,
+    stage: 'boot', reason: 'Training audio too short: the voice was trained on only 29 s of clean speech (at least 10 min is needed). Re-record and retrain.', action: 'rerecord',
+  };
+  const h = harness({
+    preloadAnswer: () => ({ state: 'VOICE_FAILED', canStartConversation: false, message: 'This voice could not be loaded.', voiceFailure: failure }),
+    voiceFailures: [failure],
+  });
+  const nat = 'nat@ntu.edu.sg';
+  await h.store.write({
+    schemaVersion: 1, superusers: [], history: [], lastTickAt: 0,
+    jobs: [{ id: 'j1', ownerEmail: nat, ownerName: 'Nat', status: 'approved', expName: 'cs-nat_6', approvedExpName: 'cs-nat_6', attempts: [], reviews: [{ decision: 'approve', at: new Date(T0 - 3_600_000).toISOString() }], createdAt: new Date(T0 - 86_400_000).toISOString() }],
+    slots: [{ id: 's1', kind: 'test', status: 'published', assigneeEmail: nat, assigneeName: 'Nat', start: new Date(T0 + 10 * MIN).toISOString(), end: new Date(T0 + 130 * MIN).toISOString() }],
+  }, null);
+
+  await h.call('boss@ntu.edu.sg', 'POST', 'admin/tick', {});
+  let { state } = await h.store.read();
+  assert.equal(state.slots[0].warm.state, 'VOICE_FAILED');
+  assert.match(state.slots[0].warm.reason, /too short/u);
+  assert.equal(state.slots[0].warm.action, 'rerecord');
+  assert.ok(state.slots[0].gpuReleasedAt, 'GPU given back at once');
+  assert.equal(h.released.length, 1);
+  const reports = h.sent.filter((mail) => /could not be loaded/u.test(mail.subject));
+  assert.equal(reports.length, 1);
+  assert.deepEqual(reports[0].to, ['boss@ntu.edu.sg']);
+  assert.equal(state.voiceFailures[0].ownerEmail, nat);
+
+  // Next ticks: nothing is retried for that voice, nobody is emailed again.
+  const asked = h.preloaded.length;
+  h.advance(5);
+  await h.call('boss@ntu.edu.sg', 'POST', 'admin/tick', {});
+  ({ state } = await h.store.read());
+  assert.equal(h.preloaded.length, asked, 'no more warm-up asks');
+  assert.equal(h.sent.filter((mail) => /could not be loaded/u.test(mail.subject)).length, 1);
+  assert.equal(wf.gpuDemand(state, T0 + 20 * MIN), '', 'the failed slot keeps no GPU on');
+
+  // The console shows it.
+  const overview = await h.call('boss@ntu.edu.sg', 'GET', 'admin/overview');
+  assert.equal(overview.body.voiceFailures[0].voiceName, 'cs-nat_6');
+});
+
+test('withdrawing a person gives their GPU back too', async () => {
+  const h = harness();
+  const nat = 'nat@ntu.edu.sg';
+  await h.store.write({
+    schemaVersion: 1, superusers: [], history: [], lastTickAt: 0,
+    jobs: [{ id: 'j1', ownerEmail: nat, ownerName: 'Nat', status: 'approved', expName: 'cs-nat_6', approvedExpName: 'cs-nat_6', attempts: [], reviews: [], createdAt: new Date(T0).toISOString(), queuedAt: new Date(T0).toISOString() }],
+    slots: [],
+  }, null);
+  const res = await h.call('boss@ntu.edu.sg', 'POST', 'admin/jobs/j1/cancel', {});
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(h.released.length, 1);
+});
+
+test('a submission under 10 minutes of audio is refused', async () => {
+  const h = harness();
+  const user = 'short@ntu.edu.sg';
+  const created = await h.call(user, 'POST', 'submissions', { label: 'Short', consent: { accepted: true, version: 'test-1' } });
+  const presigned = await h.call(user, 'POST', `submissions/${created.body.jobId}/presign`, { files: [{ name: 'a.wav', type: 'audio/wav' }] });
+  const refused = await h.call(user, 'POST', `submissions/${created.body.jobId}/submit`, withAudio(presigned.body.uploads.map((u) => u.key), 29));
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /At least 10 minutes/u);
+  const missing = await h.call(user, 'POST', `submissions/${created.body.jobId}/submit`, { keys: presigned.body.uploads.map((u) => u.key) });
+  assert.equal(missing.status, 400);
 });

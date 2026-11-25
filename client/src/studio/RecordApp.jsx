@@ -29,6 +29,9 @@ import { TrainingSettings, trainingSettingsPayload } from './TrainingSettings.js
 const AUDIO_ACCEPT = '.wav,.mp3,.m4a,.flac,.ogg,audio/wav,audio/mpeg,audio/mp4,audio/flac,audio/ogg';
 const AUDIO_EXT = /\.(wav|mp3|m4a|flac|ogg)$/iu;
 const RECOMMENDED_MINUTES = [10, 40];
+// Submitting needs at least this much (the server checks it too): a 29 s sample
+// trained into a voice that could not speak (2026-11-25).
+const MIN_SUBMIT_MINUTES = 10;
 const PART_ONE_TAKE = { name: 'guided-reading', label: 'Part 1 · Guided reading', part: 1 };
 const PART_TWO_TAKE = { name: 'specialty-terms', label: 'Part 2 · Specialty terms', part: 2 };
 
@@ -175,7 +178,7 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, partsDone
           onChange={(event) => setLabel(event.target.value)}
           className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:h-10"
         />
-        {minutes > 0 && minutes < 5 && <p className="text-xs text-amber-700">Under 5 minutes usually gives a weak voice. You can still submit.</p>}
+        {minutes < MIN_SUBMIT_MINUTES && <p className="text-xs text-amber-700">At least {MIN_SUBMIT_MINUTES} minutes of recordings are needed to submit ({formatDuration(totalSeconds)} so far).</p>}
         {superuser && (
           <div className="space-y-2">
             <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="for-email">For someone else? (optional)</label>
@@ -213,7 +216,7 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, partsDone
             <div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-primary transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
           </div>
         ) : (
-          <Button variant="primary" size="lg" className="w-full" disabled={takes.length === 0 || !forValid} onClick={() => onSubmit(label, superuser ? trainingSettingsPayload(settings) : null, superuser && forEmail.trim() ? { email: forEmail.trim().toLowerCase(), name: forName.trim() } : null)}>
+          <Button variant="primary" size="lg" className="w-full" disabled={takes.length === 0 || !forValid || minutes < MIN_SUBMIT_MINUTES} onClick={() => onSubmit(label, superuser ? trainingSettingsPayload(settings) : null, superuser && forEmail.trim() ? { email: forEmail.trim().toLowerCase(), name: forName.trim() } : null)}>
             Submit for training
           </Button>
         )}

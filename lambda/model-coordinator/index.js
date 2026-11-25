@@ -30,6 +30,9 @@ import {
   reassignCandidates,
   matchingFreeSlots,
   peekVoiceLoad,
+  replacementGpu,
+  studioPersonAction,
+  voiceFailed,
 } from './decision.js';
 
 const region = process.env.AWS_REGION || 'ap-northeast-2';
@@ -575,6 +578,62 @@ const SHARED_VOICE_OWNER_PREFIX = 'reserved:voice-';
 function isSharedVoiceOwner(ownerKey) {
   return String(ownerKey || '').startsWith(SHARED_VOICE_OWNER_PREFIX);
 }
+// Voice Studio people (one key per lecturer, studioPersonOwner): hard rule, one
+// person one GPU — at most one stopping and one starting, never someone else's
+// idle GPU switched over (owner 2026-11-25). Not the studio's shared QC key.
+const STUDIO_PERSON_OWNER_PREFIX = 'reserved:studio-p-';
+function isStudioPersonOwner(ownerKey) {
+  return String(ownerKey || '').startsWith(STUDIO_PERSON_OWNER_PREFIX);
+}
+
+// A person's GPU moved (switched/claimed onto another instance, or replaced):
+// the old instance stops being theirs, so it is not reserved any more.
+async function dropOtherOwnerRows(ownerKey, keepInstanceId) {
+  if (!ownerKey) return;
+  const items = await scanState();
+  await Promise.all(items
+    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey === ownerKey && item.instanceId !== keepInstanceId)
+    .map((item) => document.send(new DeleteCommand({ TableName: tableName, Key: { id: item.id } })).catch(() => {})));
+}
+
+// The person's live GPU, whatever state it is in. Reservations on GPUs that no
+// longer exist are dropped; when theirs died and the group launched a
+// replacement, the replacement becomes theirs (owner 2026-11-25).
+export async function resolveStudioPersonGpu(items, workers, ownerKey, modelKey, now = Date.now()) {
+  const rows = items.filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey === ownerKey);
+  const live = (row) => workers.find((worker) => worker.instanceId === row.instanceId && worker.state !== 'DRAINING');
+  const alive = rows.filter(live).sort((a, b) => Number(b.at || 0) - Number(a.at || 0));
+  const dead = rows.filter((row) => !live(row));
+  await Promise.all(dead.map((row) => document.send(new DeleteCommand({ TableName: tableName, Key: { id: row.id } })).catch(() => {})));
+  if (alive.length > 0) {
+    // More than one row (an older bug): the newest is theirs, the rest are not.
+    await Promise.all(alive.slice(1).map((row) => document.send(new DeleteCommand({ TableName: tableName, Key: { id: row.id } })).catch(() => {})));
+    return live(alive[0]);
+  }
+  if (dead.length === 0) return null;
+  const owned = new Set(items.filter((item) => item.entity === 'OWNER' && itemInScope(item)).map((item) => item.instanceId));
+  const deadLastSeenAt = Math.max(...dead.map((row) => {
+    const workerRow = items.find((item) => item.entity === 'WORKER' && item.instanceId === row.instanceId);
+    return Number(workerRow?.updatedAt || row.at || 0);
+  }));
+  const replacement = replacementGpu({ workers, ownedInstanceIds: owned, deadLastSeenAt });
+  if (!replacement) return null;
+  await recordGpuOwner(replacement.instanceId, ownerKey, modelKey, now);
+  console.log('[model-coordinator][decision]', JSON.stringify({
+    request: 'prepare', decision: 'adopt-replacement-gpu', ownerKey, workerId: replacement.instanceId,
+    replaced: dead.map((row) => row.instanceId),
+  }));
+  return replacement;
+}
+
+// Fresh Voice Studio person reservations: never idled out (their release does it).
+function studioReservedWorkerIds(items, now = Date.now()) {
+  return items
+    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && isStudioPersonOwner(item.ownerKey)
+      && now - Number(item.at || 0) < RESERVED_OWNER_FRESH_MS)
+    .map((item) => item.instanceId);
+}
+
 function otherOwnersRecords(items, workers, ownerKey, test) {
   const records = items.filter((item) => item.entity === 'OWNER' && itemInScope(item) && test(item.ownerKey)
     && (!ownerKey || ownerFamily(item.ownerKey) !== ownerFamily(ownerKey)));
@@ -682,7 +741,13 @@ async function runReassignment(id, now = Date.now()) {
     if (chooseCapacityAction(capacityInput).type === 'route') {
       return { statusCode: 200, assigned: false, reason: 'already-resident' };
     }
-    const target = reassignCandidates(capacityInput)
+    // A Voice Studio person's own GPU switches whenever nothing runs on it; the
+    // shared idle rules (made for taking other people's GPUs) do not apply.
+    const studioOwn = isStudioPersonOwner(pending.ownerKey)
+      ? workers.find((worker) => worker.instanceId === pending.workerId
+        && studioPersonAction({ ownGpu: worker, requestedModelKey: pending.modelKey }).type === 'reassign')
+      : null;
+    const target = studioOwn || reassignCandidates(capacityInput)
       .find((candidate) => candidate.instanceId === pending.workerId);
     if (!target) {
       console.log('[model-coordinator][decision]', JSON.stringify({
@@ -691,13 +756,29 @@ async function runReassignment(id, now = Date.now()) {
       }));
       return { statusCode: 200, assigned: false, reason: 'no-longer-idle' };
     }
-    const worker = await assignWorker(target, pending.synthesisBody, {
-      // The idle rules were just checked against a fresh probe above
-      // (reassignCandidates: owner's own GPU, a GPU only warmed up by its boot).
-      // The worker's own clock counts warm-up sentences as activity, so it
-      // would refuse those; it still refuses if anything is running.
-      ignoreIdle: true,
-    });
+    let worker;
+    try {
+      worker = await assignWorker(target, pending.synthesisBody, {
+        // The idle rules were just checked against a fresh probe above
+        // (reassignCandidates: owner's own GPU, a GPU only warmed up by its boot).
+        // The worker's own clock counts warm-up sentences as activity, so it
+        // would refuse those; it still refuses if anything is running.
+        ignoreIdle: true,
+      });
+    } catch (error) {
+      // 409 = the worker was busy (try again later). Anything else: the weights
+      // loaded but the voice did not speak; counted, and after a second failure
+      // the voice is marked failed instead of being retried every 5 s for an
+      // hour (2026-11-25: "tts failed" x hundreds).
+      if (Number(error.statusCode) === 409) throw error;
+      const record = await noteVoiceFailure(pending.modelKey, {
+        voiceProfileId: pending.synthesisBody?.voice_model?.voiceProfileId || pending.synthesisBody?.voiceProfileId,
+        error: error.message,
+        stage: 'switch',
+      }, now);
+      return { statusCode: 200, assigned: false, reason: voiceFailed(record) ? 'voice-failed' : 'voice-failure-noted' };
+    }
+    if (isStudioPersonOwner(pending.ownerKey)) await dropOtherOwnerRows(clean(pending.ownerKey), worker.instanceId);
     await recordGpuOwner(worker.instanceId, clean(pending.ownerKey), pending.modelKey);
     return { statusCode: 200, assigned: true, workerId: worker.instanceId };
   } finally {
@@ -845,6 +926,105 @@ export async function requestScale(
     throw error;
   }
   return { started: true, pending };
+}
+
+// ── Voices that cannot speak ─────────────────────────────────────────────
+// Every site: a voice whose synthesis keeps failing on a GPU (boot warm-up or a
+// switch) is recorded here; after VOICE_FAILURE_THRESHOLD failures nothing
+// starts, switches or retries a GPU for it again (prepare/synthesize answer
+// VOICE_FAILED). A retrained voice is a new model key; an admin can clear it.
+const VOICE_FAILURE_TTL_MS = 7 * 86_400_000;
+export const VOICE_FAILED_MESSAGE = 'This voice could not be loaded on the GPU: it fails to produce speech. It has been reported to the admin team. It needs retraining (usually with more recordings).';
+
+export function voiceFailureRecord(items = [], modelKey = '', scope = coordinatorScope) {
+  return items.find((item) => item?.entity === 'VOICEFAIL'
+    && clean(item.coordinatorScope) === scope
+    && item.modelKey === modelKey
+    && voiceFailed(item)) || null;
+}
+
+async function noteVoiceFailure(modelKey, { voiceProfileId = '', error = '', stage = '' } = {}, now = Date.now()) {
+  if (!modelKey) return null;
+  try {
+    const updated = await document.send(new UpdateCommand({
+      TableName: tableName,
+      Key: { id: coordinationKey('VOICEFAIL', modelKey) },
+      UpdateExpression: 'SET entity = :entity, coordinatorScope = :scope, modelKey = :modelKey, voiceProfileId = :voice, '
+        + 'lastError = :error, lastStage = :stage, lastAt = :now, firstAt = if_not_exists(firstAt, :now), expiresAt = :expires '
+        + 'ADD failures :one',
+      ExpressionAttributeValues: {
+        ':entity': 'VOICEFAIL', ':scope': coordinatorScope, ':modelKey': modelKey, ':voice': clean(voiceProfileId),
+        ':error': clean(error).slice(0, 500), ':stage': clean(stage), ':now': now,
+        ':expires': Math.floor((now + VOICE_FAILURE_TTL_MS) / 1_000), ':one': 1,
+      },
+      ReturnValues: 'ALL_NEW',
+    }));
+    const record = updated.Attributes;
+    if (voiceFailed(record) && record.failed !== true) {
+      await document.send(new UpdateCommand({
+        TableName: tableName,
+        Key: { id: coordinationKey('VOICEFAIL', modelKey) },
+        UpdateExpression: 'SET failed = :yes, failedAt = :now',
+        ExpressionAttributeValues: { ':yes': true, ':now': now },
+      }));
+      record.failed = true;
+      record.failedAt = now;
+      // Nothing may keep trying to bring it up: drop its boot and switch requests.
+      await Promise.all(['PENDING', 'REASSIGN'].map((entity) => document.send(new DeleteCommand({
+        TableName: tableName, Key: { id: coordinationKey(entity, modelKey) },
+      })).catch(() => {})));
+    }
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'voice-failure', decision: voiceFailed(record) ? 'voice-failed' : 'voice-failure-noted',
+      stage, voiceProfileId: clean(voiceProfileId), modelKey: modelKey.slice(0, 12),
+      failures: Number(record.failures || 0), error: clean(error).slice(0, 200),
+    }));
+    return record;
+  } catch (failure) {
+    console.error('[model-coordinator][voice-failure]', failure?.message || failure);
+    return null;
+  }
+}
+
+function voiceFailurePayload(record) {
+  return {
+    modelKey: record.modelKey,
+    voiceProfileId: clean(record.voiceProfileId),
+    failures: Number(record.failures || 0),
+    failedAt: Number(record.failedAt || record.lastAt || 0),
+    stage: clean(record.lastStage),
+    error: clean(record.lastError),
+  };
+}
+
+export function voiceFailedResponse(record, model = {}) {
+  return {
+    statusCode: 200,
+    state: 'VOICE_FAILED',
+    canStartConversation: false,
+    availableSlots: 0,
+    matchingWorkers: 0,
+    capacityAction: 'none',
+    capacityStarted: false,
+    retryAfterSeconds: 0,
+    message: VOICE_FAILED_MESSAGE,
+    voiceFailure: voiceFailurePayload(record),
+    voiceProfileId: clean(model?.voiceProfileId) || clean(record.voiceProfileId),
+  };
+}
+
+async function listVoiceFailures() {
+  const items = await scanState();
+  return {
+    statusCode: 200,
+    failures: items.filter((item) => itemInScope(item) && voiceFailed(item)).map(voiceFailurePayload),
+  };
+}
+
+async function clearVoiceFailure(modelKey) {
+  if (!modelKey) return { statusCode: 400, error: 'modelKey is required' };
+  await document.send(new DeleteCommand({ TableName: tableName, Key: { id: coordinationKey('VOICEFAIL', modelKey) } }));
+  return { statusCode: 200, cleared: modelKey };
 }
 
 export function bootAssignmentClaimable(item, instanceId, now = Date.now(), scope = coordinatorScope) {
@@ -1009,6 +1189,20 @@ async function claimBootAssignment(instanceId, now = Date.now()) {
     .sort((left, right) => Number(left.requestedAt || 0) - Number(right.requestedAt || 0));
 
   for (const candidate of pending) {
+    // The same GPU claiming the same voice again means its boot warm-up failed
+    // and the worker service restarted (warm-staging-deanvoice.sh exits 1, so
+    // systemd restarts it and the script claims again). That is a failed load:
+    // count it, and once the voice is marked failed stop handing it out, so the
+    // GPU does not loop until its health check kills it (2026-11-25 incident).
+    if (candidate.claimedBy === instanceId && Number(candidate.claimExpiresAt || 0) >= now) {
+      const record = await noteVoiceFailure(candidate.modelKey, {
+        voiceProfileId: candidate.synthesisBody?.voice_model?.voiceProfileId || candidate.synthesisBody?.voiceProfileId,
+        error: 'Boot warm-up synthesis failed (the GPU restarted its worker and claimed the voice again).',
+        stage: 'boot',
+      }, now);
+      if (voiceFailed(record)) return { statusCode: 200, assignment: null, voiceFailed: true };
+    }
+    if (voiceFailureRecord(items, candidate.modelKey)) continue;
     try {
       const claimed = await document.send(new UpdateCommand({
         TableName: tableName,
@@ -1136,6 +1330,16 @@ async function prepareCapacity(event) {
   // there is none (ttsSiteOption in the main Lambda).
   const singleGpu = event.singleGpu === true;
   const existing = await scanState();
+  // A voice that cannot speak: say so and stop. No GPU is started, switched or
+  // kept retrying for it, on any site.
+  const failure = voiceFailureRecord(existing, modelKey);
+  if (failure) {
+    console.log('[model-coordinator][decision]', JSON.stringify({
+      request: 'prepare', source, decision: 'voice-failed', voiceProfileId: clean(model.voiceProfileId),
+      modelKey: modelKey.slice(0, 12),
+    }));
+    return voiceFailedResponse(failure, model);
+  }
   // A prewarm is a guess (the person's latest voice), not someone using it, so
   // it must not protect the GPU it lands on from switching to a real selection.
   if (source !== 'prewarm') await recordDemand(modelKey, model.voiceProfileId, now);
@@ -1237,6 +1441,11 @@ async function prepareCapacity(event) {
       model,
       matchingWorkers: readyMatching.length,
     });
+  }
+
+  // Voice Studio person: one person, one GPU, their own only (owner 2026-11-25).
+  if (isStudioPersonOwner(ownerKey) && !routingOnly()) {
+    return prepareStudioPerson({ existing, workers, group, ownerKey, modelKey, model, body, allowScale, source, now });
   }
 
   // The first GPU is still starting: every voice waits for it (it switches to
@@ -1479,6 +1688,80 @@ async function prepareCapacity(event) {
   });
 }
 
+// Voice Studio person (reserved:studio-p-…). Their own GPU only: switch it if it
+// is idle, wait for it if it is busy or still starting, start one only when they
+// have none. Never another idle GPU, never a second GPU (owner 2026-11-25:
+// "one person one GPU, max one stopping one starting").
+async function prepareStudioPerson({ existing, workers, group, ownerKey, modelKey, model, body, allowScale, source, now }) {
+  const log = (decision, extra = {}) => console.log('[model-coordinator][decision]', JSON.stringify({
+    request: 'prepare', source, decision, allowScale, voiceProfileId: clean(model.voiceProfileId),
+    modelKey: modelKey.slice(0, 12), desiredCapacity: group?.DesiredCapacity, ...extra,
+  }));
+  const ownGpu = await resolveStudioPersonGpu(existing, workers, ownerKey, modelKey, now);
+  if (ownGpu) {
+    const row = existing.find((item) => item.entity === 'OWNER' && itemInScope(item)
+      && item.ownerKey === ownerKey && item.instanceId === ownGpu.instanceId);
+    // Use keeps the reservation fresh (and so out of idle scale-in).
+    if (!row || now - Number(row.at || 0) >= 60_000 || row.modelKey !== modelKey) {
+      await recordGpuOwner(ownGpu.instanceId, ownerKey, modelKey, now);
+    }
+  }
+  const action = studioPersonAction({ ownGpu, requestedModelKey: modelKey });
+  if (action.type === 'route') {
+    log('own-gpu-busy-queued', { workerId: ownGpu.instanceId });
+    return capacityResponse({ state: 'BUSY_QUEUED', canStartConversation: true, model, matchingWorkers: 1 });
+  }
+  if (action.type === 'reassign') {
+    log('own-gpu-switch', { workerId: ownGpu.instanceId });
+    const scheduled = await scheduleReassignment(ownGpu, modelKey, body, now, { requiredIdleMs: 0, ownerKey });
+    return capacityResponse({
+      state: 'WARMING', canStartConversation: false, model, capacityAction: 'reassign',
+      started: scheduled.started, startedAt: Number(scheduled.pending?.requestedAt) || now,
+      message: 'Your GPU is loading your voice. One GPU per person.',
+    });
+  }
+  if (action.type === 'wait') {
+    log(action.reason === 'busy' ? 'own-gpu-await-idle' : 'own-gpu-starting', { workerId: ownGpu.instanceId });
+    return capacityResponse({
+      state: action.reason === 'busy' ? 'WARMING' : 'STARTING',
+      canStartConversation: false,
+      model,
+      capacityAction: action.reason === 'busy' ? 'reassign' : 'scale',
+      startedAt: Number(ownGpu.firstSeenAt) || now,
+      message: action.reason === 'busy'
+        ? 'Your GPU is finishing a reply. It loads this voice as soon as it is free; one GPU per person.'
+        : 'Your GPU is starting. Your voice loads on it as soon as it is up; one GPU per person.',
+    });
+  }
+  // No GPU of theirs anywhere. One already on its way for them (another of their
+  // voices) is still theirs: wait for it rather than starting a second.
+  const ownBoot = existing.find((item) => item.entity === 'PENDING' && itemInScope(item)
+    && item.ownerKey === ownerKey && now - Number(item.requestedAt || 0) < pendingTtlMs);
+  if (ownBoot) {
+    log('own-gpu-boot-pending');
+    return capacityResponse({
+      state: 'STARTING', canStartConversation: false, model, capacityAction: 'scale',
+      startedAt: Number(ownBoot.requestedAt) || now, sharedBoot: true,
+      message: 'Your GPU is starting. Your voice loads on it as soon as it is up; one GPU per person.',
+    });
+  }
+  if (!allowScale) {
+    log('on-demand');
+    return capacityResponse({ state: 'ON_DEMAND', canStartConversation: true, model, capacityAction: 'none' });
+  }
+  log('scale');
+  const scale = await requestScale(group, modelKey, body, now, { ownerKey });
+  return capacityResponse({
+    state: scale.atMaximum ? 'LIMIT' : 'STARTING',
+    canStartConversation: false,
+    model,
+    capacityAction: 'scale',
+    started: scale.started,
+    atMaximum: scale.atMaximum,
+    startedAt: now,
+  });
+}
+
 // Read-only load check for every open page on a voice: one table scan, no
 // worker probes, no demand/selection record (a polling tab must not count as
 // someone using the voice), never switches or scales.
@@ -1489,6 +1772,8 @@ async function peekCapacity(event) {
   const now = Date.now();
   const allItems = await scanState();
   const items = allItems.filter((item) => itemInScope(item));
+  const failure = voiceFailureRecord(items, modelKey);
+  if (failure) return { ...voiceFailedResponse(failure, body.voice_model || {}), busy: false };
   let rows = items.filter((item) => item.entity === 'WORKER' && item.coordinatorScope === coordinatorScope);
   // Saved rows are refreshed by every coordinator request; on a quiet fleet
   // they go stale, and a page would keep saying "loaded" after its GPU was
@@ -1536,6 +1821,10 @@ async function synthesize(event) {
   const now = Date.now();
   const model = body.voice_model || {};
   const existing = await scanState();
+  const failure = voiceFailureRecord(existing, modelKey);
+  if (failure) {
+    return { statusCode: 422, code: 'VOICE_FAILED', error: VOICE_FAILED_MESSAGE, voiceFailure: voiceFailedResponse(failure, model).voiceFailure };
+  }
   await recordDemand(modelKey, model.voiceProfileId, now);
   // Use keeps a reservation fresh: a reply in this voice refreshes whoever
   // reserved the GPU holding it (a lecture used for an hour stays protected
@@ -1816,6 +2105,9 @@ async function sweepIdleWorkers(now = Date.now(), { releasedWorkerIds = [] } = {
       now,
       idleMs: scaleInIdleMs,
       releasedWorkerIds,
+      // A Voice Studio person's GPU is never idled out while reserved (owner
+      // 2026-11-25); the studio releases it when their slot ends or they stop.
+      reservedWorkerIds: studioReservedWorkerIds(items, now),
       minSize: Number(group?.MinSize || 0),
       desired: Number(group?.DesiredCapacity || 0),
       lastDemandByModel: demandMap(items),
@@ -1877,6 +2169,10 @@ async function releaseOwner(ownerKey, now = Date.now()) {
   if (!ownerKey) return { statusCode: 400, error: 'ownerKey is required' };
   const items = await scanState();
   const records = items.filter((item) => item.entity === 'OWNER' && itemInScope(item) && item.ownerKey === ownerKey);
+  // Their boot or switch still on its way is cancelled too: nothing keeps
+  // loading a voice for someone who is done.
+  const requests = items.filter((item) => ['PENDING', 'REASSIGN'].includes(item.entity) && itemInScope(item) && item.ownerKey === ownerKey);
+  await Promise.all(requests.map((item) => document.send(new DeleteCommand({ TableName: tableName, Key: { id: item.id } })).catch(() => {})));
   await Promise.all(records.map((item) => document.send(new DeleteCommand({ TableName: tableName, Key: { id: item.id } })).catch(() => {})));
   const releasedWorkerIds = records.map((item) => item.instanceId).filter(Boolean);
   const removed = [];
@@ -1925,6 +2221,8 @@ export async function handler(event = {}) {
     if (event.action === 'synthesize') return withSweep(await synthesize(event));
     if (event.action === 'sweep') return { statusCode: 200, removed: await sweepIdleWorkers() };
     if (event.action === 'release') return releaseOwner(clean(event.ownerKey));
+    if (event.action === 'voice-failures') return listVoiceFailures();
+    if (event.action === 'clear-voice-failure') return clearVoiceFailure(clean(event.modelKey));
     return { statusCode: 400, error: 'Unknown coordinator action' };
   } catch (error) {
     console.error('[model-coordinator]', error);

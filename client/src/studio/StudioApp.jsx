@@ -45,7 +45,7 @@ import { StaffAvailability } from './StaffAvailability.jsx';
 import { CleanUp } from './CleanUp.jsx';
 import { MobileLine, StageHeader, SuperSidebar } from './SuperLineChrome.jsx';
 import { LineMap } from './LineMap.jsx';
-import { PersonTrip, QualityList, RecordingStage, TestingNow, TrainingStage } from './LineStages.jsx';
+import { PersonTrip, QualityList, RecordingStage, TestingNow, TrainingStage, VoiceFailures } from './LineStages.jsx';
 
 function who(job) {
   return job.ownerName || job.ownerEmail;
@@ -1116,6 +1116,7 @@ function SuperuserConsole() {
           <MobileLine line={line} />
         </div>
         <main className="mx-auto max-w-[1680px] space-y-4 px-4 py-4 sm:px-6 sm:py-6 xl:px-8">
+          {data && <VoiceFailures overview={data} />}
           {/* Busy: a thin bar across the top plus a clear, calm pill (owner 2026-11-24: more visible, not flashy). */}
           {busy && (
             <>

@@ -9,7 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  CheckCircle2, Download, Loader2, MessageCircle, Mic, Play, ScanSearch, Send, Square, Volume2,
+  AlertTriangle, CheckCircle2, Download, Loader2, MessageCircle, Mic, Play, ScanSearch, Send, Square, Volume2,
 } from 'lucide-react';
 import { createLiveChatSocket } from '@/services/liveChatSocket.js';
 import { acquireApiToken, shouldAttachApiToken } from '@/auth/msalClient.js';
@@ -67,6 +67,12 @@ function useVoiceReady(voiceName) {
         }
         const { data } = await prepareVoiceCapacity(voiceProfileId);
         if (cancelled) return;
+        // The voice cannot speak: no GPU is loading it, so stop asking (owner
+        // 2026-11-25: surface the error, never keep a lecturer "warming").
+        if (data?.state === 'VOICE_FAILED') {
+          setState({ status: 'failed', capacity: data, error: data.message || '' });
+          return;
+        }
         if (data?.canStartConversation) {
           setState({ status: 'ready', capacity: data, error: '' });
           // Keep-alive: asking again marks the GPU as still in use, so its
@@ -167,6 +173,35 @@ function WarmingCard({ gpu, slotWarm }) {
             : 'This usually takes a few minutes. You can leave this page open — it opens your voice by itself when it is ready.'}
       </p>
       {gpu.error && gpu.status === 'error' && <p className="mx-auto mt-4 max-w-md rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{gpu.error}</p>}
+    </Card>
+  );
+}
+
+// The voice could not be loaded on a GPU. Lecturers are told it has been
+// reported; super users see why and what it needs (retrain / re-record).
+function VoiceFailedCard({ gpu, slotWarm, audience }) {
+  const failure = gpu.capacity?.voiceFailure || {};
+  const reason = failure.reason || slotWarm?.reason || '';
+  const rerecord = (failure.action || slotWarm?.action) === 'rerecord';
+  return (
+    <Card className="border-rose-200 p-8 text-center sm:p-12">
+      <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+        <AlertTriangle size={26} />
+      </span>
+      {audience === 'lecturer' ? (
+        <>
+          <h2 className="mt-5 text-xl font-semibold text-slate-900">We could not load your voice</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+            Something is wrong with your trained voice, so it cannot be tested right now. The Voice Studio team has been told automatically and will contact you about the next step. You do not need to do anything.
+          </p>
+        </>
+      ) : (
+        <>
+          <h2 className="mt-5 text-xl font-semibold text-slate-900">Voice not loaded: {rerecord ? 'needs re-recording' : 'needs retraining'}</h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-700">{reason || 'The voice model loads but produces no speech.'}</p>
+          <p className="mx-auto mt-2 max-w-lg text-xs leading-5 text-slate-500">No GPU is kept on or retried for this voice. {rerecord ? 'Withdraw the voice to reopen their recording page (at least 10 minutes), then retrain.' : 'Retrain it; if that fails, ask for new recordings.'}</p>
+        </>
+      )}
     </Card>
   );
 }
@@ -589,6 +624,8 @@ export default function VoiceTestBench({
   const gpu = useVoiceReady(voice);
   const wait = useVoiceWait(voice, gpu);
   const ready = gpu.status === 'ready';
+  // From this page's own check, or from the slot's warm-up (which already gave up).
+  const failed = gpu.status === 'failed' || slotWarm?.state === 'VOICE_FAILED';
   useEffect(() => {
     reportActivity = audience === 'superuser' ? recordTestActivity : (voice ? () => recordVoiceActivity(voice) : null);
     noteTestActivity();
@@ -615,9 +652,9 @@ export default function VoiceTestBench({
             <span className="min-w-0 truncate font-semibold text-slate-900" title={voice}>{voiceLabels[voice] || voice}</span>
           )}
         </label>
-        <span className={cn('inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold', ready ? 'bg-emerald-50 text-emerald-700' : gpu.status === 'error' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800')}>
-          {ready ? <CheckCircle2 size={13} /> : gpu.status === 'error' ? null : <Loader2 size={13} className="animate-spin" />}
-          {ready ? 'Ready' : gpu.status === 'error' ? 'This voice cannot be used' : audience === 'lecturer' ? 'Getting your voice ready' : (gpu.capacity?.state === 'STARTING' ? 'Starting a GPU with this voice' : 'Getting this voice ready')}
+        <span className={cn('inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold', ready ? 'bg-emerald-50 text-emerald-700' : gpu.status === 'error' || failed ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800')}>
+          {ready ? <CheckCircle2 size={13} /> : gpu.status === 'error' || failed ? null : <Loader2 size={13} className="animate-spin" />}
+          {ready ? 'Ready' : failed ? (audience === 'lecturer' ? 'Could not load your voice' : 'Voice not loaded') : gpu.status === 'error' ? 'This voice cannot be used' : audience === 'lecturer' ? 'Getting your voice ready' : (gpu.capacity?.state === 'STARTING' ? 'Starting a GPU with this voice' : 'Getting this voice ready')}
         </span>
         <div className="flex w-full gap-1 rounded-lg bg-slate-100 p-1 sm:ml-auto sm:w-auto" role="tablist" aria-label="How to test">
           {[['chat', 'Chat', MessageCircle], ['read', 'Read aloud', Volume2]].map(([value, label, Icon]) => (
@@ -632,7 +669,7 @@ export default function VoiceTestBench({
       <GpuWaitDialog wait={wait} />
       {gpu.status === 'error' && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{gpu.error}</p>}
       {gpu.status !== 'error' && gpu.error && audience === 'superuser' && <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">Still trying: {gpu.error}</p>}
-      {audience === 'lecturer' && !ready ? <WarmingCard gpu={gpu} slotWarm={slotWarm} /> : (
+      {failed ? <VoiceFailedCard gpu={gpu} slotWarm={slotWarm} audience={audience} /> : audience === 'lecturer' && !ready ? <WarmingCard gpu={gpu} slotWarm={slotWarm} /> : (
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         {/* A bounded height so the chat scrolls inside and its input stays on screen. */}
         <Card className="flex h-[72dvh] min-h-[440px] max-h-[760px] min-w-0 flex-col overflow-hidden xl:h-[680px]">

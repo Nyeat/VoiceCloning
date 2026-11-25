@@ -31,6 +31,8 @@ export const MAX_TRAINING_ATTEMPTS = 3;
 export const DEFAULT_TRAINING_MINUTES = 30;
 export const GPU_BOOT_MINUTES = 5;
 export const MIN_SLOT_MINUTES = 15;
+export { MIN_TRAINING_AUDIO_SECONDS } from '../shared/voiceFailureDiagnosis.js';
+import { MIN_TRAINING_AUDIO_SECONDS } from '../shared/voiceFailureDiagnosis.js';
 export const MAX_SLOT_MINUTES = 8 * 60;
 // The GPU is started this long before a slot so the voice is ready at the start.
 export const SLOT_WARMUP_MINUTES = 30;
@@ -93,6 +95,7 @@ export function normalizeState(raw) {
     history: Array.isArray(raw.history) ? raw.history : [],
     cleanupLog: Array.isArray(raw.cleanupLog) ? raw.cleanupLog : [],
     keptVoices: Array.isArray(raw.keptVoices) ? raw.keptVoices : [],
+    voiceFailures: Array.isArray(raw.voiceFailures) ? raw.voiceFailures : [],
   };
 }
 
@@ -232,6 +235,21 @@ export function createJob(state, { id, ownerEmail, ownerName = '', expName, labe
 
 export function findJob(state, id) {
   return state.jobs.find((job) => job.id === id) || null;
+}
+
+/**
+ * Total recorded speech in a submission, from the per-file durations the page
+ * measured. Below MIN_TRAINING_AUDIO_SECONDS a voice is not trained: a 29 s
+ * sample trained into a voice that could not speak (2026-11-25).
+ */
+export function assertEnoughAudio(seconds) {
+  const total = Object.values(seconds && typeof seconds === 'object' ? seconds : {})
+    .reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+  if (total < MIN_TRAINING_AUDIO_SECONDS) {
+    const have = total < 90 ? `${Math.round(total)} s` : `${Math.round(total / 60)} min`;
+    throw clientError(400, `At least ${MIN_TRAINING_AUDIO_SECONDS / 60} minutes of recordings are needed to train a voice (this set has ${have}). Record or add more audio, then submit.`);
+  }
+  return total;
 }
 
 export function submitJob(job, { files, now }) {
@@ -1278,6 +1296,8 @@ export function reminderKey(slot) {
 export function slotsToRemind(state, now) {
   return state.slots.filter((slot) => slotHoldsGpu(slot)
     && !slot.reminderSentAt
+    // "Your voice is loaded" would be untrue: the admins are handling it.
+    && !warmFailed(slot)
     && ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now
     && now < ms(slot.start));
 }
@@ -1381,9 +1401,22 @@ export function gpuHolds(state, now) {
  */
 export const GPU_BOOT_ESTIMATE_MINUTES = 15;
 export const GPU_SWITCH_ESTIMATE_MINUTES = 2;
-export function nextWarmState(previous, capacity, now) {
+export function nextWarmState(previous, capacity, now, voiceName = '') {
   const ready = Boolean(capacity?.canStartConversation);
   const state = String(capacity?.state || (ready ? 'READY' : 'CHECKING'));
+  // The voice cannot speak: the warm-up stops here (owner 2026-11-25), with the
+  // root cause for super users. Never shown as "warming".
+  if (state === 'VOICE_FAILED') {
+    const failure = capacity?.voiceFailure || {};
+    return {
+      state,
+      voiceName: cleanText(voiceName, 120),
+      reason: cleanText(failure.reason || capacity?.message, 400),
+      action: failure.action === 'rerecord' ? 'rerecord' : 'retrain',
+      failedAt: previous?.state === state ? previous.failedAt : iso(now),
+      checkedAt: iso(now),
+    };
+  }
   if (ready) return { state: 'READY', readyAt: previous?.readyAt || iso(now), startedAt: previous?.startedAt || iso(now), checkedAt: iso(now) };
   // A new phase (e.g. switching after a boot) restarts the clock it is measured by.
   const samePhase = previous && previous.state === state && previous.state !== 'READY';
@@ -1397,6 +1430,44 @@ export function nextWarmState(previous, capacity, now) {
     message: cleanText(capacity?.message, 300),
     checkedAt: iso(now),
   };
+}
+
+/** A slot whose warm-up found this voice cannot speak: nothing more is tried for it. */
+export function warmFailed(slot, voiceName = '') {
+  return slot?.warm?.state === 'VOICE_FAILED' && (!voiceName || !slot.warm.voiceName || slot.warm.voiceName === voiceName);
+}
+
+/**
+ * Voices the GPU coordinator marked as unable to speak (any site), merged into
+ * the studio's list. Returns the ones nobody has been told about yet; the
+ * caller emails super users and marks them reported. A voice's owner is the
+ * person whose approved voice it is, when it is a studio voice.
+ */
+export function mergeVoiceFailures(state, failures = [], now) {
+  state.voiceFailures = Array.isArray(state.voiceFailures) ? state.voiceFailures : [];
+  for (const failure of failures) {
+    if (!failure?.modelKey) continue;
+    const runName = String(failure.runName || '') || String(failure.voiceProfileId || '').replace(/-v\d+$/u, '');
+    const owner = state.jobs.find((job) => runName && (job.approvedExpName === runName || job.expName === runName));
+    const existing = state.voiceFailures.find((entry) => entry.modelKey === failure.modelKey);
+    const fields = {
+      modelKey: failure.modelKey,
+      voiceProfileId: cleanText(failure.voiceProfileId, 120),
+      voiceName: runName,
+      reason: cleanText(failure.reason, 400),
+      action: failure.action === 'rerecord' ? 'rerecord' : 'retrain',
+      trainedSeconds: Number.isFinite(Number(failure.trainedSeconds)) && failure.trainedSeconds !== null ? Number(failure.trainedSeconds) : null,
+      stage: cleanText(failure.stage, 20),
+      error: cleanText(failure.error, 300),
+      failedAt: failure.failedAt ? iso(Number(failure.failedAt)) : iso(now),
+      ownerEmail: owner?.ownerEmail || '',
+      ownerName: owner?.ownerName || '',
+    };
+    if (existing) Object.assign(existing, fields, { reportedAt: existing.reportedAt || null });
+    else state.voiceFailures.push({ ...fields, reportedAt: null });
+  }
+  state.voiceFailures = state.voiceFailures.slice(-50);
+  return state.voiceFailures.filter((entry) => !entry.reportedAt);
 }
 
 /**
@@ -1416,7 +1487,8 @@ export const SUPERUSER_TEST_IDLE_MINUTES = 30;
 /** The fixed GPU must stay on (and be started) while any of this is true. */
 export function gpuDemand(state, now) {
   if (state.jobs.some((job) => real(job) && (job.status === 'training' || job.status === 'queued'))) return 'training';
-  if (gpuHolds(state, now).length > 0) return 'slot';
+  // A slot whose voice cannot load keeps nothing on (it was reported).
+  if (gpuHolds(state, now).some((hold) => !warmFailed(hold.slot))) return 'slot';
   // Anyone testing a voice on this site (super user or lecturer: chat, reading)
   // keeps the fixed GPU, which also serves live chat, on for 30 min after.
   const lastTest = Math.max(ms(state.lastSuperuserTestAt) || 0, ms(state.lastLecturerTestAt) || 0);

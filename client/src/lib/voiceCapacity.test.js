@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   voiceCapacityBlocksConversation,
   voiceCapacityNotice,
+  voiceCapacityTitle,
+  voiceCapacityWait,
 } from './voiceCapacity.js';
 
 test('a missing model blocks conversation and gives the truthful fifteen-minute alternative', () => {
@@ -105,4 +107,12 @@ test('a voice waiting on a GPU that was already starting says so, with its real 
   assert.match(voiceCapacityNotice(capacity), /already starting/u);
   assert.equal(voiceCapacityWait(capacity, null, 'v1', 600_000).startedAt, 1_000);
   assert.equal(voiceCapacityTitle({ state: 'STARTING' }), 'Starting a GPU with this voice');
+});
+
+test('a voice that cannot load blocks the chat, shows why, and opens no wait popup', () => {
+  const capacity = { state: 'VOICE_FAILED', canStartConversation: false, message: 'This voice could not be loaded. Reason: Training audio too short.' };
+  assert.equal(voiceCapacityBlocksConversation(capacity), true);
+  assert.match(voiceCapacityNotice(capacity), /too short/u);
+  assert.equal(voiceCapacityTitle(capacity), 'This voice could not be loaded');
+  assert.equal(voiceCapacityWait(capacity, null, 'v1'), null);
 });
