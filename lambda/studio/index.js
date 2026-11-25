@@ -524,7 +524,7 @@ export function createHandler({
         // over (or a test the lecturer finished early) is not shown anywhere.
         .filter((slot) => slot.status !== 'cancelled' && wf.slotEnd(slot) > now)
         .sort((a, b) => a.start.localeCompare(b.start)),
-      draftCount: state.slots.filter((slot) => slot.status === 'draft' && !wf.awaitsHost(state, slot)).length,
+      draftCount: state.slots.filter((slot) => (slot.status === 'draft' && !wf.awaitsHost(state, slot)) || slot.pending).length,
       // Bookings waiting for their host to confirm (Publish leaves them as drafts).
       awaitingHost: state.slots.filter((slot) => wf.awaitsHost(state, slot)).length,
       people: [...new Map(state.jobs.filter((job) => job.status !== 'uploading').map((job) => [job.ownerEmail, {
@@ -890,6 +890,16 @@ export function createHandler({
           return ok(await adminView((await store.read()).state, email), {}, event);
         }
 
+        // Throw away a published test slot's unpublished changes.
+        if (route === 'DELETE admin/slots/:id/pending') {
+          await updateState(store, (state) => {
+            wf.assertMayChange(state, { actorEmail: email, staff: wf.listSuperusers(state, env), slotId: parts[2] });
+            wf.discardPending(state, parts[2]);
+            return null;
+          });
+          return ok(await adminView((await store.read()).state, email), {}, event);
+        }
+
         if (route === 'DELETE admin/slots/:id') {
           const { result } = await updateState(store, (state) => {
             wf.assertMayChange(state, { actorEmail: email, staff: wf.listSuperusers(state, env), slotId: parts[2], remove: true });
@@ -908,10 +918,15 @@ export function createHandler({
 
         if (route === 'POST admin/slots/publish') {
           const { result } = await updateState(store, (state) => {
+            // Held edits of published test slots take effect only now; a GPU
+            // already warming for the old time or person is given back.
+            const before = wf.applyPendingEdits(state, now);
             const toNotify = wf.publishSlots(state, now);
+            const release = [...new Set(before.map((slot) => wf.gpuToRelease(state, slot, now)).filter(Boolean))];
             // Staff whose availability a now-published booking took: pick another time.
-            return { toNotify, overridden: wf.overrideNotices(state, env, now), freeAgain: wf.freeAgainNotices(state, env, now) };
+            return { toNotify, release, overridden: wf.overrideNotices(state, env, now), freeAgain: wf.freeAgainNotices(state, env, now) };
           });
+          for (const person of result.release) await releaseGpuOf(person);
           const sent = await sendSlotNotices(result.toNotify, result.overridden);
           sent.push(...(await sendFreeAgain(result.freeAgain)));
           await warmNow();

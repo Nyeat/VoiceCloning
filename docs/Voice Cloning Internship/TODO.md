@@ -301,3 +301,5 @@
 - [ ] Decide whether generated config sample WAVs should be uploaded and persisted, instead of only saving sample metadata.
 - [ ] Reconcile current deployment/source-of-truth docs now that older handoff files were renamed with `(Outdated)`.
 - [ ] Decide whether repo-managed deployment should also check in `gpu-worker.service` and `live-gateway.service`; only `systemd/gpu-inference-worker.service` is currently present in the repo.
+- [ ] Deploy + live-test held slot edits (2026-11-25): move a published test slot, Save -> lecturer page/GPU unchanged,
+  "Changes not published" shown; Publish -> "moved" email, warms for the new time; Discard -> back to published.

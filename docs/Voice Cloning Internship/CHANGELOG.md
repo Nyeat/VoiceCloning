@@ -2997,3 +2997,18 @@
   "Reset for a new voice" (`cleanupRecords` canReset/reset). Retrain: lecturer emailed "being retrained"
   (`templates.retraining`, with ETA); page already showed Waiting to retrain / Retraining. Lambda 469/469, client
   592/592, studio build. Not checked in a browser.
+
+## 2026-11-25 — Voice Studio: edits to a published test slot wait for Publish; email delivery diagnosis
+
+- Owner: changing a published test slot must not change anything live until Publish. `editSlot` now saves the edit in
+  `slot.pending` {start,end,assigneeEmail,assigneeName} (the slot stays published: its time, GPU, reminders and the
+  lecturer page follow the published values). `applyPendingEdits` (called by `publishSlots` and the publish route)
+  puts the change into effect, resets warm/reminders/preload, emails "moved"/booked/cancelled as before, and gives back
+  a GPU already warming for the old time (`gpuToRelease`). New `DELETE admin/slots/:id/pending` + `discardPending`
+  ("Discard changes"). `draftCount` counts held edits. Never-published drafts and recording sessions are unchanged.
+  Client: Schedule shows the held version as a draft with "published: <old time>", composer note + Discard
+  (`StudioApp.jsx`, `studioApi.js`). Files: lambda/studio/{workflow,index}.js + tests. Lambda 470/470, client
+  592/592, studio build. Not deployed; not checked in a browser.
+- Email: SES works from the Lambda role (temp Lambda test, deleted). Gmail gets mail; NTU mailboxes do not (SES Send 8-9,
+  Delivery 2, Bounce 0 for QC emails to all 8 super users). lkc-digitallearning@ntu.edu.sg has no SES DKIM (DMARC
+  p=quarantine) -> Gmail spam; lkcmedicine.org (DKIM ok) reaches Gmail inbox but still not NTU. Needs NTU IT.

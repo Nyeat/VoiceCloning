@@ -82,6 +82,8 @@ export const reviewJob = (jobId, body) => api.post(`/studio/admin/jobs/${enc(job
 export const addSlot = (slot) => api.post('/studio/admin/slots', slot).then((res) => res.data);
 export const editSlot = (id, changes) => api.put(`/studio/admin/slots/${enc(id)}`, changes).then((res) => res.data);
 export const deleteSlot = (id) => api.delete(`/studio/admin/slots/${enc(id)}`).then((res) => res.data);
+// A published test slot's saved-but-unpublished changes (slot.pending) are thrown away.
+export const discardSlotChanges = (id) => api.delete(`/studio/admin/slots/${enc(id)}/pending`).then((res) => res.data);
 export const publishSlots = () => api.post('/studio/admin/slots/publish', {}).then((res) => res.data);
 export const retryJob = (jobId) => api.post(`/studio/admin/jobs/${enc(jobId)}/retry`, {}).then((res) => res.data);
 export const cancelJob = (jobId, { email = false, notes = '' } = {}) => api.post(`/studio/admin/jobs/${enc(jobId)}/cancel`, { email, notes }).then((res) => res.data);

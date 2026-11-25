@@ -283,9 +283,9 @@ export function slotKind(slot) {
 export function slotHoldsGpu(slot) {
   if (!real(slot) || slotKind(slot) !== 'test' || !slot.assigneeEmail) return false;
   if (slot.status === 'published') return true;
-  // Owner 2026-11-23: an edited published slot (a draft again until republished)
-  // keeps its person's GPU on the NEW times at once (warms 30 min before the new
-  // start, runs to the new end). A different person waits until it is published.
+  // Edits of a published test slot are now held in slot.pending (owner 2026-11-25),
+  // so it stays published. This covers drafts saved before that change: the same
+  // person keeps their GPU on the slot's times; a different person waits for Publish.
   return slot.status === 'draft' && Boolean(slot.notified?.assigneeEmail)
     && sameNtuPerson(slot.notified.assigneeEmail, slot.assigneeEmail);
 }
@@ -976,7 +976,12 @@ export function addSlot(state, {
 export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, hostName, hostNames }, now, staff) {
   const slot = findSlot(state, id);
   if (!slot) throw clientError(404, 'Slot not found');
-  const times = validateTimes(start ?? slot.start, end ?? slot.end, now);
+  // A published test slot keeps running as published until Publish (owner
+  // 2026-11-25): the edit is held in slot.pending, so its time, person, GPU,
+  // reminders and the lecturer's page change only when it is published.
+  const holdEdit = slotKind(slot) === 'test' && slot.status === 'published';
+  const base = holdEdit && slot.pending ? slot.pending : slot;
+  const times = validateTimes(start ?? base.start, end ?? base.end, now);
   if (assigneeEmail !== undefined) {
     if (slotKind(slot) === 'test' && !normalizeEmail(assigneeEmail)) throw clientError(400, 'A slot needs a person');
     checkAssignee(slotKind(slot), assigneeEmail);
@@ -989,7 +994,19 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
     error.code = 'SLOT_TAKEN';
     throw error;
   }
-  assertNoClash(state, times, id, slotKind(slot), assigneeEmail ?? slot.assigneeEmail);
+  assertNoClash(state, times, id, slotKind(slot), assigneeEmail ?? base.assigneeEmail);
+  if (holdEdit) {
+    const next = {
+      ...times,
+      assigneeEmail: assigneeEmail !== undefined ? normalizeEmail(assigneeEmail) : base.assigneeEmail,
+      assigneeName: assigneeName !== undefined ? cleanText(assigneeName, 80) : (base.assigneeName || ''),
+    };
+    const unchanged = next.start === slot.start && next.end === slot.end
+      && next.assigneeEmail === slot.assigneeEmail && next.assigneeName === (slot.assigneeName || '');
+    slot.pending = unchanged ? null : { ...next, at: iso(now) };
+    slot.updatedAt = iso(now);
+    return slot;
+  }
   const hosts = hostNames !== undefined || hostName !== undefined ? hostFields(hostNames, hostName) : null;
   if (hosts && slotKind(slot) === 'recording') {
     hosts.hostNames = superuserHosts(hosts.hostNames, staff, slot.hostNames || []);
@@ -1038,6 +1055,32 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
  * started for it and must be given back now, or '' (never warmed, already
  * released, or that person still has another slot holding their GPU).
  */
+/**
+ * Publish step one: held edits of published test slots take effect. Each such
+ * slot gets its new time/person, a fresh warm-up and reminders, and is left as a
+ * draft for publishSlots to email. Returns the slots as they were before, so the
+ * caller can give back a GPU already warming for the old booking (gpuToRelease).
+ */
+export function applyPendingEdits(state, now, onlyId = '') {
+  const before = [];
+  for (const slot of state.slots.filter((item) => item.pending && (!onlyId || item.id === onlyId))) {
+    before.push({ ...slot });
+    const { at: _at, ...next } = slot.pending;
+    Object.assign(slot, next, {
+      pending: null, status: 'draft', updatedAt: iso(now), preloadedAt: null, reminderSentAt: null, warm: null, gpuReleasedAt: null,
+    });
+  }
+  return before;
+}
+
+/** Throws away a published test slot's unpublished changes. */
+export function discardPending(state, id) {
+  const slot = findSlot(state, id);
+  if (!slot) throw clientError(404, 'Slot not found');
+  slot.pending = null;
+  return slot;
+}
+
 export function gpuToRelease(state, before, now) {
   if (!before || slotKind(before) !== 'test' || !before.warm || before.gpuReleasedAt || !before.assigneeEmail) return '';
   const stillHeld = gpuHolds(state, now).some((hold) => sameNtuPerson(hold.slot.assigneeEmail, before.assigneeEmail));
@@ -1060,6 +1103,7 @@ export function removeSlot(state, id) {
  */
 export function publishSlots(state, now, onlyId = '') {
   const toNotify = [];
+  applyPendingEdits(state, now, onlyId);
   // A booking waits for its host to confirm (or hand it on) before it goes out.
   for (const slot of state.slots.filter((item) => item.status === 'draft' && !awaitsHost(state, item) && (!onlyId || item.id === onlyId))) {
     slot.status = 'published';

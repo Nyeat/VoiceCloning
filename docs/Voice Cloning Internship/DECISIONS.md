@@ -403,3 +403,5 @@ These live in runtime configuration and will not appear in any branch diff:
 - 2026-11-24 (owner): recording sessions are for staff only (account-based availability, first booking wins, others
   emailed) plus reminder emails to the person; they never change the lecturer page. Testing voices and status are
   shared by all super users; only free time / confirming is per account.
+- 2026-11-25 (owner): edits to a PUBLISHED test slot are held (`slot.pending`) and change nothing live (time, GPU,
+  reminders, lecturer page) until Publish; replaces the 2026-11-23 rule that the same person's GPU followed the new time at once.

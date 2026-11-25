@@ -28,7 +28,7 @@ import {
   addDays, dayHours, formatDay, formatLength, formatMinutes, monthOf, sgtDayKey, sgtIso, sgtMinutes,
 } from './slotCalendar.js';
 import {
-  addSlot, addSuperuser, cancelJob, sendTestEmail, deleteSlot, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
+  addSlot, addSuperuser, cancelJob, sendTestEmail, deleteSlot, discardSlotChanges, editSlot, errorText, formatRange, formatSgt, getMe, getOverview,
   googleSignIn, publishSlots, relativeFromNow, removeSuperuser, renameSuperuser, resetPerson, retryJob, reviewJob,
   sendFeedback,
 } from './studioApi.js';
@@ -489,7 +489,7 @@ function AvailabilityFields({ draft, setDraft, availability, me, onPickAnother }
   );
 }
 
-function SlotComposer({ kind, draft, setDraft, people, staffSuggestions, onSave, onDelete, onCancel, availability, me, onPickAnother }) {
+function SlotComposer({ kind, draft, setDraft, people, staffSuggestions, onSave, onDelete, onDiscard, onCancel, availability, me, onPickAnother }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const typedEmail = String(draft.person || '').trim();
   const taken = kind === 'recording' && Boolean(availability?.overriddenBy);
@@ -537,11 +537,18 @@ function SlotComposer({ kind, draft, setDraft, people, staffSuggestions, onSave,
         <Button variant={overriding ? 'danger' : 'dark'} disabled={!canSave} onClick={onSave}>
           {overriding ? `Book & override ${overriding} availabilit${overriding === 1 ? 'y' : 'ies'}` : draft.id ? 'Save changes' : kind === 'recording' ? (freeBlocks > 1 ? `Add ${freeBlocks} free blocks` : typedEmail ? 'Book session' : 'Add free time') : 'Add slot'}
         </Button>
+        {draft.live && <Button variant="outline" onClick={onDiscard}>Discard changes</Button>}
         {draft.id && (confirmDelete
           ? <Button variant="danger" onClick={onDelete}>Confirm delete</Button>
           : <Button variant="ghost" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete</Button>)}
       </div>
-      {draft.id && <p className="text-[11px] text-slate-500">{kind === 'recording' ? 'Saving a published one makes it a draft again until you publish.' : 'Saving a published one makes it a draft again until you publish (that emails the new time). For the same person, their GPU follows the new time right away: on 30 min before the new start, off at the new end.'}</p>}
+      {draft.live && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Not published yet. Until you press Publish, the slot stays at <b>{formatSgt(draft.live.start)} – {formatSgt(draft.live.end, { withDate: false })}</b>
+          {draft.live.assigneeEmail !== draft.person ? <> for <b>{draft.live.assigneeName || draft.live.assigneeEmail}</b></> : ''} (their page, GPU and reminders follow that).
+        </p>
+      )}
+      {draft.id && <p className="text-[11px] text-slate-500">{kind === 'recording' ? 'Saving a published one makes it a draft again until you publish.' : draft.published ? 'Changes to a published slot are saved as a draft. Nothing changes for the lecturer (time, GPU, page, emails) until you press Publish.' : 'A draft: nothing is sent and no GPU is kept for it until you press Publish.'}</p>}
     </div>
   );
 }
@@ -598,7 +605,13 @@ function Schedule({ overview, onAction, kind = 'test' }) {
   const prefill = params.get('person') || '';
   const nowMs = Date.parse(overview.now) || Date.now();
   const today = sgtDayKey(nowMs);
-  const slots = overview.slots.filter((slot) => (slot.kind === 'recording' ? 'recording' : 'test') === kind && Date.parse(slot.end) > nowMs);
+  // A published test slot with unpublished changes is drawn as its draft (the new
+  // time/person); `live` keeps what is published and running until Publish.
+  const slots = overview.slots
+    .map((slot) => (slot.pending
+      ? { ...slot, ...slot.pending, status: 'draft', live: { start: slot.start, end: slot.end, assigneeEmail: slot.assigneeEmail, assigneeName: slot.assigneeName } }
+      : slot))
+    .filter((slot) => (slot.kind === 'recording' ? 'recording' : 'test') === kind && Date.parse(slot.end) > nowMs);
   const [day, setDay] = useState(today);
   const [month, setMonth] = useState(monthOf(today));
   const minutesDefault = DEFAULT_MINUTES[kind];
@@ -695,6 +708,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
       id: original.id, day: key, start: sgtMinutes(original.start),
       minutes: Math.round((Date.parse(original.end) - Date.parse(original.start)) / 60000),
       person: original.assigneeEmail || '', originalPerson: original.assigneeEmail || '', name: original.assigneeName || '', hosts: slotHosts(original), ownHosts: slotHosts(original),
+      published: original.kind !== 'recording' && (original.status === 'published' || Boolean(original.live)), live: original.live || null,
     });
   }
   async function markFree(range) {
@@ -800,6 +814,7 @@ function Schedule({ overview, onAction, kind = 'test' }) {
               onSave={save}
               onCancel={() => setDraft(null)}
               onDelete={() => onAction(() => deleteSlot(draft.id)).then((done) => { if (done) setDraft(null); })}
+              onDiscard={() => onAction(() => discardSlotChanges(draft.id)).then((done) => { if (done) setDraft(null); })}
               availability={availability}
               me={me}
               onPickAnother={() => draftOriginal && pickAnotherTime(draftOriginal)}
@@ -852,14 +867,17 @@ function Schedule({ overview, onAction, kind = 'test' }) {
                   <button type="button" onClick={() => edit(slot)} className="flex w-full items-start gap-3 px-4 py-3 text-left text-sm hover:bg-slate-50 sm:items-center sm:px-5 sm:py-2.5">
                     <span className={cn('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full sm:mt-0', TONES[tone].dot)} />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
-                      <span className="font-medium text-slate-800 sm:w-44 sm:shrink-0">{formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}</span>
+                      <span className="font-medium text-slate-800 sm:w-44 sm:shrink-0">
+                        {formatSgt(slot.start)} – {formatSgt(slot.end, { withDate: false })}
+                        {slot.live && <span className="block text-[11px] font-normal text-slate-500">published: {formatSgt(slot.live.start)} – {formatSgt(slot.live.end, { withDate: false })}</span>}
+                      </span>
                       <span className="min-w-0 flex-1 truncate text-slate-700" title={slot.assigneeEmail || undefined}>
                         {slot.assigneeEmail ? <>{slot.assigneeName || slot.assigneeEmail} <span className="text-xs text-slate-500">{slot.assigneeName ? slot.assigneeEmail : ''}</span></> : slot.overriddenBy ? <span className="font-medium text-slate-500">Overridden · taken by {(slot.overriddenBy.hostNames || []).join(', ') || 'a booking'}</span> : <span className="font-medium text-emerald-700">{slot.assigneeName ? `${slot.assigneeName} · ` : ''}{copy.open}</span>}
                         {slotHosts(slot).length > 0 && <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">{slotHosts(slot).map((name) => <StaffChip key={name} name={name} size="sm" />)}</span>}
                       </span>
                     </span>
                     <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', slot.status === 'draft' ? 'bg-amber-100 text-amber-800' : tone === 'live' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800')}>
-                      {slot.status === 'draft' ? 'Draft' : tone === 'live' ? 'Now' : 'Published'}
+                      {slot.live ? 'Changes not published' : slot.status === 'draft' ? 'Draft' : tone === 'live' ? 'Now' : 'Published'}
                     </span>
                   </button>
                 </li>

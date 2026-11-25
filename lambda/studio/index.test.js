@@ -489,16 +489,30 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   await h.call(boss, 'POST', 'admin/tick');
   assert.equal(h.preloaded.length, 1);
   assert.equal(h.released.length, 0);
-  // Moving it to later: the warming GPU is given back now.
-  assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { start: at(200), end: at(220) })).status, 200);
+  // Moving it to later is saved but held: the GPU keeps warming for the published time.
+  const held = await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { start: at(200), end: at(220) });
+  assert.equal(held.status, 200);
+  assert.equal(h.released.length, 0, 'nothing changes before Publish');
+  assert.equal(held.body.draftCount, 1, 'the held change counts towards Publish');
+  // Publish: the warming GPU is given back now.
+  assert.equal((await h.call(boss, 'POST', 'admin/slots/publish', {})).status, 200);
   assert.equal(h.released.length, 1);
   assert.match(h.released[0], /^reserved:studio-p-/u);
   // Deleting a slot that never warmed releases nothing.
   assert.equal((await h.call(boss, 'DELETE', `admin/slots/${slots[1].id}`)).status, 200);
-  assert.equal(h.released.length, 1);  // Moving it back to soon (inside the 30 min warm-up): it warms at once, with no
-  // wait for the scheduled check.
+  assert.equal(h.released.length, 1);
+  // Moving it back to soon (inside the 30 min warm-up): nothing until Publish,
+  // then it warms on the publish itself, with no wait for the scheduled check.
   assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { start: at(45), end: at(65) })).status, 200);
-  assert.equal(h.preloaded.length, 2, 'warmed on the move itself');
+  assert.equal(h.preloaded.length, 1, 'not before Publish');
+  assert.equal((await h.call(boss, 'POST', 'admin/slots/publish', {})).status, 200);
+  assert.equal(h.preloaded.length, 2, 'warmed on the publish itself');
+  // Discard: a held change is thrown away and nothing is left to publish.
+  await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { start: at(300), end: at(320) });
+  const discarded = await h.call(boss, 'DELETE', `admin/slots/${slots[0].id}/pending`);
+  assert.equal(discarded.status, 200);
+  assert.equal(discarded.body.draftCount, 0);
+  assert.equal(discarded.body.slots.find((slot) => slot.id === slots[0].id).start, at(45));
 });
 
 test('a super user can upload for someone: the voice is theirs to follow and test', async () => {

@@ -103,7 +103,8 @@ test('one person cannot hold two overlapping slots; different people can share a
   ]);
   // Re-publishing with no change emails nobody.
   wf.editSlot(state, 's1', {}, T0);
-  assert.equal(s1.status, 'draft', 'an edited slot goes back to draft');
+  assert.equal(s1.status, 'published', 'a published test slot stays published while edited');
+  assert.equal(s1.pending, null, 'an edit that changes nothing holds nothing');
   assert.deepEqual(wf.publishSlots(state, T0), []);
   // Moving the time emails "changed"; reassigning emails both people.
   wf.editSlot(state, 's1', { start: at(30), end: at(90) }, T0);
@@ -391,28 +392,52 @@ test('super-user training settings are sanitized and honoured', () => {
   assert.equal(wf.retrainConfig({}, [], { batchSize: 1 }).batchSize, 1);
 });
 
-test('editing a published test slot moves its GPU to the new times at once (no republish needed)', () => {
+test('editing a published test slot changes nothing live until Publish (owner 2026-11-25)', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
-  wf.addSlot(state, { id: 's1', start: at(60), end: at(80), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 's1', start: at(300), end: at(330), assigneeEmail: 'a@ntu.edu.sg', assigneeName: 'A', now: T0 });
   wf.publishSlots(state, T0);
-  // Live at 70 min: extend to 120. It is a draft again, but the GPU keeps going to the new end.
-  const before = { ...wf.findSlot(state, 's1'), warm: { state: 'READY' } };
-  wf.editSlot(state, 's1', { end: at(120) }, T0 + 70 * MIN);
-  assert.equal(wf.findSlot(state, 's1').status, 'draft');
-  assert.equal(wf.gpuToRelease(state, before, T0 + 70 * MIN), '', 'extending a live slot keeps its GPU');
-  assert.equal(wf.gpuHolds(state, T0 + 100 * MIN).length, 1, 'still held after the old end');
-  assert.equal(wf.gpuHolds(state, T0 + 121 * MIN).length, 0);
-  // Moved to later: released now, warms 30 min before the new start.
-  wf.editSlot(state, 's1', { start: at(300), end: at(330) }, T0 + 70 * MIN);
-  assert.equal(wf.gpuToRelease(state, before, T0 + 70 * MIN), 'a@ntu.edu.sg');
-  assert.equal(wf.gpuHolds(state, T0 + 269 * MIN).length, 0);
-  assert.equal(wf.gpuHolds(state, T0 + 271 * MIN).length, 1, 'warms 30 min before the new start');
-  // Handed to someone not yet told: their GPU waits for Publish.
-  wf.editSlot(state, 's1', { assigneeEmail: 'b@ntu.edu.sg' }, T0 + 70 * MIN);
-  assert.equal(wf.gpuHolds(state, T0 + 290 * MIN).length, 0);
-  wf.publishSlots(state, T0 + 71 * MIN);
-  assert.equal(wf.gpuHolds(state, T0 + 290 * MIN).length, 1);
+  const slot = wf.findSlot(state, 's1');
+  // Moved earlier and saved: still published at the old time; GPU, reminders, page follow the old time.
+  wf.editSlot(state, 's1', { start: at(60), end: at(80) }, T0);
+  assert.equal(slot.status, 'published');
+  assert.deepEqual([slot.start, slot.end], [at(300), at(330)]);
+  assert.deepEqual([slot.pending.start, slot.pending.end], [at(60), at(80)]);
+  assert.equal(wf.gpuHolds(state, T0 + 40 * MIN).length, 0, 'no warm-up for the unpublished new time');
+  assert.equal(wf.gpuHolds(state, T0 + 271 * MIN).length, 1, 'the published time still warms');
+  assert.equal(wf.upcomingSlotFor(state, 'a@ntu.edu.sg', T0).start, at(300), 'the lecturer still sees the published time');
+  // A second edit builds on the held one (only the person changes).
+  wf.editSlot(state, 's1', { assigneeEmail: 'b@ntu.edu.sg', assigneeName: 'B' }, T0);
+  assert.deepEqual([slot.pending.start, slot.pending.assigneeEmail, slot.assigneeEmail], [at(60), 'b@ntu.edu.sg', 'a@ntu.edu.sg']);
+  // Discard: back to exactly what is published.
+  wf.discardPending(state, 's1');
+  assert.equal(slot.pending, null);
+  assert.deepEqual(wf.publishSlots(state, T0), [], 'nothing to send after a discard');
+  // Publish applies it: new time, warm-up from scratch, the person emailed "moved".
+  wf.editSlot(state, 's1', { start: at(60), end: at(80) }, T0);
+  slot.warm = { state: 'READY' };
+  slot.reminderSentAt = 'x';
+  const before = wf.applyPendingEdits(state, T0 + 35 * MIN);
+  const sent = wf.publishSlots(state, T0 + 35 * MIN);
+  assert.deepEqual(sent.map((n) => [n.kind, n.email, n.moved]), [['slotBooked', 'a@ntu.edu.sg', true]]);
+  assert.deepEqual([slot.status, slot.start, slot.pending, slot.warm, slot.reminderSentAt], ['published', at(60), null, null, null]);
+  assert.equal(wf.gpuHolds(state, T0 + 35 * MIN).length, 1, 'the new time warms once published');
+  assert.equal(wf.gpuToRelease(state, before[0], T0 + 35 * MIN), '', 'same person still held: GPU kept');
+  // Moved far later and published: the GPU warming for the old time is given back.
+  wf.editSlot(state, 's1', { start: at(600), end: at(620) }, T0 + 35 * MIN);
+  slot.warm = { state: 'READY' };
+  const later = wf.applyPendingEdits(state, T0 + 36 * MIN);
+  wf.publishSlots(state, T0 + 36 * MIN);
+  assert.equal(wf.gpuToRelease(state, later[0], T0 + 36 * MIN), 'a@ntu.edu.sg');
+});
+
+test('a test slot never published is edited directly (no held changes)', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  wf.addSlot(state, { id: 's1', start: at(300), end: at(330), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.editSlot(state, 's1', { start: at(60), end: at(80) }, T0);
+  const slot = wf.findSlot(state, 's1');
+  assert.deepEqual([slot.status, slot.start, slot.pending ?? null], ['draft', at(60), null]);
 });
 
 test('clean up: a stale set is deleted for good, its future test slots go, and it is logged', () => {
