@@ -3014,3 +3014,5 @@
   p=quarantine) -> Gmail spam; lkcmedicine.org (DKIM ok) reaches Gmail inbox but still not NTU. Needs NTU IT.
 - Same day: EMAIL_FROM -> "LKCMedicine Voice Studio" <no-reply@lkcmedicine.org> in lambda/.env.deployment{,.staging}
   (DKIM-verified domain; no mailbox needed, replies go nowhere). Live Lambdas NOT yet updated (pasted AWS keys expired).
+- Same day: EMAIL_FROM no-reply@lkcmedicine.org now LIVE on dev + staging Lambdas (env-only update, var counts unchanged
+  49/62; old env snapshotted in scratchpad). Code 62b2880 (held slot edits) still NOT deployed.
