@@ -95,3 +95,17 @@ test('knownTextFiles refuses an oversized script', () => {
   const prefix = 'training/datasets/v1/raw/';
   assert.throws(() => knownTextFiles({ [`${prefix}t.wav`]: 'x'.repeat(200_001) }, { prefix, keys: [`${prefix}t.wav`] }), /too long/iu);
 });
+
+test('chargeAiUse counts per person per day and refuses past the limit', async () => {
+  const { chargeAiUse } = await import('./specialtyTerms.js');
+  const state = { aiUsage: { 'old@x.com': { day: '2026-01-01', terms: 9, scenarios: 0 } } };
+  const now = Date.parse('2026-11-25T03:00:00Z');
+  const limits = { terms: 2, scenarios: 1 };
+  chargeAiUse(state, { email: 'a@x.com', kind: 'terms', now, limits });
+  chargeAiUse(state, { email: 'a@x.com', kind: 'terms', now, limits });
+  assert.throws(() => chargeAiUse(state, { email: 'a@x.com', kind: 'terms', now, limits }), (error) => error.statusCode === 429);
+  chargeAiUse(state, { email: 'b@x.com', kind: 'terms', now, limits });
+  assert.equal(state.aiUsage['old@x.com'], undefined, 'other days are pruned');
+  chargeAiUse(state, { email: 'a@x.com', kind: 'terms', now: Date.parse('2026-11-26T03:00:00Z'), limits });
+  assert.equal(state.aiUsage['a@x.com'].terms, 1, 'a new day starts again');
+});

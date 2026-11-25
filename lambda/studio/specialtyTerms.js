@@ -166,3 +166,24 @@ export function knownTextFiles(knownText, { prefix, keys }) {
   }
   return files;
 }
+
+// Generation calls a paid API and Voice Studio accepts any Google account, so
+// each person gets a daily allowance (a 100-term script is 1 list + 10 scenarios).
+export const DAILY_AI_LIMITS = Object.freeze({ terms: 10, scenarios: 80 });
+
+/**
+ * Counts one generation call for email against today's allowance, in the
+ * studio state (pruning other days). Throws 429 once the allowance is used.
+ */
+export function chargeAiUse(state, { email, kind, now, limits = DAILY_AI_LIMITS }) {
+  if (!Object.prototype.hasOwnProperty.call(limits, kind)) throw new Error(`Unknown AI use: ${kind}`);
+  const day = new Date(now).toISOString().slice(0, 10);
+  const usage = state.aiUsage && typeof state.aiUsage === 'object' && !Array.isArray(state.aiUsage) ? state.aiUsage : {};
+  const today = Object.fromEntries(Object.entries(usage).filter(([, entry]) => entry?.day === day));
+  const entry = today[email] || { day, terms: 0, scenarios: 0 };
+  if ((entry[kind] || 0) >= limits[kind]) {
+    throw clientError(429, 'You have used today’s AI generations. Paste or upload your terms instead, or try again tomorrow.');
+  }
+  state.aiUsage = { ...today, [email]: { ...entry, [kind]: (entry[kind] || 0) + 1 } };
+  return state.aiUsage[email];
+}

@@ -618,3 +618,15 @@ test('Part 2: generating without an OpenAI key says it is not set up', async () 
   assert.equal(res.status, 503);
   assert.match(res.body.error, /OpenAI key/u);
 });
+
+test('Part 2: AI generation is refused once a person has submitted, and counted per day', async () => {
+  const callModel = async () => ({ terms: Array.from({ length: 50 }, (_, i) => `term ${i}`) });
+  const h = harness({ callModel });
+  const hana = 'hana@ntu.edu.sg';
+  assert.equal((await h.call(hana, 'POST', 'specialty/terms', { specialty: 'GI', count: 50 })).status, 200);
+  const { state } = await h.store.read();
+  assert.equal(state.aiUsage[hana].terms, 1, 'the call is counted');
+  await submit(h, hana, 'Hana');
+  const refused = await h.call(hana, 'POST', 'specialty/terms', { specialty: 'GI', count: 50 });
+  assert.equal(refused.status, 403);
+});

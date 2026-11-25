@@ -25,7 +25,7 @@ import { signStudioSession, STUDIO_SESSION_DAYS } from '../shared/studioSession.
 import { createMailer, emailConfigured, templates } from './mailer.js';
 import { validatePronunciation, voiceDictionaryKey } from './pronunciation.js';
 import {
-  createOpenAiCaller, generateTermList, knownTextFiles, validateScenarioRequest, validateTermsRequest, writeScenario,
+  chargeAiUse, createOpenAiCaller, generateTermList, knownTextFiles, validateScenarioRequest, validateTermsRequest, writeScenario,
 } from './specialtyTerms.js';
 
 // Voice Studio accepts any Microsoft account, so outside addresses get x- voice names.
@@ -566,6 +566,17 @@ export function createHandler({
     return { state, superuser, access: wf.voiceAccess(state, { email, voiceName, now: clock(), superuser }) };
   }
 
+  async function chargeAiGeneration(email, passwordAccount, kind) {
+    await updateState(store, (state) => {
+      const superuser = superuserOf(state, email, passwordAccount);
+      if (!wf.recordingAccess(state, { email, superuser }).allowed) {
+        throw wf.clientError(403, 'Your recordings are already submitted, so there is nothing to generate.');
+      }
+      chargeAiUse(state, { email, kind, now: clock() });
+      return null;
+    });
+  }
+
   // Records that a voice is being tried on this site (at most once a minute)
   // and ticks, so a stopped GPU starts now rather than on the 5-min schedule.
   async function recordTestActivity(field, now) {
@@ -709,13 +720,16 @@ export function createHandler({
       }
 
       // Part 2: an AI-written term list for a specialty, then scenarios that use the terms.
+      // Paid API: only for someone who may record now, within a daily allowance.
       if (route === 'POST specialty/terms') {
         const request = validateTermsRequest(body);
+        await chargeAiGeneration(email, passwordAccount, 'terms');
         return ok({ terms: await generateTermList(request, { callModel: service.callModel }) }, {}, event);
       }
 
       if (route === 'POST specialty/scenarios') {
         const request = validateScenarioRequest(body);
+        await chargeAiGeneration(email, passwordAccount, 'scenarios');
         return ok(await writeScenario(request, { callModel: service.callModel }), {}, event);
       }
 
