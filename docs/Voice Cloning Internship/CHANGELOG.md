@@ -3066,3 +3066,10 @@
   NOT tested live with a real broken voice. Not changed: worker/AMI (boot script still exits 1 once; coordinator now
   stops it on the 2nd claim and the GPU falls back to Dean before the studio releases it), live-fast/gi/chatbot/mc
   clients (they get the 422 VOICE_FAILED error text but not the new notice).
+
+- Same day (later): 3f05670 COMMITTED + PUSHED, NOT DEPLOYED (AWS keys expired): studio person GPU reserved whatever
+  voice it holds (replacement = same protection); coordinator shuts the GPU started for a voice on its 2nd failure;
+  failed voice closes the slot (closedReason voice-failed) + one lecturer email + page notice, no reminders/GPU asks;
+  one test slot per person (retest after it is over ok), next-slot GPU bridge removed; feedback form on the lecturer
+  page after the test time if not sent. Tests: Lambda 505/505, coordinator 98/98, client 605/605, studio build.
+  To deploy: deploy-lambda.ps1 staging+dev, deploy-client.ps1 all modes staging+dev.
