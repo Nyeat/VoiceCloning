@@ -17,6 +17,7 @@ import { recordTrainingLog } from './trainingLogger.js';
 import { sendTrainingCompleteEmail } from './emailService.js';
 import { buildFilteredTrainingManifest } from './trainingQuality.js';
 import { applyKnownTextToManifestFile, readKnownTextFile } from './knownTextLabels.js';
+import { resetIfInputsChanged } from './trainingInputs.js';
 
 function sendStep(sessionId, stepIndex, status, detail) {
   trainingState.setStepStatus(stepIndex, status, detail || '');
@@ -198,6 +199,10 @@ export async function runPipelineWithS3(sessionId, {
     data: `Downloading training audio from S3: ${rawAudioPrefix}\n`,
   });
 
+  // Start from exactly what is in S3 now: a file removed there (an earlier
+  // set's recordings) must not linger in this run's raw folder.
+  fs.rmSync(rawDir, { recursive: true, force: true });
+  fs.mkdirSync(rawDir, { recursive: true });
   const downloadCount = await downloadPrefix(rawAudioPrefix, rawDir);
   recordTrainingLog(sessionId, {
     stream: 'stdout',
@@ -211,6 +216,19 @@ export async function runPipelineWithS3(sessionId, {
   // Voice Studio saves the text of script readings it knows (the specialty
   // terms) beside the raw audio; ASR labels for those clips are replaced by it.
   const knownTextPath = path.join(dataDir, 'known-text.json');
+  // Processed data from a previous run of this name is reused only when it was
+  // made from these same recordings; otherwise every step runs again.
+  if (resetIfInputsChanged({
+    rawDir,
+    stampPath: path.join(dataDir, 'raw-inputs.json'),
+    dirs: [slicedDir, denoisedDir, asrDir, logsDir, sovitsWeightsDir, gptWeightsDir],
+    files: [clipScoresPath, qualityReportPath, knownTextPath],
+  })) {
+    recordTrainingLog(sessionId, {
+      stream: 'stdout',
+      data: 'The recordings changed since this voice was last processed: slicing, transcribing and training it again from scratch.\n',
+    });
+  }
   const knownTextKey = `${String(rawAudioPrefix).replace(/raw\/?$/u, '')}known-text.json`;
   try {
     if (!fs.existsSync(knownTextPath) && await objectExists(knownTextKey)) {
