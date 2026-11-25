@@ -219,19 +219,29 @@ test('a lecturer tests their approved voices on their own GPU, in their slot or 
   assert.equal(wf.lecturerJob(a, null).testingClosedAt, new Date(T0 + 70 * MIN).toISOString());
 });
 
-test('a finished slot releases that person\'s GPU at once, unless their next slot is already warming', () => {
+test('a finished slot releases that person\'s GPU at once (no bridging to another slot)', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   wf.addSlot(state, { id: 's1', start: at(60), end: at(80), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
-  wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
-  wf.addSlot(state, { id: 's3', start: at(120), end: at(140), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
-  wf.addSlot(state, { id: 's4', start: at(90), end: at(110), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 's2', start: at(60), end: at(100), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
   wf.publishSlots(state, T0);
   for (const slot of state.slots) slot.warm = { state: 'READY' };
-  // b's next slot is 40 min later: no bridge, b's GPU goes off. a's next slot (10 min later) is already warming.
-  assert.deepEqual(wf.slotsToRelease(state, T0 + 81 * MIN).map((slot) => slot.id), ['s2']);
-  wf.completeSlot(state, { slotId: 's3', email: 'b@ntu.edu.sg', now: T0 + 125 * MIN });
-  assert.deepEqual(wf.slotsToRelease(state, T0 + 126 * MIN).map((slot) => slot.id).sort(), ['s1', 's2', 's3', 's4']);
+  assert.deepEqual(wf.slotsToRelease(state, T0 + 81 * MIN).map((slot) => slot.id), ['s1']);
+  wf.completeSlot(state, { slotId: 's2', email: 'b@ntu.edu.sg', now: T0 + 85 * MIN });
+  assert.deepEqual(wf.slotsToRelease(state, T0 + 86 * MIN).map((slot) => slot.id).sort(), ['s1', 's2']);
+});
+
+test('one test slot per person; a retest after the first is over is allowed', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  wf.addSlot(state, { id: 's1', start: at(60), end: at(80), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  assert.throws(() => wf.addSlot(state, { id: 's2', start: at(200), end: at(220), assigneeEmail: 'A@staff.main.ntu.edu.sg', now: T0 }), /One test slot per person/u);
+  wf.addSlot(state, { id: 's3', start: at(200), end: at(220), assigneeEmail: 'b@ntu.edu.sg', now: T0 });
+  assert.throws(() => wf.editSlot(state, 's3', { assigneeEmail: 'a@ntu.edu.sg' }, T0, []), /One test slot per person/u);
+  // Recording sessions are not limited by it.
+  wf.addSlot(state, { id: 'r1', kind: 'recording', start: at(300), end: at(320), assigneeEmail: 'a@ntu.edu.sg', now: T0 });
+  // Once s1 is over, a retest slot is fine.
+  wf.addSlot(state, { id: 's4', start: at(400), end: at(420), assigneeEmail: 'a@ntu.edu.sg', now: T0 + 90 * MIN });
 });
 
 test('slot warm-up uses the coordinator wait start', () => {
@@ -326,18 +336,16 @@ test('GPU holds: per person, 30 min warm-up and the whole slot, nothing between 
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   const add = (id, start, end, who) => wf.addSlot(state, { id, start: at(start), end: at(end), assigneeEmail: who, now: T0 });
   add('a', 60, 120, 'a@ntu.edu.sg');
-  add('a2', 160, 220, 'a@ntu.edu.sg'); // 40 min gap: off between, warms again
-  add('a3', 330, 390, 'a@ntu.edu.sg'); // 2 h gap: GPU may stop
   add('b', 60, 80, 'b@ntu.edu.sg');
+  add('c', 160, 220, 'c@ntu.edu.sg');
   wf.publishSlots(state, T0);
   const holds = (min) => wf.gpuHolds(state, T0 + min * MIN).map((h) => `${h.slot.id}:${h.phase}`).sort();
   assert.deepEqual(holds(29), []);
   assert.deepEqual(holds(31), ['a:warmup', 'b:warmup']);
   assert.deepEqual(holds(90), ['a:slot']);
-  assert.deepEqual(holds(125), [], 'no bridge: off after the slot');
-  assert.deepEqual(holds(135), ['a2:warmup']);
-  assert.deepEqual(holds(225), [], 'long gap: released');
-  assert.deepEqual(holds(305), ['a3:warmup']);
+  assert.deepEqual(holds(125), [], 'off after the slot');
+  assert.deepEqual(holds(135), ['c:warmup']);
+  assert.deepEqual(holds(225), []);
 });
 
 test('slot warm-up state: estimate from the coordinator answer, READY once it speaks', () => {

@@ -198,6 +198,16 @@ export const templates = {
       ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },
+  voiceFailedLecturer({ slot, env }) {
+    const { studio } = studioLinks(env);
+    return {
+      subject: 'Your voice test cannot go ahead',
+      ...layout('We could not load your voice', [
+        `Something is wrong with your trained voice, so your test time (${formatSgtRange(slot.start, slot.end)}) cannot go ahead and has been closed.`,
+        'The Voice Studio team has been told automatically and will contact you about the next step. You do not need to do anything.',
+      ], studio ? { label: 'Open Voice Studio', url: studio } : null),
+    };
+  },
   voiceFailed({ failure, env }) {
     const { studio } = studioLinks(env);
     const who = failure.ownerName || failure.ownerEmail || '';

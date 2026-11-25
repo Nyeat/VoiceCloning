@@ -479,6 +479,7 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   const { updateState } = await import('./store.js');
   await updateState(h.store, (state) => {
     state.jobs.push({ id: 'j1', ownerEmail: 'amy@gmail.com', status: 'approved', approvedExpName: 'x-amy-1', expName: 'x-amy-1', sourceExpName: 'x-amy-1', attempts: [], trainingConfig: {}, notifications: [], feedback: [], reviews: [{ at: new Date(T0).toISOString() }], files: [] });
+    state.jobs.push({ id: 'j2', ownerEmail: 'ben@gmail.com', status: 'approved', approvedExpName: 'x-ben-1', expName: 'x-ben-1', sourceExpName: 'x-ben-1', attempts: [], trainingConfig: {}, notifications: [], feedback: [], reviews: [{ at: new Date(T0).toISOString() }], files: [] });
     return null;
   });
   const at = (m) => new Date(T0 + m * MIN).toISOString();
@@ -486,7 +487,11 @@ test('deleting or moving a test slot whose GPU is warming releases that GPU at o
   assert.equal(refused.status, 400, 'no test slot without an approved voice');
   assert.equal(refused.body.code, 'VOICE_NOT_APPROVED');
   await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(45), end: at(65), assigneeEmail: 'amy@gmail.com' });
-  await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'amy@gmail.com' });
+  // One test slot per person (2026-11-25): Amy's second is refused; Ben gets his own.
+  const second = await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'amy@gmail.com' });
+  assert.equal(second.status, 409);
+  assert.equal(second.body.code, 'ONE_TEST_SLOT');
+  await h.call(boss, 'POST', 'admin/slots', { kind: 'test', start: at(130), end: at(150), assigneeEmail: 'ben@gmail.com' });
   const slots = (await h.call(boss, 'POST', 'admin/slots/publish', {})).body.slots;
   assert.equal((await h.call(boss, 'PUT', `admin/slots/${slots[0].id}`, { assigneeEmail: 'nobody@gmail.com' })).status, 400, 'nor handed to someone unapproved');
   // Amy chatting with her approved voice keeps the fixed GPU on; others cannot.
@@ -668,7 +673,7 @@ test('a slot whose voice cannot load stops warming, frees the GPU and reports to
   const nat = 'nat@ntu.edu.sg';
   await h.store.write({
     schemaVersion: 1, superusers: [], history: [], lastTickAt: 0,
-    jobs: [{ id: 'j1', ownerEmail: nat, ownerName: 'Nat', status: 'approved', expName: 'cs-nat_6', approvedExpName: 'cs-nat_6', attempts: [], reviews: [{ decision: 'approve', at: new Date(T0 - 3_600_000).toISOString() }], createdAt: new Date(T0 - 86_400_000).toISOString() }],
+    jobs: [{ id: 'j1', ownerEmail: nat, ownerName: 'Nat', status: 'approved', expName: 'cs-nat_6', approvedExpName: 'cs-nat_6', attempts: [], files: [], feedback: [], notifications: [], reviews: [{ decision: 'approve', at: new Date(T0 - 3_600_000).toISOString() }], createdAt: new Date(T0 - 86_400_000).toISOString() }],
     slots: [{ id: 's1', kind: 'test', status: 'published', assigneeEmail: nat, assigneeName: 'Nat', start: new Date(T0 + 10 * MIN).toISOString(), end: new Date(T0 + 130 * MIN).toISOString() }],
   }, null);
 
@@ -683,6 +688,12 @@ test('a slot whose voice cannot load stops warming, frees the GPU and reports to
   assert.equal(reports.length, 1);
   assert.deepEqual(reports[0].to, ['boss@ntu.edu.sg']);
   assert.equal(state.voiceFailures[0].ownerEmail, nat);
+  // The slot is closed (it cannot happen) and they are told once, by email and on their page.
+  assert.ok(state.slots[0].completedAt, 'slot closed');
+  assert.equal(state.slots[0].closedReason, 'voice-failed');
+  assert.equal(h.sent.filter((mail) => mail.subject === 'Your voice test cannot go ahead' && mail.to.includes(nat)).length, 1);
+  const page = await h.call(nat, 'GET', 'me');
+  assert.equal(page.body.voiceFailed.voiceName, 'cs-nat_6');
 
   // Next ticks: nothing is retried for that voice, nobody is emailed again.
   const asked = h.preloaded.length;
@@ -691,6 +702,7 @@ test('a slot whose voice cannot load stops warming, frees the GPU and reports to
   ({ state } = await h.store.read());
   assert.equal(h.preloaded.length, asked, 'no more warm-up asks');
   assert.equal(h.sent.filter((mail) => /could not be loaded/u.test(mail.subject)).length, 1);
+  assert.equal(h.sent.filter((mail) => mail.subject === 'Your voice test cannot go ahead').length, 1, 'lecturer told once');
   assert.equal(wf.gpuDemand(state, T0 + 20 * MIN), '', 'the failed slot keeps no GPU on');
 
   // The console shows it.
@@ -703,7 +715,7 @@ test('withdrawing a person gives their GPU back too', async () => {
   const nat = 'nat@ntu.edu.sg';
   await h.store.write({
     schemaVersion: 1, superusers: [], history: [], lastTickAt: 0,
-    jobs: [{ id: 'j1', ownerEmail: nat, ownerName: 'Nat', status: 'approved', expName: 'cs-nat_6', approvedExpName: 'cs-nat_6', attempts: [], reviews: [], createdAt: new Date(T0).toISOString(), queuedAt: new Date(T0).toISOString() }],
+    jobs: [{ id: 'j1', ownerEmail: nat, ownerName: 'Nat', status: 'approved', expName: 'cs-nat_6', approvedExpName: 'cs-nat_6', attempts: [], files: [], feedback: [], notifications: [], reviews: [], createdAt: new Date(T0).toISOString(), queuedAt: new Date(T0).toISOString() }],
     slots: [],
   }, null);
   const res = await h.call('boss@ntu.edu.sg', 'POST', 'admin/jobs/j1/cancel', {});

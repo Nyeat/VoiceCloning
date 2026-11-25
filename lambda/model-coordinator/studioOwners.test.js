@@ -42,3 +42,16 @@ test('two people testing keep their own reserved GPUs', () => {
   // Unused for 35 min: the reservation lapses and the GPU is ordinary capacity again.
   assert.deepEqual(reservedWorkerIds(items, workers, '', now + 36 * 60_000), []);
 });
+
+// 2026-11-25: a replacement GPU adopted for a person boots on the default voice
+// before it switches to theirs. It is still theirs: no other caller may switch it.
+test('a studio person GPU holding another voice (replacement, mid-switch) stays reserved', () => {
+  const now = Date.now();
+  const workers = [{ instanceId: 'i-replacement', modelKey: 'dean-voice' }];
+  const items = [
+    { entity: 'OWNER', coordinatorScope, instanceId: 'i-replacement', ownerKey: 'reserved:studio-p-nat', modelKey: 'nat-voice', at: now },
+  ];
+  assert.deepEqual(reservedWorkerIds(items, workers, 'reserved:voice-dean', now), ['i-replacement']);
+  assert.deepEqual(reservedWorkerIds(items, workers, '', now), ['i-replacement']);
+  assert.deepEqual(reservedWorkerIds(items, workers, 'reserved:studio-p-nat', now), [], 'its owner may switch it');
+});

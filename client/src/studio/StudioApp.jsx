@@ -1421,7 +1421,17 @@ function LecturerHome({ me: initialMe, refresh }) {
 
   // One stage at a time: testing → recording → the voice's journey → withdrawn → waiting for a session.
   let content;
-  if (testing) {
+  if (me.voiceFailed) {
+    // Their voice could not be loaded on a GPU (owner 2026-11-25): say so plainly.
+    content = (
+      <Card className="border-rose-200 p-8 text-center sm:p-12">
+        <h2 className="text-xl font-semibold text-slate-900">We could not load your voice</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+          Something is wrong with your trained voice, so it cannot be tested and your test time has been closed. The Voice Studio team has been told automatically and will contact you about the next step. You do not need to do anything.
+        </p>
+      </Card>
+    );
+  } else if (testing) {
     content = (
       <>
         <div className="rounded-2xl bg-emerald-600 px-4 py-4 text-white sm:px-5">
@@ -1450,6 +1460,22 @@ function LecturerHome({ me: initialMe, refresh }) {
     content = (
       <>
         {journeys.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />)}
+        {/* Their test time is over but they have not sent feedback yet: ask for it
+            here too, so the finished page is not a dead end (owner 2026-11-25). */}
+        {me.testedSlot && !testSlot && feedbackTarget && (
+          <div className="space-y-2">
+            <Card className="p-4 sm:p-5">
+              <p className="font-semibold text-slate-900">Your test time is over</p>
+              <p className="text-sm text-slate-600">Please tell us how your voice sounded. Sending your feedback finishes your testing.</p>
+            </Card>
+            {testable.length > 1 && (
+              <select value={feedbackTarget.id} onChange={(event) => setFeedbackJob(event.target.value)} className="h-10 w-full max-w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto" aria-label="Feedback for which voice">
+                {testable.map((job) => <option key={job.id} value={job.id}>{job.label}</option>)}
+              </select>
+            )}
+            <FeedbackForm key={feedbackTarget.id} job={feedbackTarget} onSent={(view) => { if (view?.jobs) setMe(view); }} />
+          </div>
+        )}
         {testable.length > 0 && (
           <Card className="flex flex-wrap items-center gap-3 p-4 sm:p-5">
             <div className="min-w-0 flex-1 basis-64">

@@ -69,7 +69,7 @@ async function defaultPreloadVoice(voiceName, ownerKey, ownerEmail = '') {
   return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey });
 }
 
-// A person's GPU once they are done (slot over with none within the hour, or
+// A person's GPU once they are done (slot over, or
 // feedback sent): released so it shuts down now rather than after the idle timer.
 async function defaultReleaseSlotGpu(ownerKey) {
   const { releaseCoordinatedOwner } = await import('../shared/modelCoordinator.js');
@@ -254,6 +254,8 @@ export function createStudioService({
     // Session reminders: recording (day before, then shortly before) and the
     // test slot's same-day email. Claimed first so it is sent once.
     for (const { slot, kind, key } of wf.sessionRemindersDue(state, now)) {
+      // A test of a voice that cannot load is not happening: no reminder.
+      if (wf.slotKind(slot) === 'test' && wf.personVoiceFailed(state, slot.assigneeEmail)) continue;
       const claim = await updateState(store, (draft) => {
         const current = wf.findSlot(draft, slot.id);
         if (!current || current.reminders?.[kind] === key || wf.reminderKey(current) !== key) return { skipWrite: true };
@@ -268,7 +270,7 @@ export function createStudioService({
     }
 
     // Each test slot holds a GPU of its person's own from 30 min before it to
-    // its end (and across a short gap to their next): ask for their voice on
+    // its end: ask for their voice on
     // every tick, and keep the warm-up state on the slot for everyone to see.
     // Several people in one slot each get their own GPU, warmed in parallel.
     const preloaded = [];
@@ -280,6 +282,19 @@ export function createStudioService({
       // This voice cannot speak: reported, GPU given back, nothing more tried
       // (owner 2026-11-25). A newly approved voice for them warms as usual.
       if (wf.warmFailed(hold.slot, voiceName)) return;
+      // Already known broken (another slot or site found it): no GPU is asked
+      // for; the slot is closed below like one that found it itself.
+      const known = (state.voiceFailures || []).find((entry) => entry.voiceName === voiceName);
+      if (known) {
+        await updateState(store, (draft) => {
+          const current = wf.findSlot(draft, hold.slot.id);
+          if (!current || wf.warmFailed(current, voiceName)) return { skipWrite: true };
+          current.warm = wf.nextWarmState(current.warm, { state: 'VOICE_FAILED', voiceFailure: known }, now, voiceName);
+          return null;
+        });
+        voiceFailedPeople.push(hold.slot.assigneeEmail);
+        return;
+      }
       let capacity = null;
       try {
         capacity = await preloadVoice(voiceName, await personOwner(hold.slot.assigneeEmail), hold.slot.assigneeEmail);
@@ -303,12 +318,27 @@ export function createStudioService({
     for (const email of [...new Set(voiceFailedPeople)]) {
       try {
         await releaseSlotGpu(await personOwner(email));
-        await updateState(store, (draft) => {
+        // Their slot is closed too (owner 2026-11-25): it cannot happen, so it
+        // holds nothing and they are told once, by email and on their page.
+        const closed = await updateState(store, (draft) => {
+          const told = [];
           for (const slot of draft.slots.filter((item) => wf.sameNtuPerson(item.assigneeEmail, email) && wf.warmFailed(item))) {
             slot.gpuReleasedAt = slot.gpuReleasedAt || new Date(now).toISOString();
+            if (!slot.completedAt && wf.slotEnd(slot) > now) {
+              slot.completedAt = new Date(now).toISOString();
+              slot.closedReason = 'voice-failed';
+            }
+            if (!slot.voiceFailedNotifiedAt) {
+              slot.voiceFailedNotifiedAt = new Date(now).toISOString();
+              told.push({ ...slot });
+            }
           }
-          return null;
+          return { told };
         });
+        for (const slot of closed.result?.told || []) {
+          await mailer.send(slot.assigneeEmail, templates.voiceFailedLecturer({ slot, env }))
+            .catch((error) => console.warn('[studio] voice failure email to the lecturer failed', error.message));
+        }
       } catch (error) {
         console.warn(`[studio] GPU release after a voice failure failed (retried next tick): ${error.message}`);
       }
@@ -559,6 +589,12 @@ export function createHandler({
       activeSlot: (() => {
         const active = wf.currentSlot(state, now);
         return active && wf.sameNtuPerson(active.assigneeEmail, email) ? active : null;
+      })(),
+      // Their voice could not be loaded on a GPU: the page says so (and that the
+      // team has been told) instead of offering a test that cannot work.
+      voiceFailed: (() => {
+        const failure = wf.personVoiceFailed(state, email);
+        return failure ? { voiceName: failure.voiceName, action: failure.action || 'retrain', failedAt: failure.failedAt || null } : null;
       })(),
       now: new Date(now).toISOString(),
     };

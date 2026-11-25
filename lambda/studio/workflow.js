@@ -328,7 +328,7 @@ function slotsHoldingGpu(slots, time) {
 
 /**
  * The lecturer ends their own test slot early ("I'm done"). The slot GPU is then
- * released on the next tick unless another slot starts within the hour.
+ * released on the next tick.
  */
 export function completeSlot(state, { slotId, email, now }) {
   const slot = state.slots.find((item) => item.id === slotId);
@@ -645,6 +645,24 @@ function assertNoClash(state, candidate, ignoreId = '', kind = 'test', email = '
   }
 }
 
+/**
+ * One test slot per person (owner 2026-11-25): a person tests one voice, so a
+ * second slot only clutters their page and the line map. One that is over
+ * (ended or finished early) does not count, so a retest after feedback works.
+ * Move the existing slot instead of adding another.
+ */
+export function assertOneTestSlot(state, email, ignoreId = '', now = Date.now()) {
+  if (!normalizeEmail(email)) return;
+  const existing = liveSlots(state).find((slot) => slot.id !== ignoreId && real(slot) && slotKind(slot) === 'test'
+    && slot.status !== 'cancelled' && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) > now);
+  if (existing) {
+    const error = clientError(409, `${existing.assigneeName || existing.assigneeEmail} already has a test slot (${sgtClock(existing.start)} – ${sgtClock(slotEnd(existing))} SGT). One test slot per person: move that one instead.`);
+    error.code = 'ONE_TEST_SLOT';
+    error.clash = { id: existing.id, start: existing.start, end: existing.end };
+    throw error;
+  }
+}
+
 export function findSlot(state, id) {
   return state.slots.find((slot) => slot.id === id && slot.status !== 'cancelled') || null;
 }
@@ -950,6 +968,7 @@ export function addSlot(state, {
   const times = validateTimes(start, end, now);
   checkAssignee(slotType, assigneeEmail);
   assertNoClash(state, times, '', slotType, assigneeEmail);
+  if (slotType === 'test') assertOneTestSlot(state, assigneeEmail, '', now);
   const hosts = hostFields(hostNames, hostName);
   if (slotType === 'recording') {
     hosts.hostNames = superuserHosts(hosts.hostNames, staff);
@@ -1015,6 +1034,7 @@ export function editSlot(state, id, { start, end, assigneeEmail, assigneeName, h
     throw error;
   }
   assertNoClash(state, times, id, slotKind(slot), assigneeEmail ?? base.assigneeEmail);
+  if (slotKind(slot) === 'test') assertOneTestSlot(state, assigneeEmail ?? base.assigneeEmail, id, now);
   if (holdEdit) {
     const next = {
       ...times,
@@ -1298,6 +1318,7 @@ export function slotsToRemind(state, now) {
     && !slot.reminderSentAt
     // "Your voice is loaded" would be untrue: the admins are handling it.
     && !warmFailed(slot)
+    && !personVoiceFailed(state, slot.assigneeEmail)
     && ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now
     && now < ms(slot.start));
 }
@@ -1432,6 +1453,19 @@ export function nextWarmState(previous, capacity, now, voiceName = '') {
   };
 }
 
+/**
+ * This person's voice (the one their test slots load) could not be loaded on
+ * a GPU: the failure record, or null. A newly approved voice clears it.
+ */
+export function personVoiceFailed(state, email) {
+  const voiceName = preloadVoiceFor(state, { assigneeEmail: email });
+  if (!voiceName) return null;
+  const recorded = (state.voiceFailures || []).find((entry) => entry.voiceName === voiceName);
+  if (recorded) return recorded;
+  const slot = state.slots.find((item) => sameNtuPerson(item.assigneeEmail, email) && warmFailed(item, voiceName));
+  return slot ? { voiceName, reason: slot.warm.reason, action: slot.warm.action, failedAt: slot.warm.failedAt } : null;
+}
+
 /** A slot whose warm-up found this voice cannot speak: nothing more is tried for it. */
 export function warmFailed(slot, voiceName = '') {
   return slot?.warm?.state === 'VOICE_FAILED' && (!voiceName || !slot.warm.voiceName || slot.warm.voiceName === voiceName);
@@ -1472,12 +1506,10 @@ export function mergeVoiceFailures(state, failures = [], now) {
 
 /**
  * Ended test slots whose GPU warm-up ran and has not been released yet: released
- * at once, unless that person's next slot is already warming (a gap under 30 min).
+ * at once. (No bridging to a next slot: one test slot per person, 2026-11-25.)
  */
 export function slotsToRelease(state, now) {
-  const held = gpuHolds(state, now).map((hold) => normalizeEmail(hold.slot.assigneeEmail));
-  return state.slots.filter((slot) => slotHoldsGpu(slot) && slot.warm && !slot.gpuReleasedAt && slotEnd(slot) <= now
-    && !held.includes(normalizeEmail(slot.assigneeEmail)));
+  return state.slots.filter((slot) => slotHoldsGpu(slot) && slot.warm && !slot.gpuReleasedAt && slotEnd(slot) <= now);
 }
 
 // Super users testing keeps the fixed GPU (the live chat service) on until this

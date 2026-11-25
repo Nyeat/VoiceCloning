@@ -379,6 +379,18 @@ function demandMap(items) {
     .map((item) => [item.modelKey, Number(item.lastDemandAt) || 0]));
 }
 
+// The fleet as one caller may use it. A Voice Studio person's GPU is theirs
+// alone while reserved, whatever it holds right now (owner 2026-11-25): a
+// replacement still booting, or briefly on the boot default voice before it
+// switches to theirs, is not routed, switched or waited on by anyone else.
+// While it holds their own voice it is left visible (that voice is theirs).
+function fleetFor(items, workers, now = Date.now(), ownerKey = '') {
+  const shielded = studioPersonRows(items, now).filter((row) => row.ownerKey !== ownerKey);
+  return lockedFleet(items, workers.filter((worker) => !shielded.some((row) => (
+    row.instanceId === worker.instanceId && worker.modelKey !== row.modelKey
+  ))), now);
+}
+
 function lockedFleet(items, workers, now = Date.now()) {
   return applyResidencyLocks(
     workers,
@@ -626,12 +638,15 @@ export async function resolveStudioPersonGpu(items, workers, ownerKey, modelKey,
   return replacement;
 }
 
-// Fresh Voice Studio person reservations: never idled out (their release does it).
+// Fresh Voice Studio person reservations (refreshed by their slot's warm-up
+// every 5 min and by their page while open).
+function studioPersonRows(items, now = Date.now()) {
+  return items.filter((item) => item.entity === 'OWNER' && itemInScope(item) && isStudioPersonOwner(item.ownerKey)
+    && now - Number(item.at || 0) < RESERVED_OWNER_FRESH_MS);
+}
+// Never idled out while reserved (their release does it).
 function studioReservedWorkerIds(items, now = Date.now()) {
-  return items
-    .filter((item) => item.entity === 'OWNER' && itemInScope(item) && isStudioPersonOwner(item.ownerKey)
-      && now - Number(item.at || 0) < RESERVED_OWNER_FRESH_MS)
-    .map((item) => item.instanceId);
+  return studioPersonRows(items, now).map((item) => item.instanceId);
 }
 
 function otherOwnersRecords(items, workers, ownerKey, test) {
@@ -643,6 +658,14 @@ export function reservedWorkerIds(items, workers, ownerKey = '', now = Date.now(
   const reserved = otherOwnersRecords(items, workers, ownerKey, isReservedOwner)
     .filter((item) => now - Number(item.at || 0) < RESERVED_OWNER_FRESH_MS)
     .map((item) => item.instanceId);
+  // A Voice Studio person's GPU is reserved whatever voice it holds right now
+  // (a replacement on the boot default, mid-switch): never someone else's.
+  for (const row of studioPersonRows(items, now)) {
+    if (ownerFamily(row.ownerKey) !== ownerFamily(ownerKey) && !reserved.includes(row.instanceId)
+      && workers.some((worker) => worker.instanceId === row.instanceId)) {
+      reserved.push(row.instanceId);
+    }
+  }
   // A reserved owner gets a GPU of its own: it never takes one another owner
   // holds, however long unused (Voice Studio's slot GPU and the super users'
   // QC GPU never switch each other).
@@ -721,7 +744,7 @@ async function runReassignment(id, now = Date.now()) {
   try {
     const existing = await scanState();
     const refreshed = await refreshFleet(existing, now);
-    const workers = lockedFleet(existing, refreshed.workers, now);
+    const workers = fleetFor(existing, refreshed.workers, now, clean(pending.ownerKey));
     const capacityInput = {
       workers,
       requestedModelKey: pending.modelKey,
@@ -776,6 +799,10 @@ async function runReassignment(id, now = Date.now()) {
         error: error.message,
         stage: 'switch',
       }, now);
+      // A Voice Studio person's own GPU has nothing else to do: shut it down.
+      if (voiceFailed(record) && isStudioPersonOwner(pending.ownerKey)) {
+        await retireFailedVoiceGpu(pending.workerId, clean(pending.ownerKey), now);
+      }
       return { statusCode: 200, assigned: false, reason: voiceFailed(record) ? 'voice-failed' : 'voice-failure-noted' };
     }
     if (isStudioPersonOwner(pending.ownerKey)) await dropOtherOwnerRows(clean(pending.ownerKey), worker.instanceId);
@@ -1013,6 +1040,23 @@ export function voiceFailedResponse(record, model = {}) {
   };
 }
 
+// Shuts down a GPU that was only there for a voice that cannot speak. A Voice
+// Studio person's whole reservation goes (their GPU, boots and switches);
+// otherwise just this GPU and its ownership record.
+async function retireFailedVoiceGpu(instanceId, ownerKey = '', now = Date.now()) {
+  try {
+    if (isStudioPersonOwner(ownerKey)) {
+      await releaseOwner(ownerKey, now);
+      return;
+    }
+    if (!instanceId) return;
+    await document.send(new DeleteCommand({ TableName: tableName, Key: { id: coordinationKey('OWNER', instanceId) } })).catch(() => {});
+    await sweepIdleWorkers(now, { releasedWorkerIds: [instanceId] });
+  } catch (error) {
+    console.error('[model-coordinator][retire-failed-voice-gpu]', error?.message || error);
+  }
+}
+
 async function listVoiceFailures() {
   const items = await scanState();
   return {
@@ -1200,7 +1244,12 @@ async function claimBootAssignment(instanceId, now = Date.now()) {
         error: 'Boot warm-up synthesis failed (the GPU restarted its worker and claimed the voice again).',
         stage: 'boot',
       }, now);
-      if (voiceFailed(record)) return { statusCode: 200, assignment: null, voiceFailed: true };
+      if (voiceFailed(record)) {
+        // This GPU was started for that voice: shut it down now (it stays
+        // healthy meanwhile, so AWS never replaces it) instead of leaving it on.
+        await retireFailedVoiceGpu(instanceId, clean(candidate.ownerKey), now);
+        return { statusCode: 200, assignment: null, voiceFailed: true };
+      }
     }
     if (voiceFailureRecord(items, candidate.modelKey)) continue;
     try {
@@ -1346,7 +1395,7 @@ async function prepareCapacity(event) {
   const selectionDwellMs = await recordSelection(modelKey, existing, now);
   const refreshed = await refreshFleet(existing, now);
   const { group } = refreshed;
-  const workers = lockedFleet(existing, refreshed.workers, now);
+  const workers = fleetFor(existing, refreshed.workers, now, ownerKey);
   const readyMatching = workers.filter((worker) =>
     worker.reachable && worker.state === 'READY' && worker.modelKey === modelKey);
   const freeSlots = matchingFreeSlots(workers, modelKey);
@@ -1835,7 +1884,7 @@ async function synthesize(event) {
     .map((item) => recordGpuOwner(item.instanceId, item.ownerKey, modelKey, now)));
   const refreshed = await refreshFleet(existing, now);
   const { group } = refreshed;
-  const initiallyLockedWorkers = lockedFleet(existing, refreshed.workers, now);
+  const initiallyLockedWorkers = fleetFor(existing, refreshed.workers, now);
   let pending = existing.find((item) => (
     item.id === coordinationKey('PENDING', modelKey) && now - item.requestedAt < pendingTtlMs
   ));
@@ -1876,7 +1925,7 @@ async function synthesize(event) {
     // requests appear in a later worker probe.
     const currentItems = await scanState();
     const workers = applyAdmissionReservations(
-      lockedFleet(currentItems, refreshed.workers, Date.now()),
+      fleetFor(currentItems, refreshed.workers, Date.now()),
       currentItems,
       Date.now(),
     );
