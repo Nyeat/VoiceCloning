@@ -3012,3 +3012,5 @@
 - Email: SES works from the Lambda role (temp Lambda test, deleted). Gmail gets mail; NTU mailboxes do not (SES Send 8-9,
   Delivery 2, Bounce 0 for QC emails to all 8 super users). lkc-digitallearning@ntu.edu.sg has no SES DKIM (DMARC
   p=quarantine) -> Gmail spam; lkcmedicine.org (DKIM ok) reaches Gmail inbox but still not NTU. Needs NTU IT.
+- Same day: EMAIL_FROM -> "LKCMedicine Voice Studio" <no-reply@lkcmedicine.org> in lambda/.env.deployment{,.staging}
+  (DKIM-verified domain; no mailbox needed, replies go nowhere). Live Lambdas NOT yet updated (pasted AWS keys expired).
