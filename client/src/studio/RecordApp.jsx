@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import {
-  Check, CheckCircle2, Clock, FileAudio, Mail, Pause, Pencil, Play, Trash2, Upload, X,
+  ArrowRight, Check, CheckCircle2, Clock, FileAudio, Mail, Pause, Pencil, Play, Trash2, Upload, X,
 } from 'lucide-react';
 import { useAuth } from '@/auth/useAuth';
 import { PostLoginRedirectHandler, ProtectedRoute } from '@/auth/AppAuthGate';
@@ -16,6 +16,7 @@ import { ScriptReader } from './ScriptReader.jsx';
 import { PartSteps } from './PartSteps.jsx';
 import { SpecialtyTermsPanel } from './SpecialtyTermsPanel.jsx';
 import { sectionMinutes } from './specialtyTerms.js';
+import { shouldNudgePartTwo } from './submitFlow.js';
 import {
   createSubmission, errorText, formatSgt, getMe, relativeFromNow, uploadAndSubmit, withdrawSubmission,
 } from './studioApi.js';
@@ -85,7 +86,7 @@ function TakeRow({ take, onRemove }) {
 }
 
 function PartChecklist({ partsDone }) {
-  const rows = [['Part 1 · normal reading', partsDone[0]], ['Part 2 · medical terms', partsDone[1]]];
+  const rows = [['Part 1 · normal reading', partsDone[0]], ['Part 2 · medical terms (optional, recommended)', partsDone[1]]];
   return (
     <ul className="space-y-1.5 px-5 pb-1 pt-3" aria-label="Checklist">
       {rows.map(([text, done]) => (
@@ -100,7 +101,9 @@ function PartChecklist({ partsDone }) {
   );
 }
 
-function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, partsDone, superuser = false, forPerson = null }) {
+// onContinue: set while Part 2 is still to do (see shouldNudgePartTwo); it then
+// leads the panel and Submit becomes a quiet "skip" link, since submitting locks the set.
+function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, partsDone, onContinue = null, superuser = false, forPerson = null }) {
   const inputRef = useRef(null);
   const [settings, setSettings] = useState({ skipDenoise: true });
   const [dragging, setDragging] = useState(false);
@@ -113,6 +116,8 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, partsDone
   const [rejected, setRejected] = useState('');
   const totalSeconds = takes.reduce((sum, take) => sum + (take.duration || 0), 0);
   const minutes = totalSeconds / 60;
+  const canSubmit = takes.length > 0 && forValid && minutes >= MIN_SUBMIT_MINUTES;
+  const submitNow = () => onSubmit(label, superuser ? trainingSettingsPayload(settings) : null, superuser && forEmail.trim() ? { email: forEmail.trim().toLowerCase(), name: forName.trim() } : null);
 
   const addFiles = useCallback(async (fileList) => {
     const files = Array.from(fileList || []);
@@ -215,8 +220,23 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, partsDone
             <div className="mb-1 flex justify-between text-xs text-slate-600"><span>Uploading…</span><span>{Math.round(progress * 100)}%</span></div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-primary transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
           </div>
+        ) : onContinue ? (
+          <div className="space-y-2">
+            <Button variant="primary" size="lg" className="w-full" onClick={onContinue}>
+              Continue to Part 2 <ArrowRight size={16} aria-hidden="true" />
+            </Button>
+            <button
+              type="button"
+              onClick={submitNow}
+              disabled={!canSubmit}
+              className="block w-full rounded-lg py-1.5 text-center text-sm text-slate-600 underline hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Skip Part 2 and submit now
+            </button>
+            <p className="text-xs leading-5 text-slate-500">After you submit, you can't add Part 2 to this voice without retraining it.</p>
+          </div>
         ) : (
-          <Button variant="primary" size="lg" className="w-full" disabled={takes.length === 0 || !forValid || minutes < MIN_SUBMIT_MINUTES} onClick={() => onSubmit(label, superuser ? trainingSettingsPayload(settings) : null, superuser && forEmail.trim() ? { email: forEmail.trim().toLowerCase(), name: forName.trim() } : null)}>
+          <Button variant="primary" size="lg" className="w-full" disabled={!canSubmit} onClick={submitNow}>
             Submit for training
           </Button>
         )}
@@ -347,6 +367,8 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
   const [specialty, setSpecialty] = useState('');
   const [termEntries, setTermEntries] = useState([]);
   const [termScript, setTermScript] = useState(null);
+  // "Skip Part 2 for now" was pressed: stop steering toward Part 2, let Submit lead.
+  const [partTwoSkipped, setPartTwoSkipped] = useState(false);
   const email = auth.user?.email || '';
   const [consent, setConsent] = useState(() => readStudioConsent(email));
   const [consentOpen, setConsentOpen] = useState(false);
@@ -388,6 +410,7 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
       setPart(1);
       setTermScript(null);
       setTermEntries([]);
+      setPartTwoSkipped(false);
     } catch (err) {
       setError(errorText(err, 'Upload failed. Your recordings are still here — try again.'));
     } finally {
@@ -511,12 +534,12 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
                   entries={termEntries}
                   onEntriesChange={setTermEntries}
                   onBuilt={setTermScript}
-                  onSkip={() => setPart(1)}
+                  onSkip={() => { setPartTwoSkipped(true); setPart(1); }}
                 />
               )}
             </div>
           </div>
-          <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} partsDone={partsDone} superuser={me?.role === 'superuser'} forPerson={forPerson} />
+          <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} partsDone={partsDone} onContinue={shouldNudgePartTwo({ part, hasAudio: takes.length > 0, partTwoDone: partsDone[1], partTwoSkipped }) ? () => setPart(2) : null} superuser={me?.role === 'superuser'} forPerson={forPerson} />
         </div>
 
         {!embedded && <MySubmissions me={me} onWithdraw={withdraw} />}
