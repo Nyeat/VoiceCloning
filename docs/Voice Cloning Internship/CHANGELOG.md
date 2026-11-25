@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-25 — Recording Part 2: specialty medical terms + known-text labels (repo only, not deployed)
+
+- Voice Studio recording tab is now two parts: Part 1 the standard script (unchanged), Part 2 the
+  medical terms of the lecturer's specialty. Terms come from AI generation (50 or 100), a pasted list
+  or an XLSX/CSV upload (column A term, B optional own sentence), are reviewed, then read inside short
+  AI-written clinical scenarios (connected 8–18-word sentences: sentence-sized clips, teaching prosody).
+- New Lambda routes `POST /api/studio/specialty/terms` and `/specialty/scenarios` (one small OpenAI call
+  each, inside the ~30 s limit). Needs `OPENAI_API_KEY` set on the live function; `specialty` is saved on the job.
+- Labelling fix: a Part 2 recording is submitted with the text read; Lambda writes
+  `training/datasets/<voice>/known-text.json`, and the training worker relabels that recording's clips
+  with the script (order-preserving, spelling-tolerant alignment to Whisper's words) before the quality
+  gate. Clips that do not match keep Whisper's text; Whisper's manifest is kept as `asr/asr-whisper.txt`.
+- Tests: Lambda 485, client 604, gpu-worker 41 pass; `vite build --mode studio` ok. Not run on real
+  audio or in a browser. Deploy needs: Lambda (+ key), training worker restart on EC2, `dist-studio`.
+
 ## 2026-10-22 — Unsigned staging TTS; lab playback (repo only, not deployed)
 
 - Staging Live Fast/TTS (`dfzrfr93t2ruf`) showed `Sign in to use the voice assistant`: staging Lambda

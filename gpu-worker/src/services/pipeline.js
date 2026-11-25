@@ -12,10 +12,11 @@ import { sseManager } from './sseManager.js';
 import { trainingState } from './trainingState.js';
 import { generateSoVITSConfig, generateGPTConfig } from './configGenerator.js';
 import { STEPS } from './trainingSteps.js';
-import { downloadPrefix, uploadDirectory, uploadFile } from './s3Sync.js';
+import { downloadFile, downloadPrefix, objectExists, uploadDirectory, uploadFile } from './s3Sync.js';
 import { recordTrainingLog } from './trainingLogger.js';
 import { sendTrainingCompleteEmail } from './emailService.js';
 import { buildFilteredTrainingManifest } from './trainingQuality.js';
+import { applyKnownTextToManifestFile, readKnownTextFile } from './knownTextLabels.js';
 
 function sendStep(sessionId, stepIndex, status, detail) {
   trainingState.setStepStatus(stepIndex, status, detail || '');
@@ -207,6 +208,28 @@ export async function runPipelineWithS3(sessionId, {
     throw new Error('No training audio files found in S3');
   }
 
+  // Voice Studio saves the text of script readings it knows (the specialty
+  // terms) beside the raw audio; ASR labels for those clips are replaced by it.
+  const knownTextPath = path.join(dataDir, 'known-text.json');
+  const knownTextKey = `${String(rawAudioPrefix).replace(/raw\/?$/u, '')}known-text.json`;
+  try {
+    if (!fs.existsSync(knownTextPath) && await objectExists(knownTextKey)) {
+      await downloadFile(knownTextKey, knownTextPath);
+    }
+  } catch (error) {
+    recordTrainingLog(sessionId, {
+      stream: 'stderr',
+      data: `Could not download known script text (${error.message}); ASR labels are used as-is.\n`,
+    });
+  }
+  const knownText = readKnownTextFile(knownTextPath);
+  if (Object.keys(knownText).length > 0) {
+    recordTrainingLog(sessionId, {
+      stream: 'stdout',
+      data: `Known script text found for ${Object.keys(knownText).length} recording(s); their clips will be labelled with it.\n`,
+    });
+  }
+
   function getAsrListFile() {
     if (fs.existsSync(filteredAsrListPath)) return filteredAsrListPath;
     const asrFiles = fs.readdirSync(asrDir).filter(f => f.endsWith('.list'));
@@ -233,6 +256,19 @@ export async function runPipelineWithS3(sessionId, {
       .filter((filename) => filename.endsWith('.list') && filename !== path.basename(filteredAsrListPath))
       .map((filename) => path.join(asrDir, filename))[0];
     if (!originalList) throw new Error('ASR failed: no transcript manifest was produced');
+
+    if (Object.keys(knownText).length > 0) {
+      const labelled = applyKnownTextToManifestFile({
+        listPath: originalList,
+        backupPath: path.join(asrDir, 'asr-whisper.txt'),
+        knownText,
+      });
+      recordTrainingLog(sessionId, {
+        stream: 'stdout',
+        data: `Known-text labels: ${labelled.relabelled} clip(s) relabelled from the script, `
+          + `${labelled.keptAsr} kept their ASR text (did not match the script).\n`,
+      });
+    }
 
     const scoreEntries = JSON.parse(fs.readFileSync(clipScoresPath, 'utf-8'));
     const filtered = buildFilteredTrainingManifest({

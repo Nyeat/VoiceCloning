@@ -24,6 +24,9 @@ import { createGoogleVerifier } from './googleToken.js';
 import { signStudioSession, STUDIO_SESSION_DAYS } from '../shared/studioSession.js';
 import { createMailer, emailConfigured, templates } from './mailer.js';
 import { validatePronunciation, voiceDictionaryKey } from './pronunciation.js';
+import {
+  createOpenAiCaller, generateTermList, knownTextFiles, validateScenarioRequest, validateTermsRequest, writeScenario,
+} from './specialtyTerms.js';
 
 // Voice Studio accepts any Microsoft account, so outside addresses get x- voice names.
 const STUDIO_IDENTITY = Object.freeze({ allowExternal: true });
@@ -102,6 +105,8 @@ export function createStudioService({
   applyPronunciation = (voiceName) => inferencePost('/inference/start', { pronunciationVoice: voiceName }),
   preloadVoice = defaultPreloadVoice,
   releaseSlotGpu = defaultReleaseSlotGpu,
+  // Part 2 term lists and scenarios. OPENAI_API_KEY is a console-set secret on the Lambda.
+  callModel = createOpenAiCaller({ apiKey: env.OPENAI_API_KEY || '', model: env.STUDIO_TERMS_MODEL || undefined }),
 } = {}) {
   async function takenVoiceNames(state) {
     const trained = await listVoices();
@@ -338,7 +343,7 @@ export function createStudioService({
     await releaseSlotGpu(await personOwner(email));
   }
 
-  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices, finishTesting, testingDone, releaseSlotGpu: releasePersonGpu };
+  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices, finishTesting, testingDone, releaseSlotGpu: releasePersonGpu, callModel };
 }
 
 // ── HTTP ─────────────────────────────────────────────────────────────────
@@ -632,7 +637,7 @@ export function createHandler({
           const expName = nextVoiceName(owner, await service.takenVoiceNames(state), STUDIO_IDENTITY);
           if (!expName) throw wf.clientError(409, 'Too many voices for this person; remove one first');
           const job = wf.createJob(state, {
-            id: newId(), ownerEmail: owner, ownerName: forEmail ? body.forName : body.name, expName, label: body.label,
+            id: newId(), ownerEmail: owner, ownerName: forEmail ? body.forName : body.name, expName, label: body.label, specialty: body.specialty,
             consent: superuser ? null : body.consent, trainingConfig: superuser ? body.trainingConfig : null, now,
           });
           if (forEmail) job.submittedBy = normalizeEmail(email);
@@ -676,6 +681,12 @@ export function createHandler({
           if (found) files.push({ name: key.slice(prefix.length), bytes: Number(found.ContentLength || found.size || 0), source: sources[key] === 'recorded' ? 'recorded' : 'upload' });
         }
         if (files.length === 0) throw wf.clientError(400, 'None of the files reached storage; please upload again');
+        // Part 2 readings come with the script they read; training labels those clips with it
+        // instead of the speech recogniser's guess at the medical terms.
+        const known = knownTextFiles(body.knownText, { prefix, keys: files.map((file) => `${prefix}${file.name}`) });
+        if (Object.keys(known).length > 0) {
+          await service.writeJson(`training/datasets/${job.sourceExpName}/known-text.json`, { version: 1, specialty: job.specialty || '', files: known });
+        }
         await updateState(store, (state) => {
           const sending = ownJob(state, parts[1], email);
           // Two sets started side by side: only one may go on the line (a super user's own reference sets are exempt).
@@ -695,6 +706,17 @@ export function createHandler({
           job: submitted, estimate, minutes: wf.trainingMinutes(state, env), env,
         }));
         return ok(await lecturerView((await store.read()).state, email, passwordAccount, via), {}, event);
+      }
+
+      // Part 2: an AI-written term list for a specialty, then scenarios that use the terms.
+      if (route === 'POST specialty/terms') {
+        const request = validateTermsRequest(body);
+        return ok({ terms: await generateTermList(request, { callModel: service.callModel }) }, {}, event);
+      }
+
+      if (route === 'POST specialty/scenarios') {
+        const request = validateScenarioRequest(body);
+        return ok(await writeScenario(request, { callModel: service.callModel }), {}, event);
       }
 
       if (route === 'POST submissions/:id/cancel') {

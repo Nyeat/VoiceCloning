@@ -5,16 +5,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import {
-  CheckCircle2, ChevronLeft, ChevronRight, Clock, FileAudio, Loader2, Mail, Mic, Pause, Play, ShieldCheck, Square, Trash2, Upload, X,
+  Check, CheckCircle2, Clock, FileAudio, Mail, Pause, Pencil, Play, Trash2, Upload, X,
 } from 'lucide-react';
 import { useAuth } from '@/auth/useAuth';
 import { PostLoginRedirectHandler, ProtectedRoute } from '@/auth/AppAuthGate';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { RECORDING_SCRIPT, RECORDING_SCRIPT_MINUTES, SCRIPT_TIPS } from './recordingScript.js';
-import {
-  createContinuousRecorder, listMicrophones, microphoneErrorText, microphoneSupported,
-} from './wavRecorder.js';
+import { ScriptReader } from './ScriptReader.jsx';
+import { PartSteps } from './PartSteps.jsx';
+import { SpecialtyTermsPanel } from './SpecialtyTermsPanel.jsx';
+import { sectionMinutes } from './specialtyTerms.js';
 import {
   createSubmission, errorText, formatSgt, getMe, relativeFromNow, uploadAndSubmit, withdrawSubmission,
 } from './studioApi.js';
@@ -27,7 +28,9 @@ import { TrainingSettings, trainingSettingsPayload } from './TrainingSettings.js
 
 const AUDIO_ACCEPT = '.wav,.mp3,.m4a,.flac,.ogg,audio/wav,audio/mpeg,audio/mp4,audio/flac,audio/ogg';
 const AUDIO_EXT = /\.(wav|mp3|m4a|flac|ogg)$/iu;
-const RECOMMENDED_MINUTES = [10, 30];
+const RECOMMENDED_MINUTES = [10, 40];
+const PART_ONE_TAKE = { name: 'guided-reading', label: 'Part 1 · Guided reading', part: 1 };
+const PART_TWO_TAKE = { name: 'specialty-terms', label: 'Part 2 · Specialty terms', part: 2 };
 
 function audioDuration(url) {
   return new Promise((resolve) => {
@@ -41,274 +44,6 @@ function audioDuration(url) {
 
 function slug(text) {
   return String(text || '').toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-|-$/gu, '').slice(0, 40) || 'take';
-}
-
-// ── Script reader + section recorder ─────────────────────────────────────
-
-function LevelMeter({ level }) {
-  const percent = Math.min(100, Math.round(level * 140));
-  return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
-      <div
-        className={cn('h-full transition-[width] duration-75', level > 0.95 ? 'bg-rose-500' : level > 0.05 ? 'bg-emerald-500' : 'bg-slate-400')}
-        style={{ width: `${percent}%` }}
-      />
-    </div>
-  );
-}
-
-// One continuous recording for the whole script. Moving between sections
-// (swipe, the arrow buttons, the section chips or the ← → keys) never stops it;
-// Pause is for a break. Finish saves ONE file, which is what training gets —
-// not a pile of fragments.
-function ScriptReader({ onTake, disabled, onNeedConsent = null }) {
-  const [index, setIndex] = useState(0);
-  const [phase, setPhase] = useState('idle'); // idle | recording | paused | saving
-  const [elapsed, setElapsed] = useState(0);
-  const [level, setLevel] = useState(0);
-  const [error, setError] = useState('');
-  const [fontSize, setFontSize] = useState(20);
-  const [visited, setVisited] = useState(() => new Set());
-  const [parts, setParts] = useState(0);
-  const recorderRef = useRef(null);
-  const touchRef = useRef(null);
-  const [mics, setMics] = useState([]);
-  const [micId, setMicId] = useState('');
-  const refreshMics = useCallback(() => { listMicrophones().then(setMics).catch(() => setMics([])); }, []);
-  useEffect(() => {
-    refreshMics();
-    navigator.mediaDevices?.addEventListener?.('devicechange', refreshMics);
-    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', refreshMics);
-  }, [refreshMics]);
-  const section = RECORDING_SCRIPT[index];
-  const live = phase === 'recording' || phase === 'paused';
-  const last = RECORDING_SCRIPT.length - 1;
-
-  const go = useCallback((next) => {
-    setIndex((current) => Math.max(0, Math.min(last, typeof next === 'function' ? next(current) : next)));
-  }, [last]);
-
-  // Sections read while the microphone was on.
-  useEffect(() => {
-    if (phase === 'recording') setVisited((current) => (current.has(section.id) ? current : new Set([...current, section.id])));
-  }, [phase, section.id]);
-
-  useEffect(() => {
-    if (!live) return undefined;
-    const id = window.setInterval(() => setElapsed(recorderRef.current?.seconds() || 0), 250);
-    return () => window.clearInterval(id);
-  }, [live]);
-
-  // ← / → move between sections (not while typing in a field).
-  useEffect(() => {
-    function onKey(event) {
-      if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-      if (event.key === 'ArrowRight') go((current) => current + 1);
-      if (event.key === 'ArrowLeft') go((current) => current - 1);
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [go]);
-
-  // Leaving mid-recording would lose it.
-  useEffect(() => {
-    if (!live) return undefined;
-    const warn = (event) => { event.preventDefault(); event.returnValue = ''; };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [live]);
-
-  useEffect(() => () => recorderRef.current?.cancel(), []);
-
-  async function start() {
-    setError('');
-    try {
-      recorderRef.current = createContinuousRecorder({
-        onLevel: setLevel,
-        deviceId: micId,
-        onDeviceLost: () => {
-          setPhase('paused');
-          setError('The microphone was disconnected. Your recording so far is kept — reconnect it and press Finish, then Start again for the rest.');
-        },
-      });
-      await recorderRef.current.start();
-      refreshMics(); // labels appear once permission is given
-      setElapsed(0);
-      setVisited(new Set());
-      setPhase('recording');
-    } catch (err) {
-      recorderRef.current = null;
-      setError(microphoneErrorText(err));
-      refreshMics();
-    }
-  }
-
-  function togglePause() {
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    if (phase === 'recording') { recorder.pause(); setPhase('paused'); } else { recorder.resume(); setPhase('recording'); }
-  }
-
-  async function finish() {
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    setPhase('saving');
-    setLevel(0);
-    try {
-      const take = await recorder.finish(`guided-reading-${Date.now().toString(36)}.wav`);
-      const read = RECORDING_SCRIPT.filter((item) => visited.has(item.id)).map((item) => RECORDING_SCRIPT.indexOf(item) + 1);
-      const span = read.length ? (read.length === 1 ? `section ${read[0]}` : `sections ${read[0]}–${read[read.length - 1]}`) : 'script';
-      const part = parts + 1;
-      setParts(part);
-      onTake({ ...take, sectionId: `reading-${part}`, label: `Guided reading${part > 1 ? ` (part ${part})` : ''} · ${span}`, source: 'recorded' });
-      if (take.levels.tooQuiet) setError('That recording was very quiet — check the microphone is close and not muted.');
-      else if (take.levels.tooLoud) setError('Parts of that recording clipped (too loud) — move back a little next time.');
-    } catch (err) {
-      setError(`Could not save the recording: ${err.message}`);
-    } finally {
-      recorderRef.current = null;
-      setPhase('idle');
-    }
-  }
-
-  function onTouchStart(event) {
-    const touch = event.touches[0];
-    touchRef.current = { x: touch.clientX, y: touch.clientY };
-  }
-  function onTouchEnd(event) {
-    const startTouch = touchRef.current;
-    touchRef.current = null;
-    if (!startTouch) return;
-    const touch = event.changedTouches[0];
-    const dx = touch.clientX - startTouch.x;
-    const dy = touch.clientY - startTouch.y;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go((current) => current + (dx < 0 ? 1 : -1));
-  }
-
-  return (
-    <Card className="flex min-h-0 flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            <span className="hidden sm:inline">Reading script · </span>Section {index + 1} of {RECORDING_SCRIPT.length}<span className="hidden sm:inline"> · about {RECORDING_SCRIPT_MINUTES} min in total</span>
-          </p>
-          <h2 className="text-base font-semibold text-slate-900 sm:text-lg">{section.title}</h2>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => setFontSize((size) => Math.max(16, size - 2))} aria-label="Smaller text">A−</Button>
-          <Button variant="ghost" size="sm" onClick={() => setFontSize((size) => Math.min(30, size + 2))} aria-label="Larger text">A+</Button>
-        </div>
-      </div>
-
-      <div className="flex gap-1 overflow-x-auto overscroll-x-contain border-b border-slate-100 px-4 py-2 [scrollbar-width:none] sm:px-5 [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Script sections">
-        {RECORDING_SCRIPT.map((item, itemIndex) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={itemIndex === index}
-            onClick={() => go(itemIndex)}
-            title={`${item.title} (${item.mood})`}
-            className={cn(
-              'flex h-8 min-w-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-semibold sm:h-7 sm:min-w-7',
-              itemIndex === index ? 'bg-slate-900 text-white' : visited.has(item.id) ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-            )}
-          >
-            {visited.has(item.id) && itemIndex !== index ? <CheckCircle2 size={13} aria-label="read" /> : itemIndex + 1}
-          </button>
-        ))}
-      </div>
-
-      <div className="mx-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-gradient-to-r from-violet-50 to-blue-50 px-3 py-2.5 sm:mx-5 sm:px-4 sm:py-3">
-        <span className="shrink-0 rounded-full bg-violet-600 px-2.5 py-0.5 text-xs font-semibold text-white">{section.mood}</span>
-        <p className="min-w-0 text-sm text-slate-700">{section.cue}</p>
-        <span className="ml-auto text-xs text-slate-500">≈ {section.minutes} min</span>
-      </div>
-
-      <div className="relative flex min-h-[260px] flex-1 items-stretch">
-        <button type="button" onClick={() => go(index - 1)} disabled={index === 0} aria-label="Previous section" className="hidden w-10 shrink-0 items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-20 sm:flex">
-          <ChevronLeft size={26} />
-        </button>
-        <div
-          className="min-w-0 flex-1 touch-pan-y overflow-y-auto px-4 py-4 sm:py-5"
-          style={{ fontSize: `${fontSize}px` }}
-          onTouchStart={onTouchStart}
-          onTouchEnd={onTouchEnd}
-        >
-          {section.paragraphs.map((paragraph) => (
-            <p key={paragraph.slice(0, 32)} className="mb-5 leading-[1.75] text-slate-800">{paragraph}</p>
-          ))}
-          {index < last && <p className="text-center text-xs text-slate-400 sm:hidden">Swipe left for the next section →</p>}
-        </div>
-        <button type="button" onClick={() => go(index + 1)} disabled={index === last} aria-label="Next section" className="hidden w-10 shrink-0 items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-20 sm:flex">
-          <ChevronRight size={26} />
-        </button>
-      </div>
-
-      <div className={cn('border-t px-4 py-3 sm:px-5 sm:py-4', phase === 'recording' ? 'border-rose-200 bg-rose-50' : phase === 'paused' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50')}>
-        {error && <Notice tone="warn" className="mb-3">{error}</Notice>}
-        {phase === 'idle' && mics.length > 1 && (
-          <label className="mb-3 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-600">
-            <Mic size={13} aria-hidden="true" /> Microphone
-            <select value={micId} onChange={(event) => setMicId(event.target.value)} className="h-9 w-full min-w-0 max-w-full truncate rounded-lg border border-slate-300 bg-white px-2 text-xs sm:h-8 sm:w-auto sm:min-w-[220px]">
-              <option value="">Default microphone</option>
-              {mics.filter((mic) => mic.deviceId !== 'default').map((mic, i) => <option key={mic.deviceId} value={mic.deviceId}>{mic.label || `Microphone ${i + 1}`}</option>)}
-            </select>
-          </label>
-        )}
-        {/* Phones: ‹ status › on one row, the big buttons full width underneath
-            (within thumb reach). Wider screens: ‹ buttons › status in one row. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-          <Button variant="outline" size="md" disabled={index === 0} onClick={() => go(index - 1)} aria-label="Previous section" className="order-1 shrink-0 px-3">
-            <ChevronLeft size={16} />
-          </Button>
-          <div className="order-4 flex w-full gap-2 sm:order-2 sm:w-auto sm:gap-3">
-            {phase === 'idle' && onNeedConsent && (
-              <Button variant="primary" size="lg" onClick={onNeedConsent} className="flex-1 sm:min-w-[190px] sm:flex-none">
-                <ShieldCheck size={16} className="shrink-0" aria-hidden="true" /> Accept the consent form to start
-              </Button>
-            )}
-            {phase === 'idle' && !onNeedConsent && (
-              <Button variant="dark" size="lg" onClick={start} disabled={disabled || !microphoneSupported()} className="flex-1 sm:min-w-[190px] sm:flex-none">
-                <Mic size={16} aria-hidden="true" /> {parts ? 'Record another part' : 'Start reading'}
-              </Button>
-            )}
-            {live && (
-              <>
-                <Button variant={phase === 'paused' ? 'success' : 'outline'} size="lg" onClick={togglePause} className="flex-1 sm:min-w-[130px] sm:flex-none">
-                  {phase === 'paused' ? <><Play size={16} /> Resume</> : <><Pause size={16} /> Pause</>}
-                </Button>
-                <Button variant="danger" size="lg" onClick={finish} className="flex-1 tabular-nums sm:min-w-[150px] sm:flex-none">
-                  <Square size={16} aria-hidden="true" /> Finish · {formatDuration(elapsed)}
-                </Button>
-              </>
-            )}
-            {phase === 'saving' && <Button variant="dark" size="lg" disabled className="flex-1 sm:min-w-[190px] sm:flex-none"><Loader2 size={16} className="animate-spin" /> Saving…</Button>}
-          </div>
-          <Button variant="outline" size="md" disabled={index === last} onClick={() => go(index + 1)} aria-label="Next section" className="order-3 shrink-0 px-3 sm:order-3">
-            <ChevronRight size={16} />
-          </Button>
-          <div className="order-2 min-w-0 flex-1 sm:order-4 sm:min-w-[160px]">
-            {live ? (
-              <div>
-                <p className={cn('mb-1 flex items-center gap-1.5 text-xs font-semibold', phase === 'paused' ? 'text-amber-800' : 'text-rose-700')}>
-                  <span className={cn('h-2 w-2 rounded-full', phase === 'paused' ? 'bg-amber-500' : 'animate-pulse bg-rose-600')} />
-                  {phase === 'paused' ? 'Paused — take a break, then Resume' : 'Recording — keep going, turn the page any time'}
-                </p>
-                <LevelMeter level={level} />
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500">
-                {microphoneSupported()
-                  ? 'One recording for the whole script: swipe, use the arrows or ← → to turn sections, Pause for a break, Finish at the end.'
-                  : 'This browser cannot record — use Chrome or Edge, or upload files instead.'}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
 }
 
 // ── Collected files ──────────────────────────────────────────────────────
@@ -346,7 +81,23 @@ function TakeRow({ take, onRemove }) {
   );
 }
 
-function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser = false, forPerson = null }) {
+function PartChecklist({ partsDone }) {
+  const rows = [['Part 1 · normal reading', partsDone[0]], ['Part 2 · medical terms', partsDone[1]]];
+  return (
+    <ul className="space-y-1.5 px-5 pb-1 pt-3" aria-label="Checklist">
+      {rows.map(([text, done]) => (
+        <li key={text} className="flex items-center gap-2.5 text-sm text-slate-700">
+          <span className={cn('flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full', done ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300')} aria-hidden="true">
+            {done && <Check size={11} strokeWidth={3} />}
+          </span>
+          {text}<span className="sr-only">{done ? ' — done' : ' — not yet'}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, partsDone, superuser = false, forPerson = null }) {
   const inputRef = useRef(null);
   const [settings, setSettings] = useState({ skipDenoise: true });
   const [dragging, setDragging] = useState(false);
@@ -375,7 +126,7 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser
     <Card className="flex flex-col">
       <div className="border-b border-slate-200 px-5 py-4">
         <h2 className="text-base font-semibold text-slate-900">Your audio</h2>
-        <p className="mt-1 text-sm text-slate-600">Recorded sections and any files you add. Lecture recordings are great too.</p>
+        <p className="mt-1 text-sm text-slate-600">Your recorded parts and any files you add. Lecture recordings are great too.</p>
       </div>
 
       <div
@@ -411,8 +162,9 @@ function FilesPanel({ takes, setTakes, onSubmit, submitting, progress, superuser
         {takes.map((take, index) => (
           <TakeRow key={take.url} take={take} onRemove={() => setTakes((current) => current.filter((_, i) => i !== index))} />
         ))}
-        {takes.length === 0 && <li className="px-5 py-6 text-center text-sm text-slate-500">Nothing yet — record a section or add a file.</li>}
+        {takes.length === 0 && <li className="px-5 py-6 text-center text-sm text-slate-500">Nothing yet — record a part or add a file.</li>}
       </ul>
+      <PartChecklist partsDone={partsDone} />
 
       <div className="mt-auto space-y-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
         <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="set-label">Name this voice</label>
@@ -586,6 +338,12 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(null);
   const [tipsOpen, setTipsOpen] = useState(true);
+  // Part 1 (standard script) / Part 2 (specialty terms). Switching is locked mid-recording.
+  const [part, setPart] = useState(1);
+  const [readingLive, setReadingLive] = useState(false);
+  const [specialty, setSpecialty] = useState('');
+  const [termEntries, setTermEntries] = useState([]);
+  const [termScript, setTermScript] = useState(null);
   const email = auth.user?.email || '';
   const [consent, setConsent] = useState(() => readStudioConsent(email));
   const [consentOpen, setConsentOpen] = useState(false);
@@ -615,13 +373,18 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
     setProgress(0);
     try {
       if (consentMissing) { setConsentOpen(true); throw new Error('Please accept the consent form first.'); }
-      const { jobId } = await createSubmission({ label, name: auth.user?.name || '', consent: needsConsent ? consent : null, trainingConfig, forPerson });
+      const { jobId } = await createSubmission({
+        label, name: auth.user?.name || '', specialty: specialty.trim(), consent: needsConsent ? consent : null, trainingConfig, forPerson,
+      });
       const view = await uploadAndSubmit(jobId, takes, { onProgress: setProgress });
       setMe(view);
       setSubmitted(view.jobs.find((job) => job.id === jobId) || { id: jobId });
       onSubmitted?.(view);
       takes.forEach((take) => URL.revokeObjectURL(take.url));
       setTakes([]);
+      setPart(1);
+      setTermScript(null);
+      setTermEntries([]);
     } catch (err) {
       setError(errorText(err, 'Upload failed. Your recordings are still here — try again.'));
     } finally {
@@ -642,6 +405,29 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
     return me.queueLength > 0 ? `${me.queueLength} voice${me.queueLength === 1 ? '' : 's'} in the training queue right now` : 'The training queue is empty — yours would start straight away';
   }, [me]);
 
+  const partsDone = [takes.some((take) => take.part === 1), takes.some((take) => take.part === 2)];
+  const partCards = [
+    {
+      title: 'Normal reading',
+      description: 'Read the standard script in your everyday lecturing voice.',
+      meta: `${RECORDING_SCRIPT.length} sections · about ${RECORDING_SCRIPT_MINUTES} min`,
+      done: partsDone[0],
+      status: partsDone[0] ? 'Done' : part === 1 ? 'Start here' : 'Not started',
+    },
+    {
+      title: 'Medical terms from your specialty',
+      description: 'Read short sentences with the terms you use in your field.',
+      meta: specialty.trim()
+        ? `${specialty.trim()}${termEntries.length ? ` · ${termEntries.length} terms` : ''}`
+        : '50 or 100 terms · about 7–14 min',
+      done: partsDone[1],
+      status: partsDone[1] ? 'Done' : part === 2 ? "You're here" : 'Next',
+    },
+  ];
+  const readerDisabled = submitting || consentMissing || !me;
+  const addTake = (take) => setTakes((current) => [...current, take]);
+  const needConsent = consentMissing ? () => setConsentOpen(true) : null;
+
   const Shell = embedded ? EmbeddedShell : PageShell;
   return (
     <>
@@ -650,7 +436,7 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
           <div className="min-w-0 flex-1 basis-72">
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Record your teaching voice</h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-600">
-              Read the whole script in one go (pause whenever you need a break), upload recordings you already have, or both. About 30 minutes of clear speech gives the best voice.
+              Two short parts: the standard script, then the medical terms from your specialty. Upload recordings you already have too. About 35–45 minutes in total gives the best voice.
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5 sm:flex-col sm:items-end sm:gap-1">
@@ -676,13 +462,58 @@ export function RecordWorkspace({ embedded = false, sessionEnd = '', onSubmitted
         )}
 
         {/* Without consent the reader stays readable; its Start button opens the consent form instead. */}
+        <PartSteps parts={partCards} current={part} onSelect={setPart} locked={readingLive} />
+
+        {/* Both readers stay mounted (hidden when not shown), so a finished
+            part keeps its state and the other part's recording is never cut off. */}
         <div className={cn('grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_380px]', !me && 'pointer-events-none opacity-50')} aria-disabled={!me}>
-          <ScriptReader
-            onTake={(take) => setTakes((current) => [...current, take])}
-            disabled={submitting || consentMissing || !me}
-            onNeedConsent={consentMissing ? () => setConsentOpen(true) : null}
-          />
-          <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} superuser={me?.role === 'superuser'} forPerson={forPerson} />
+          <div className="min-w-0">
+            <div className={cn(part !== 1 && 'hidden')}>
+              <ScriptReader
+                script={RECORDING_SCRIPT}
+                totalMinutes={RECORDING_SCRIPT_MINUTES}
+                partLabel="Part 1 of 2 · Normal reading"
+                take={PART_ONE_TAKE}
+                active={part === 1}
+                onTake={addTake}
+                onLiveChange={setReadingLive}
+                disabled={readerDisabled}
+                onNeedConsent={needConsent}
+                next={{ label: 'Continue to Part 2', onClick: () => setPart(2) }}
+              />
+            </div>
+            <div className={cn(part !== 2 && 'hidden')}>
+              {termScript ? (
+                <ScriptReader
+                  script={termScript}
+                  totalMinutes={sectionMinutes(termScript)}
+                  partLabel="Part 2 of 2 · Medical terms"
+                  take={PART_TWO_TAKE}
+                  withKnownText
+                  active={part === 2}
+                  onTake={addTake}
+                  onLiveChange={setReadingLive}
+                  disabled={readerDisabled}
+                  onNeedConsent={needConsent}
+                  headerAction={(
+                    <Button variant="ghost" size="sm" onClick={() => setTermScript(null)}>
+                      <Pencil size={13} aria-hidden="true" /> Edit terms
+                    </Button>
+                  )}
+                />
+              ) : (
+                <SpecialtyTermsPanel
+                  specialty={specialty}
+                  onSpecialtyChange={setSpecialty}
+                  entries={termEntries}
+                  onEntriesChange={setTermEntries}
+                  onBuilt={setTermScript}
+                  onSkip={() => setPart(1)}
+                />
+              )}
+            </div>
+          </div>
+          <FilesPanel takes={takes} setTakes={setTakes} onSubmit={submit} submitting={submitting} progress={progress} partsDone={partsDone} superuser={me?.role === 'superuser'} forPerson={forPerson} />
         </div>
 
         {!embedded && <MySubmissions me={me} onWithdraw={withdraw} />}
