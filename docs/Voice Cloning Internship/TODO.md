@@ -1,8 +1,9 @@
 # Active TODO
 
+- [ ] Retry Nat's set (cs-nathanael-ng_5, 25-min WAV) now that 915ea21 is deployed; check the log shows slicing (not
+  "sliced audio already exists") and the quality gate passes.
 - [ ] Live-test the broken-voice path (28eca7d): book a slot for a voice that cannot speak -> after 2 failures the
   slot shows "Voice not loaded" (super user) / "reported to the team" (lecturer), GPU released, one admin email, banner.
-  Nathanael: switch his approved voice to cs-nathanael-ng_4 (works) or have him re-record (>= 10 min) and retrain.
 - [ ] Worker (next AMI): boot warm-up should report a failed claimed voice instead of exit 1 (no restart loop, no
   Dean fallback on a studio GPU), and log GPT-SoVITS's 400 reason.
 - [ ] Slide-text cleanup (2026-11-24, deployed): paste a real slide into the TTS page + studio tester and listen.

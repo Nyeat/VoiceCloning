@@ -22,13 +22,10 @@ Last updated: 2026-11-23
   11-23 later (32f6e35, DEPLOYED dev+staging 17:25 SGT): Staff availability (override + taken/free-again emails, hand-off, undo), Upload for anyone, Delete stale uploads, 12 dummies re-seeded. Staging again has open recording.
   Dev has all; STAGING was overwritten 16:33 SGT by a teammate's unpushed tree ("To record" list) -> his work merged in 5acac14; redeploy staging next. Email needs the LKC mailbox (TODO).
 - 11-24 6d039c8 DEPLOYED dev+staging: account-based availability, one-time recording page, QC test tab, slide-text cleanup, Tools > Clean up, GPU warm-up 30 min, slot moves warm at once, line map follows real test slots, retest after feedback, email via SES (blocked: needs admin; CHANGELOG 11-24). Withdraw = person's voice (sets, test slots; recording sessions stay), no Restore (66cb319 DEPLOYED); Reset for a new voice + one run per person + re-record = withdraw (68dce37 DEPLOYED); Reset only after approved+tested, Clear log (7ba19c3 DEPLOYED); sessions = staff + emails only, Reset in Clean up, retrain email (429476c + ac981d3 DEPLOYED, CHANGELOG 11-24).
-- 11-25 a47877a DEPLOYED dev+staging (Lambdas + studio): published test slot edits held until Publish (`slot.pending`, Discard),
-  email from no-reply@lkcmedicine.org via SES (Gmail ok; NTU mailboxes get nothing: needs NTU IT), teammate's Part 2
-  specialty terms merged in (CHANGELOG 11-25).
-- 11-25 night 28eca7d DEPLOYED dev+staging (Lambdas, coordinators, studio + training clients): broken voices marked
-  VOICE_FAILED after 2 failures (no GPU loops, root cause shown, admins emailed), studio one-person-one-GPU hard rule,
-  replacement GPU adoption, withdraw releases GPU, >= 10 min audio to submit (CHANGELOG 11-25). Next: live-test it; fix Nathanael's voice.
-- 11-25 late: 3f05670 pushed but NOT deployed (AWS keys expired) - see CHANGELOG; deploy Lambdas + all clients next.
+- 11-25 ALL DEPLOYED dev+staging at d2cdb84 (Lambdas, coordinators, every client, both fixed-GPU workers): held slot
+  edits, SES sender, Part 2 terms; broken voices marked VOICE_FAILED after 2 failures (GPU shut, slot closed, lecturer +
+  admin told with root cause); studio one person one GPU + replacement GPU adoption; >= 10 min audio; feedback after the
+  slot; training never reuses stale clips (Nat _5 fix). Staging GPU had hand edits: backup /home/ubuntu/hand-edits-backup-20261125/.
 - One tree: Dev `separate-containers-new` = Staging `codex/staging-multi-user-scaling` (same commit); runtime
   config owns the differences (Staging hides advanced settings, Dev does not autoscale, Dev has no Faculty).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected
@@ -116,8 +113,8 @@ CONTRADICTION: the lecture badge showed `cs-nathanael-ng` while `client/env/stag
 
 ## Next Session
 
-1. Refresh user-level `VCS_AWS_*`, deploy both coordinators/main Lambdas and affected clients from one
-   commit, then repeat the six-request three-GPU and super-overflow tests with no idle-capacity scale.
+1. Retry Nat (cs-nathanael-ng_5) in Voice Studio and confirm it slices his 25-min WAV; live-test the broken-voice path
+   (TODO); then repeat the six-request three-GPU and super-overflow tests with no idle-capacity scale.
 2. Isolate the deployed frontend retry path with a synthesis failure lasting beyond the backend retry
    window; require one answer bubble, automatic speech, and no stale banner or second prompt.
 3. Faculty publishing: start the Dev GPU, publish two profiles across two lecture categories, confirm
