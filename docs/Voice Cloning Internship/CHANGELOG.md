@@ -3083,3 +3083,10 @@
   "kept 1/3 clips" because the box still held 3 clips sliced from the earlier 2 short readings of that name and skipped
   slicing his new 25-min WAV. gpu-worker 43/43. Deploy = deploy-worker.ps1 (restarts gpu-worker + inference + live
   gateway on the fixed GPU), then Retry his set.
+
+- Same day 22:14 SGT: 915ea21 DEPLOYED to the staging fixed GPU (deploy-worker.ps1; gpu-worker, inference worker, live
+  gateway restarted, all healthy). The box was 133 commits behind (d1b5ff93, 11-21) with hand edits: pipeline.js
+  (teammate Part 2 + skipDenoise default false) and untracked knownTextLabels.js (= 27806c7). Backed up to
+  /home/ubuntu/hand-edits-backup-20261125/ and reset; everything else was already in the branch. separate-containers-new
+  fast-forwarded to fd19f0f (one tree). Dev fixed GPU i-03f258d470a2fa73f was stopped: its worker still needs
+  deploy-worker.ps1 -Env dev when started. Next: Retry cs-nathanael-ng_5 in Voice Studio.
