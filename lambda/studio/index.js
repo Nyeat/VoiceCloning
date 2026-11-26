@@ -853,9 +853,13 @@ export function createHandler({
           wf.addFeedback(job, {
             email, rating: body.rating, comment: body.comment, likeness: body.likeness, issues: body.issues, words: body.words, now,
           });
-          return { done: service.testingDone(state, email), jobId: job.id };
+          // Another test slot still booked: this slot ends, testing stays open.
+          const next = wf.feedbackKeepsTesting(state, email, now);
+          return { done: !next && service.testingDone(state, email), next: Boolean(next), jobId: job.id };
         });
         if (result.done) await service.finishTesting(email);
+        // The ended slot's GPU then follows the slot rules (kept across a short gap, else released).
+        else if (result.next) await service.tick({ force: true }).catch((error) => console.warn('[studio] tick after feedback failed', error.message));
         const { state } = await store.read();
         const job = wf.findJob(state, result.jobId);
         await service.notify(job.id, 'feedbackReceived', service.superuserEmails(state), templates.feedbackReceived({ job, env }));

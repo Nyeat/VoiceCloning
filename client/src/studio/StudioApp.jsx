@@ -1359,8 +1359,15 @@ function VoiceJourney({ job, now, testSlot }) {
       </>
     );
   } else if (job.status === 'ready' && testSlot) {
-    title = 'Your test time is booked';
-    body = <p><b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}). A GPU is warmed up just for you before it starts; we email you that morning.</p>;
+    // Feedback already sent in an earlier slot: thank them, then the next time.
+    const lastFeedback = (job.feedback || []).at(-1);
+    title = lastFeedback ? 'Thank you — your next test time is booked' : 'Your test time is booked';
+    body = (
+      <>
+        {lastFeedback && <p>We received your feedback on {formatSgt(lastFeedback.at)} SGT.</p>}
+        <p>{lastFeedback ? 'Your next test time: ' : ''}<b>{formatRange(testSlot.start, testSlot.end)}</b> ({relativeFromNow(testSlot.start, now)}). A GPU is warmed up just for you before it starts; we email you that morning.</p>
+      </>
+    );
   } else if (job.status === 'ready') {
     title = 'Passed quality control — awaiting your test time';
     body = <p>Our team is booking a time for you to test it, and emails it to you. You can also test now: a GPU starts just for you, which takes about 5–15 minutes.</p>;

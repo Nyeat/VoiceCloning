@@ -1319,6 +1319,23 @@ export function reopenTesting(state, email, now) {
   }
 }
 
+/**
+ * Feedback sent while another test slot is still booked for them (owner
+ * 2026-11-26): the slot they are in (or warming for) ends now, but testing
+ * stays open, so they can test on demand and use the next slot. Their GPU
+ * follows the usual slot rules (kept across a short gap, else released).
+ * Returns the next slot, or null when none is booked (testing then closes).
+ */
+export function feedbackKeepsTesting(state, email, now) {
+  const mine = liveSlots(state).filter((slot) => slotHoldsGpu(slot) && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) > now);
+  const current = mine.filter((slot) => ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now);
+  const next = mine.filter((slot) => !current.includes(slot)).sort((a, b) => ms(a.start) - ms(b.start))[0] || null;
+  if (!next) return null;
+  for (const slot of current) slot.completedAt = iso(now);
+  reopenTesting(state, email, now);
+  return next;
+}
+
 export function testingClosed(state, email, voiceName) {
   return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && job.approvedExpName === voiceName && job.testingClosedAt);
 }

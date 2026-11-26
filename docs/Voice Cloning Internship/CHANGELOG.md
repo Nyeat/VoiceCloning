@@ -3094,3 +3094,17 @@
 - Same day 22:35 SGT: dev fixed GPU i-03f258d470a2fa73f started; worker deployed (separate-containers-new = d2cdb84; gpu-worker,
   inference, live gateway healthy); dev chatbot client deployed from separate-containers-new. Everything is now deployed
   on dev + staging at d2cdb84.
+
+## 2026-11-26 — Multiple test slots: feedback keeps testing open while another slot is booked
+
+- Before: feedback in slot 1 closed testing for good, so a lecturer with slot 2 booked saw "session
+  finished", could not test on demand, and slot 2 never warmed or unlocked.
+- Now (`wf.feedbackKeepsTesting`, feedback route in `lambda/studio/index.js`): if another test slot is
+  still booked, feedback ends the current slot (completedAt) but testing stays open, so on-demand testing
+  works right away and the next slot warms/unlocks as usual; the ended slot's GPU follows the existing
+  slot rules via a forced tick (kept across a short gap, else released). Feedback in the last slot closes
+  testing as before. Page: "Thank you — your next test time is booked" + the next slot's time
+  (`client/src/studio/StudioApp.jsx`). GPU per person unchanged: slot warm-up and on-demand share
+  `studioPersonOwner` (one GPU; a new one only when theirs is draining).
+- Tests: `node --test studio/workflow.test.js studio/index.test.js` 65/65 (2 new workflow tests);
+  StudioApp.jsx esbuild syntax OK.

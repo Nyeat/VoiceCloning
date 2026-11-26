@@ -493,6 +493,40 @@ test('a slot finished early stops blocking; a new test slot reopens testing afte
   assert.ok(nat.testingReopenedAt);
 });
 
+test('feedback with another slot booked ends this slot but keeps testing open (on demand + next slot)', () => {
+  const state = wf.emptyState();
+  const at = (min) => new Date(T0 + min * MIN).toISOString();
+  const nat = job(state, 'n1', 'nat@ntu.edu.sg', 0);
+  nat.status = 'approved'; nat.approvedExpName = 'nat';
+  wf.addSlot(state, { id: 's1', start: at(30), end: at(90), assigneeEmail: 'nat@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 's2', start: at(300), end: at(360), assigneeEmail: 'nat@ntu.edu.sg', now: T0 });
+  wf.publishSlots(state, T0);
+  const asNat = (now) => wf.voiceAccess(state, { email: 'nat@ntu.edu.sg', voiceName: 'nat', now, superuser: false });
+  // Slot 1: feedback ends it, testing stays open.
+  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 4, now: T0 + 45 * MIN });
+  assert.equal(wf.feedbackKeepsTesting(state, 'nat@ntu.edu.sg', T0 + 45 * MIN).id, 's2');
+  assert.equal(wf.findSlot(state, 's1').completedAt, at(45));
+  assert.equal(wf.currentSlot(state, T0 + 46 * MIN), null);
+  assert.deepEqual([asNat(T0 + 46 * MIN).allowed, asNat(T0 + 46 * MIN).reason], [true, 'on-demand'], 'on demand between slots');
+  assert.equal(wf.upcomingSlotFor(state, 'nat@ntu.edu.sg', T0 + 46 * MIN, 'test').id, 's2', 'the page shows the next time');
+  assert.equal(asNat(T0 + 310 * MIN).reason, 'in-slot');
+  // Slot 2 is the last: feedback there closes testing as before.
+  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 5, now: T0 + 320 * MIN });
+  assert.equal(wf.feedbackKeepsTesting(state, 'nat@ntu.edu.sg', T0 + 320 * MIN), null);
+  assert.equal(asNat(T0 + 321 * MIN).reason, 'tested');
+});
+
+test('feedback while warming for the only slot does not count that slot as "next"', () => {
+  const state = wf.emptyState();
+  const nat = job(state, 'n1', 'nat@ntu.edu.sg', 0);
+  nat.status = 'approved'; nat.approvedExpName = 'nat';
+  wf.addSlot(state, { id: 's1', start: new Date(T0 + 30 * MIN).toISOString(), end: new Date(T0 + 90 * MIN).toISOString(), assigneeEmail: 'nat@ntu.edu.sg', now: T0 });
+  wf.publishSlots(state, T0);
+  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 4, now: T0 + 10 * MIN });
+  assert.equal(wf.feedbackKeepsTesting(state, 'nat@ntu.edu.sg', T0 + 10 * MIN), null);
+  assert.equal(wf.testingClosed(state, 'nat@ntu.edu.sg', 'nat'), true);
+});
+
 test('withdraw takes the voice off the line and its test slots, keeps recording sessions, reopens recording', () => {
   const state = wf.emptyState();
   const sent = job(state, 'a1', 'a@ntu.edu.sg', 0);
