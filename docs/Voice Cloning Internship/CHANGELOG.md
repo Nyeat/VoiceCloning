@@ -3107,4 +3107,6 @@
   (`client/src/studio/StudioApp.jsx`). GPU per person unchanged: slot warm-up and on-demand share
   `studioPersonOwner` (one GPU; a new one only when theirs is draining).
 - Tests: `node --test studio/workflow.test.js studio/index.test.js` 65/65 (2 new workflow tests);
-  StudioApp.jsx esbuild syntax OK.
+  StudioApp.jsx esbuild syntax OK.- Deploy: 7894c30 pushed to separate-containers-new and codex/staging-multi-user-scaling; dev Lambdas (deploy-lambda -Env dev) and dev studio site deployed, live bundle checked for the new text. Staging NOT deployed (blocked by a permission prompt). Staff guide doc got section 8 + 6 mock screenshots; warm-up corrected to 30 min.
+- Staging deployed (deploy-lambda -Env staging + studio site), live bundle checked. Staff guide doc: super user + lecturer sections rewritten for the current console with 28 screenshots of the real studio UI (local in-memory studio server + Vite, sample people), replacing all old screenshots.
+- Docs: DECISIONS (multiple test slots, 30-min gap rule, moving a warming slot), TODO (owner decided the gap rule; live-test task added); workflow.js comment fixed (gap rule is the 30-min warm-up, not an hour).

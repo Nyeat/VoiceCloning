@@ -26,6 +26,8 @@ Last updated: 2026-11-23
   edits, SES sender, Part 2 terms; broken voices marked VOICE_FAILED after 2 failures (GPU shut, slot closed, lecturer +
   admin told with root cause); studio one person one GPU + replacement GPU adoption; >= 10 min audio; feedback after the
   slot; training never reuses stale clips (Nat _5 fix). Staging GPU had hand edits: backup /home/ubuntu/hand-edits-backup-20261125/.
+- 11-26 7894c30 DEPLOYED dev + staging (Lambdas + studio sites; both branches pushed): multiple test slots - feedback with another
+  slot booked ends that slot, testing stays open (on demand + next slot). Staff guide doc re-shot from the real UI (28 shots).
 - One tree: Dev `separate-containers-new` = Staging `codex/staging-multi-user-scaling` (same commit); runtime
   config owns the differences (Staging hides advanced settings, Dev does not autoscale, Dev has no Faculty).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected

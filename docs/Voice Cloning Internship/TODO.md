@@ -13,8 +13,8 @@
 - [ ] Live-test Reset for a new voice (2851d39 deployed): only after approved + tested; from set page and Clean up; their
   page starts at recording; upload-for a 2nd voice is refused while one is in progress; Clear log.
 - [ ] Check on a phone (6d039c8 deployed): long names/emails wrap, GPU popup shows within ~1 s.
-- [ ] Owner to decide: keep a lecturer's GPU on ~10 min after a test slot ends, so a slot added right after does not
-  cold-start (today it is released at the next 5-min check unless a slot already starts within 30 min).
+- [ ] Live-test two test slots for one lecturer on staging (7894c30): feedback in slot 1 -> 'next test time is booked',
+  Start testing now works, slot 2 warms and unlocks, feedback in slot 2 -> session finished.
 - [ ] Live GPU check (staging): slot warms 30 min before; a GPU switching off -> new one starts at once with the popup.
 - [ ] Email (2026-11-25): sends via SES from "LKCMedicine Voice Studio" <no-reply@lkcmedicine.org> (DKIM-verified
   domain; live on dev + staging, in .env.deployment*). Gmail gets it in the inbox. NTU mailboxes get NOTHING from SES

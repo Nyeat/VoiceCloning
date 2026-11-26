@@ -328,7 +328,7 @@ function slotsHoldingGpu(slots, time) {
 
 /**
  * The lecturer ends their own test slot early ("I'm done"). The slot GPU is then
- * released on the next tick unless another slot starts within the hour.
+ * released on the next tick unless their next slot is already in its 30-min warm-up.
  */
 export function completeSlot(state, { slotId, email, now }) {
   const slot = state.slots.find((item) => item.id === slotId);

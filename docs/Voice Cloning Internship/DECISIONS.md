@@ -409,3 +409,9 @@ These live in runtime configuration and will not appear in any branch diff:
 - 2026-11-25 (owner): Voice Studio is strictly one person one GPU (max one stopping + one starting); never another
   idle GPU switched to them; a health-check replacement becomes their reserved GPU. A voice that cannot load is
   reported (email + console) and nothing retries it, on every site. Training submissions need >= 10 min of audio.
+
+- 2026-11-26 (owner): several test slots per person. Feedback while another of their slots is still booked ends that
+  slot only; testing stays open (on demand + the next slot, which warms as usual) and their page shows the next time.
+  Feedback in the last booked slot closes testing. A GPU is kept across a gap only when the next slot is already in its
+  30-min warm-up (30 min, not 1 h, is the agreed rule). Moving a warming slot: held until Publish; then the GPU is kept
+  if the new start is within 30 min, else released and warmed again 30 min before the new time.
