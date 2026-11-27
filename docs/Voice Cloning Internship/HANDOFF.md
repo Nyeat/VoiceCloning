@@ -28,7 +28,7 @@ Last updated: 2026-11-23
   slot; training never reuses stale clips (Nat _5 fix). Staging GPU had hand edits: backup /home/ubuntu/hand-edits-backup-20261125/.
 - 11-26 7894c30 DEPLOYED dev + staging (Lambdas + studio sites; both branches pushed): multiple test slots - feedback with another
   slot booked ends that slot, testing stays open (on demand + next slot). Staff guide doc re-shot from the real UI (28 shots).
-- 11-27 NOT DEPLOYED: feedback closes nothing (no slot end, no GPU release, testing always open, more feedback allowed). CHANGELOG 11-27.
+- 11-27 e1c42cd DEPLOYED dev + staging (Lambdas + studio sites; both branches pushed): feedback closes nothing (no slot end, no GPU release, testing always open, more feedback allowed). CHANGELOG 11-27.
 - One tree: Dev `separate-containers-new` = Staging `codex/staging-multi-user-scaling` (same commit); runtime
   config owns the differences (Staging hides advanced settings, Dev does not autoscale, Dev has no Faculty).
 - Staging remains the sole authoring surface via Faculty. Publishing mirrors only the selected

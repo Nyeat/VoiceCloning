@@ -3121,4 +3121,6 @@
 - Unchanged: GPU kept across a gap only when the next slot is in its 30-min warm-up, else released and warmed again
   30 min before; a prepare during a release boots a new GPU (Terminating instances are not routed to).
 - Tests: `node --test lambda/studio/*.test.js` 79/79, model-coordinator + shared 190/190, client studio 45/45,
-  `vite build` OK. Not deployed, not live-tested.
+  `vite build` OK.
+- Deploy: e1c42cd pushed to separate-containers-new and codex/staging-multi-user-scaling; deploy-lambda dev + staging,
+  deploy-client -Mode studio dev + staging; both live bundles checked for the new text. Not live-tested on a GPU.
