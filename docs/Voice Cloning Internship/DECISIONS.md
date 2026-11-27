@@ -415,3 +415,8 @@ These live in runtime configuration and will not appear in any branch diff:
   Feedback in the last booked slot closes testing. A GPU is kept across a gap only when the next slot is already in its
   30-min warm-up (30 min, not 1 h, is the agreed rule). Moving a warming slot: held until Publish; then the GPU is kept
   if the new start is within 30 min, else released and warmed again 30 min before the new time.
+
+- 2026-11-27 (owner): feedback closes nothing. It is only saved (more than one allowed); it never ends a slot, closes
+  testing or releases the GPU. Lecturers test on demand before, between and after slots, and in every slot.
+  Supersedes the feedback rules of 2026-11-23 and 2026-11-26. testingClosedAt now means only "first feedback sent"
+  (Reset for a new voice, line map "Feedback sent" once no slot is ahead).

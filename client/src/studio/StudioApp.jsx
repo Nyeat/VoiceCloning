@@ -1212,7 +1212,7 @@ function FeedbackForm({ job, onSent }) {
   return (
     <Card className="p-4 sm:p-5">
       <h3 className="font-semibold text-slate-900">Done testing? Tell us how it sounds</h3>
-      <p className="mt-1 text-sm text-slate-600">About a minute. Sending it <b>finishes your testing</b> of this voice and closes the tester, so test as much as you like first.</p>
+      <p className="mt-1 text-sm text-slate-600">About a minute. You can keep testing after you send it, and send more feedback any time.</p>
       <form onSubmit={submit} className="mt-4 space-y-4">
         <div>
           <p className="text-xs font-semibold text-slate-700">Overall</p>
@@ -1349,12 +1349,13 @@ function VoiceJourney({ job, now, testSlot }) {
   } else if (job.status === 'quality-check') {
     title = 'Our team is listening to your voice';
     body = <p>Training is done. Quality control is done by people, so it can take longer than training — sometimes we retrain to get it right. We email you when it passes.</p>;
-  } else if (job.status === 'ready' && job.testingClosedAt) {
-    // Owner 2026-11-24: testing done = the session is finished; training again goes through the team.
-    title = 'Your voice session is finished — thank you';
+  } else if (job.status === 'ready' && job.testingClosedAt && !testSlot) {
+    // Feedback never closes testing (owner 2026-11-27); training again goes through the team.
+    const lastFeedback = (job.feedback || []).at(-1);
+    title = 'Thank you for your feedback';
     body = (
       <>
-        <p>We received your feedback on {formatSgt(job.testingClosedAt)} SGT. Our team reads it and emails you about next steps.</p>
+        <p>We received your feedback on {formatSgt(lastFeedback?.at || job.testingClosedAt)} SGT. Our team reads it and emails you about next steps. You can keep testing your voice and send more feedback any time.</p>
         <p>Want another voice, or this one trained again with new recordings? Please ask our team; they reopen your recording page for you.</p>
       </>
     );
@@ -1396,7 +1397,8 @@ function LecturerHome({ me: initialMe, refresh }) {
   const [me, setMe] = useState(initialMe);
   useEffect(() => setMe(initialMe), [initialMe]);
   const ready = me.jobs.filter((job) => job.status === 'ready');
-  const testable = ready.filter((job) => !job.testingClosedAt && job.voiceName);
+  // Feedback never closes testing (owner 2026-11-27): every ready voice stays testable.
+  const testable = ready.filter((job) => job.voiceName);
   const submitted = me.jobs.filter((job) => !['uploading', 'cancelled'].includes(job.status));
   // Sets still on their way; once every one is tested, the newest shows "session finished".
   const finished = (job) => job.status === 'ready' && Boolean(job.testingClosedAt);
@@ -1443,7 +1445,7 @@ function LecturerHome({ me: initialMe, refresh }) {
       <>
         <div className="rounded-2xl bg-emerald-600 px-4 py-4 text-white sm:px-5">
           <p className="text-base font-semibold sm:text-lg">{slot ? `Your test time — until ${formatSgt(slot.end, { withDate: false })} SGT` : 'Test your voice'}</p>
-          <p className="text-sm text-white/85">Paste some text to hear it read in your voice, or chat with it. Fix any word it says wrongly in the Pronunciation panel. When you are done, send your feedback below — that finishes your testing.</p>
+          <p className="text-sm text-white/85">Paste some text to hear it read in your voice, or chat with it. Fix any word it says wrongly in the Pronunciation panel. Send your feedback below whenever you like — you can keep testing after it.</p>
         </div>
         <TestBench voiceNames={testable.map((job) => job.voiceName)} canApply audience="lecturer" slotWarm={slot?.warm || null} />
         {feedbackTarget && (
@@ -1453,7 +1455,7 @@ function LecturerHome({ me: initialMe, refresh }) {
                 {testable.map((job) => <option key={job.id} value={job.id}>{job.label}</option>)}
               </select>
             )}
-            <FeedbackForm key={feedbackTarget.id} job={feedbackTarget} onSent={(view) => { if (view?.jobs) setMe(view); setTestNow(false); }} />
+            <FeedbackForm key={feedbackTarget.id} job={feedbackTarget} onSent={(view) => { if (view?.jobs) setMe(view); }} />
           </div>
         )}
       </>
@@ -1469,11 +1471,11 @@ function LecturerHome({ me: initialMe, refresh }) {
         {journeys.map((job) => <VoiceJourney key={job.id} job={job} now={now} testSlot={job.status === 'ready' ? testSlot : null} />)}
         {/* Their test time is over but they have not sent feedback yet: ask for it
             here too, so the finished page is not a dead end (owner 2026-11-25). */}
-        {me.testedSlot && !testSlot && feedbackTarget && (
+        {me.testedSlot && !testSlot && feedbackTarget && !feedbackTarget.testingClosedAt && (
           <div className="space-y-2">
             <Card className="p-4 sm:p-5">
               <p className="font-semibold text-slate-900">Your test time is over</p>
-              <p className="text-sm text-slate-600">Please tell us how your voice sounded. Sending your feedback finishes your testing.</p>
+              <p className="text-sm text-slate-600">Please tell us how your voice sounded. You can keep testing after you send it.</p>
             </Card>
             {testable.length > 1 && (
               <select value={feedbackTarget.id} onChange={(event) => setFeedbackJob(event.target.value)} className="h-10 w-full max-w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto" aria-label="Feedback for which voice">

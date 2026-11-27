@@ -107,9 +107,11 @@ export function positionOf({ jobs, recordingSlots, testSlots, now }) {
     case 'approved':
     case 'scheduled': {
       const owner = job.feedback?.some((entry) => lower(entry.email) === lower(job.ownerEmail));
-      // A new test slot after feedback reopens testing (server clears testingClosedAt).
-      if (job.testingClosedAt || (owner && !job.testingReopenedAt)) return { stop: 'test', alert: false, note: 'Feedback sent', at: null, href: '/feedback', done: true };
       const slot = job.testSlot || latestBy(testSlots, 'start');
+      // Feedback never closes testing (owner 2026-11-27): a slot still to come or
+      // running shows first; otherwise the run counts as done.
+      const slotAhead = slot && slot.status !== 'draft' && now < ms(slot.end);
+      if ((job.testingClosedAt || owner) && !slotAhead) return { stop: 'test', alert: false, note: 'Feedback sent', at: null, href: '/feedback', done: true };
       const assign = `/schedule?person=${encodeURIComponent(job.ownerEmail)}`;
       if (!slot) return { stop: 'assign', alert: true, note: 'Approved · no slot', at: null, href: assign };
       if (slot.status === 'draft') return { stop: 'assign', alert: true, note: 'Slot drafted · publish it', at: slot.start, href: assign };

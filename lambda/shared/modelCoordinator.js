@@ -230,8 +230,8 @@ export function ttsSiteOption(event, env = process.env) {
 // own voice picks switch at once (no 10 min idle wait).
 //  - super users (one shared account): STUDIO_GPU_OWNER;
 //  - each lecturer: studioPersonOwner(email) — warmed for their test slot,
-//    or cold-started when they test outside it; released after the slot or
-//    when they send their feedback.
+//    or cold-started when they test outside it; released after the slot
+//    (feedback never releases it).
 // Which one a request uses follows who is signed in (studioGpuGuard).
 export const STUDIO_GPU_OWNER = 'reserved:studio-qc';
 export function studioPersonOwner(email) {

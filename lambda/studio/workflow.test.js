@@ -212,9 +212,10 @@ test('a lecturer tests their approved voices on their own GPU, in their slot or 
   assert.equal(wf.gpuDemand(state, T0 + 29 * MIN), '');
   assert.deepEqual(wf.gpuHolds(state, T0 + 41 * MIN).map((hold) => hold.slot.id).sort(), ['s1', 's2'], 'one GPU each for two people at 1:40');
   assert.equal(wf.preloadVoiceFor(state, state.slots[0]), 'a_2', 'most recently approved voice is preloaded');
-  // Feedback closes testing for that voice.
+  // Feedback is recorded but never closes testing (owner 2026-11-27).
   wf.addFeedback(a, { email: 'a@ntu.edu.sg', rating: 4, now: T0 + 70 * MIN });
-  assert.equal(asA('a', T0 + 71 * MIN).reason, 'tested');
+  assert.equal(asA('a', T0 + 71 * MIN).reason, 'in-slot');
+  assert.equal(asA('a', T0 + 90 * MIN).reason, 'on-demand');
   assert.equal(asA('a_2', T0 + 71 * MIN).allowed, true);
   assert.equal(wf.lecturerJob(a, null).testingClosedAt, new Date(T0 + 70 * MIN).toISOString());
 });
@@ -477,7 +478,7 @@ test('latestTestSlotFor: the newest test slot, ended ones included, never cancel
   assert.equal(wf.latestTestSlotFor(state, 'b@ntu.edu.sg'), null);
 });
 
-test('a slot finished early stops blocking; a new test slot reopens testing after feedback', () => {
+test('a slot finished early stops blocking another booking for that time', () => {
   const state = wf.emptyState();
   const at = (min) => new Date(T0 + min * MIN).toISOString();
   const nat = job(state, 'n1', 'nat@ntu.edu.sg', 0);
@@ -486,45 +487,28 @@ test('a slot finished early stops blocking; a new test slot reopens testing afte
   wf.publishSlots(state, T0);
   assert.throws(() => wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'nat@ntu.edu.sg', now: T0 + 40 * MIN }), /already has a test slot/);
   wf.completeSlot(state, { slotId: 's1', email: 'nat@ntu.edu.sg', now: T0 + 45 * MIN });
-  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 4, now: T0 + 45 * MIN });
-  assert.equal(wf.testingClosed(state, 'nat@ntu.edu.sg', 'nat'), true);
   wf.addSlot(state, { id: 's2', start: at(60), end: at(80), assigneeEmail: 'nat@ntu.edu.sg', now: T0 + 50 * MIN });
-  assert.equal(wf.testingClosed(state, 'nat@ntu.edu.sg', 'nat'), false, 'the new slot reopens testing');
-  assert.ok(nat.testingReopenedAt);
+  assert.equal(state.slots.length, 2);
 });
 
-test('feedback with another slot booked ends this slot but keeps testing open (on demand + next slot)', () => {
-  const state = wf.emptyState();
-  const at = (min) => new Date(T0 + min * MIN).toISOString();
-  const nat = job(state, 'n1', 'nat@ntu.edu.sg', 0);
-  nat.status = 'approved'; nat.approvedExpName = 'nat';
-  wf.addSlot(state, { id: 's1', start: at(30), end: at(90), assigneeEmail: 'nat@ntu.edu.sg', now: T0 });
-  wf.addSlot(state, { id: 's2', start: at(300), end: at(360), assigneeEmail: 'nat@ntu.edu.sg', now: T0 });
-  wf.publishSlots(state, T0);
-  const asNat = (now) => wf.voiceAccess(state, { email: 'nat@ntu.edu.sg', voiceName: 'nat', now, superuser: false });
-  // Slot 1: feedback ends it, testing stays open.
-  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 4, now: T0 + 45 * MIN });
-  assert.equal(wf.feedbackKeepsTesting(state, 'nat@ntu.edu.sg', T0 + 45 * MIN).id, 's2');
-  assert.equal(wf.findSlot(state, 's1').completedAt, at(45));
-  assert.equal(wf.currentSlot(state, T0 + 46 * MIN), null);
-  assert.deepEqual([asNat(T0 + 46 * MIN).allowed, asNat(T0 + 46 * MIN).reason], [true, 'on-demand'], 'on demand between slots');
-  assert.equal(wf.upcomingSlotFor(state, 'nat@ntu.edu.sg', T0 + 46 * MIN, 'test').id, 's2', 'the page shows the next time');
-  assert.equal(asNat(T0 + 310 * MIN).reason, 'in-slot');
-  // Slot 2 is the last: feedback there closes testing as before.
-  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 5, now: T0 + 320 * MIN });
-  assert.equal(wf.feedbackKeepsTesting(state, 'nat@ntu.edu.sg', T0 + 320 * MIN), null);
-  assert.equal(asNat(T0 + 321 * MIN).reason, 'tested');
-});
-
-test('feedback while warming for the only slot does not count that slot as "next"', () => {
+test('feedback never ends a slot or closes testing, before, during or after slots (owner 2026-11-27)', () => {
   const state = wf.emptyState();
   const nat = job(state, 'n1', 'nat@ntu.edu.sg', 0);
   nat.status = 'approved'; nat.approvedExpName = 'nat';
   wf.addSlot(state, { id: 's1', start: new Date(T0 + 30 * MIN).toISOString(), end: new Date(T0 + 90 * MIN).toISOString(), assigneeEmail: 'nat@ntu.edu.sg', now: T0 });
+  wf.addSlot(state, { id: 's2', start: new Date(T0 + 300 * MIN).toISOString(), end: new Date(T0 + 360 * MIN).toISOString(), assigneeEmail: 'nat@ntu.edu.sg', now: T0 });
   wf.publishSlots(state, T0);
-  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 4, now: T0 + 10 * MIN });
-  assert.equal(wf.feedbackKeepsTesting(state, 'nat@ntu.edu.sg', T0 + 10 * MIN), null);
-  assert.equal(wf.testingClosed(state, 'nat@ntu.edu.sg', 'nat'), true);
+  const asNat = (now) => wf.voiceAccess(state, { email: 'nat@ntu.edu.sg', voiceName: 'nat', now, superuser: false }).reason;
+  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 3, now: T0 + 10 * MIN }); // in the warm-up
+  wf.addFeedback(nat, { email: 'nat@ntu.edu.sg', rating: 4, now: T0 + 45 * MIN }); // in slot 1
+  assert.equal(nat.feedback.length, 2, 'more feedback can be sent');
+  assert.equal(nat.testingClosedAt, new Date(T0 + 10 * MIN).toISOString(), 'first feedback time is kept');
+  assert.equal(wf.findSlot(state, 's1').completedAt, undefined, 'the slot keeps running');
+  assert.equal(asNat(T0 + 46 * MIN), 'in-slot');
+  assert.equal(asNat(T0 + 120 * MIN), 'on-demand', 'between slots');
+  assert.equal(wf.gpuHolds(state, T0 + 280 * MIN)[0]?.slot.id, 's2', 'the next slot still warms');
+  assert.equal(asNat(T0 + 310 * MIN), 'in-slot');
+  assert.equal(asNat(T0 + 400 * MIN), 'on-demand', 'after the last slot');
 });
 
 test('withdraw takes the voice off the line and its test slots, keeps recording sessions, reopens recording', () => {

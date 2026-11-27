@@ -206,16 +206,17 @@ test('full workflow: queue, train, review, retrain, approve, book, test, feedbac
   assert.equal((await h.call(alice, 'POST', `voices/${voice}/pronunciations`, { word: 'cohesin', soundsLike: 'koh hee sin' })).status, 200);
   assert.equal((await h.call(alice, 'POST', `voices/${voice}/pronunciations/apply`, {})).status, 200);
 
-  // Feedback ends her testing: stored for super users, her GPU released, testing closed.
+  // Feedback is stored for super users and changes nothing else (owner 2026-11-27):
+  // her slot and GPU keep running, she keeps testing and may send more.
   const fed = await h.call(alice, 'POST', `submissions/${a1}/feedback`, { rating: 4, comment: 'Close!' });
   assert.equal(fed.status, 200, JSON.stringify(fed.body));
-  assert.equal(h.released.length, 1);
-  assert.match(h.released[0], /^reserved:studio-p-/u);
+  assert.equal(h.released.length, 0, 'her GPU is not released');
   assert.ok(h.sent.some((m) => m.to.includes(boss) && /Feedback received/u.test(m.subject)));
-  assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.reason, 'tested');
-  assert.equal((await h.call(alice, 'POST', `submissions/${a1}/feedback`, { rating: 5 })).status, 409, 'one feedback closes testing');
+  assert.equal((await h.call(alice, 'GET', `voices/${voice}/access`)).body.reason, 'in-slot');
+  assert.equal((await h.call(alice, 'POST', `submissions/${a1}/feedback`, { rating: 5 })).status, 200, 'more feedback is fine');
   const final = (await h.call(boss, 'GET', 'admin/overview')).body;
   assert.equal(final.jobs.find((j) => j.id === a1).feedback[0].comment, 'Close!');
+  assert.equal(final.jobs.find((j) => j.id === a1).feedback.length, 2);
 });
 
 test('super users can be added, renamed and removed by super users only', async () => {

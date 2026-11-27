@@ -133,7 +133,7 @@ export const templates = {
         slot
           ? `Your test time is ${formatSgtRange(slot.start, slot.end)}. A GPU is reserved for you then, with your voice already loaded; we will remind you on the day.`
           : 'Please wait for us to book your test time — we email it to you. If you would rather not wait, you can sign in and test it now: a GPU then starts just for you, which takes about 5–15 minutes the first time.',
-        'When testing you can talk to your voice, have it read text aloud and fix how it pronounces words. When you are done, send us your feedback — that finishes your testing.',
+        'When testing you can talk to your voice, have it read text aloud and fix how it pronounces words. Send us your feedback whenever you like — you can keep testing after it.',
       ], studio ? { label: 'Open Voice Studio', url: studio } : null),
     };
   },

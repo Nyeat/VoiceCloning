@@ -594,7 +594,9 @@ export function addFeedback(job, { email, rating, comment, likeness = '', issues
   const wordList = cleanText(words, 500);
   if (wordList) entry.words = wordList;
   job.feedback.push(entry);
-  // The lecturer's own feedback ends their testing of this voice.
+  // testingClosedAt = when the lecturer first sent feedback (Clean up's "Reset for
+  // a new voice", the "feedback received" page). It never closes testing or ends
+  // a slot (owner 2026-11-27): they keep testing, in and outside slots.
   if (sameNtuPerson(entry.email, job.ownerEmail) && !job.testingClosedAt) job.testingClosedAt = iso(now);
   return job;
 }
@@ -981,10 +983,6 @@ export function addSlot(state, {
     hostConfirmedAt: null,
   };
   state.slots.push(slot);
-  // A new test slot for someone who already finished testing (sent feedback):
-  // their testing opens again, so the new slot is usable and their page shows
-  // the tester again (owner 2026-11-24).
-  if (slotType === 'test') reopenTesting(state, slot.assigneeEmail, now);
   if (slotType === 'recording') {
     applyOverrides(state, slot, now);
     adoptHostlessBookings(state, slot, now, staff);
@@ -1309,50 +1307,18 @@ function approvedVoicesOf(state, email) {
     .map((job) => job.approvedExpName);
 }
 
-/** Whether this person has finished testing (sent their feedback) for a voice. */
-export function reopenTesting(state, email, now) {
-  for (const job of state.jobs) {
-    if (sameNtuPerson(job.ownerEmail, email) && job.testingClosedAt && ['approved', 'scheduled'].includes(job.status)) {
-      job.testingReopenedAt = iso(now);
-      delete job.testingClosedAt;
-    }
-  }
-}
-
-/**
- * Feedback sent while another test slot is still booked for them (owner
- * 2026-11-26): the slot they are in (or warming for) ends now, but testing
- * stays open, so they can test on demand and use the next slot. Their GPU
- * follows the usual slot rules (kept across a short gap, else released).
- * Returns the next slot, or null when none is booked (testing then closes).
- */
-export function feedbackKeepsTesting(state, email, now) {
-  const mine = liveSlots(state).filter((slot) => slotHoldsGpu(slot) && sameNtuPerson(slot.assigneeEmail, email) && slotEnd(slot) > now);
-  const current = mine.filter((slot) => ms(slot.start) - SLOT_WARMUP_MINUTES * MINUTE <= now);
-  const next = mine.filter((slot) => !current.includes(slot)).sort((a, b) => ms(a.start) - ms(b.start))[0] || null;
-  if (!next) return null;
-  for (const slot of current) slot.completedAt = iso(now);
-  reopenTesting(state, email, now);
-  return next;
-}
-
-export function testingClosed(state, email, voiceName) {
-  return state.jobs.some((job) => sameNtuPerson(job.ownerEmail, email) && job.approvedExpName === voiceName && job.testingClosedAt);
-}
-
 /**
  * Whether this person may load and speak with this voice right now.
  * Super users review any voice at any time, on their own GPU. A lecturer uses
  * only their own approved voices, on a GPU of their own: warmed for their test
- * slot, or started on demand (cold start) outside it — until they send their
- * feedback, which closes testing.
+ * slot, or started on demand (cold start) outside it. Feedback changes nothing
+ * here (owner 2026-11-27): they test before, during and after any slot.
  */
 export function voiceAccess(state, { email, voiceName, now, superuser }) {
   const ownApproved = approvedVoicesOf(state, email).includes(voiceName);
   const active = slotsHoldingGpu(state.slots, now).find((slot) => sameNtuPerson(slot.assigneeEmail, email)) || null;
   if (superuser) return { allowed: true, reason: 'superuser', slot: active };
   if (!ownApproved) return { allowed: false, reason: 'not-approved' };
-  if (testingClosed(state, email, voiceName)) return { allowed: false, reason: 'tested' };
   if (active) return { allowed: true, reason: 'in-slot', slot: active };
   return { allowed: true, reason: 'on-demand', slot: upcomingSlotFor(state, email, now, 'test') };
 }

@@ -3110,3 +3110,15 @@
   StudioApp.jsx esbuild syntax OK.- Deploy: 7894c30 pushed to separate-containers-new and codex/staging-multi-user-scaling; dev Lambdas (deploy-lambda -Env dev) and dev studio site deployed, live bundle checked for the new text. Staging NOT deployed (blocked by a permission prompt). Staff guide doc got section 8 + 6 mock screenshots; warm-up corrected to 30 min.
 - Staging deployed (deploy-lambda -Env staging + studio site), live bundle checked. Staff guide doc: super user + lecturer sections rewritten for the current console with 28 screenshots of the real studio UI (local in-memory studio server + Vite, sample people), replacing all old screenshots.
 - Docs: DECISIONS (multiple test slots, 30-min gap rule, moving a warming slot), TODO (owner decided the gap rule; live-test task added); workflow.js comment fixed (gap rule is the 30-min warm-up, not an hour).
+
+## 2026-11-27 — Feedback closes nothing
+
+- Owner: lecturers test before, during and after every slot; feedback is only saved. Removed `feedbackKeepsTesting`,
+  `reopenTesting`, `testingClosed` and the `tested` access reason (`lambda/studio/workflow.js`); the feedback route no
+  longer ends the slot, releases the GPU or refuses a second feedback, and slot warm-up no longer skips people who sent
+  feedback (`lambda/studio/index.js`). Lecturer page keeps the tester after feedback, new wording; line map shows the
+  slot while one is ahead (`client/src/studio/StudioApp.jsx`, `superLine.js`); slot email wording (`mailer.js`).
+- Unchanged: GPU kept across a gap only when the next slot is in its 30-min warm-up, else released and warmed again
+  30 min before; a prepare during a release boots a new GPU (Terminating instances are not routed to).
+- Tests: `node --test lambda/studio/*.test.js` 79/79, model-coordinator + shared 190/190, client studio 45/45,
+  `vite build` OK. Not deployed, not live-tested.

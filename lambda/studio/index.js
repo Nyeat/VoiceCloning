@@ -69,8 +69,8 @@ async function defaultPreloadVoice(voiceName, ownerKey, ownerEmail = '') {
   return prepareCoordinatedModel(body, { allowScale: true, source: 'models-select', ownerKey });
 }
 
-// A person's GPU once they are done (slot over with none within the hour, or
-// feedback sent): released so it shuts down now rather than after the idle timer.
+// A person's GPU once their slot is over with none following soon: released so
+// it shuts down now rather than after the idle timer.
 async function defaultReleaseSlotGpu(ownerKey) {
   const { releaseCoordinatedOwner } = await import('../shared/modelCoordinator.js');
   return releaseCoordinatedOwner(ownerKey);
@@ -275,7 +275,7 @@ export function createStudioService({
     // Several people in one slot each get their own GPU, warmed in parallel.
     const preloaded = [];
     const voiceFailedPeople = [];
-    const holds = wf.gpuHolds(state, now).filter((hold) => !testingDone(state, hold.slot.assigneeEmail));
+    const holds = wf.gpuHolds(state, now);
     await Promise.all(holds.map(async (hold) => {
       const voiceName = wf.preloadVoiceFor(state, hold.slot);
       if (!voiceName) return;
@@ -401,35 +401,12 @@ export function createStudioService({
     }
   }
 
-  // Sent feedback on every approved voice: no GPU is warmed for them any more.
-  function testingDone(state, email) {
-    const approved = state.jobs.filter((job) => wf.sameNtuPerson(job.ownerEmail, email) && ['approved', 'scheduled'].includes(job.status));
-    return approved.length > 0 && approved.every((job) => job.testingClosedAt);
-  }
-
-  // A lecturer finished testing: end their running slot and give their GPU back now.
-  async function finishTesting(email) {
-    const now = clock();
-    await updateState(store, (draft) => {
-      const slots = draft.slots.filter((slot) => wf.slotHoldsGpu(slot) && wf.sameNtuPerson(slot.assigneeEmail, email)
-        && Date.parse(slot.start) - wf.SLOT_WARMUP_MINUTES * 60_000 <= now && now < wf.slotEnd(slot));
-      if (slots.length === 0) return { skipWrite: true };
-      for (const slot of slots) slot.completedAt = new Date(now).toISOString();
-      return null;
-    });
-    try {
-      await releaseSlotGpu(await personOwner(email));
-    } catch (error) {
-      console.warn(`[studio] GPU release after feedback failed (it idles off instead): ${error.message}`);
-    }
-  }
-
   // Gives one person's test GPU back now.
   async function releasePersonGpu(email) {
     await releaseSlotGpu(await personOwner(email));
   }
 
-  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices, finishTesting, testingDone, releaseSlotGpu: releasePersonGpu, callModel };
+  return { store, accountStore, tick, takenVoiceNames, notify, superuserEmails, env, clock, newId, presign, head, readJson, writeJson, applyPronunciation, readWorker, mailer, listVoices, releaseSlotGpu: releasePersonGpu, callModel };
 }
 
 // ── HTTP ─────────────────────────────────────────────────────────────────
@@ -843,23 +820,17 @@ export function createHandler({
         return ok(await lecturerView(state, email, passwordAccount, via), {}, event);
       }
 
-      // The lecturer's feedback is the end of their testing: testing that voice
-      // closes, their slot ends and their GPU is given back.
+      // The lecturer's feedback is only saved (owner 2026-11-27): it never ends
+      // a slot, closes testing or gives their GPU back, and they may send more.
       if (route === 'POST submissions/:id/feedback') {
         const { result } = await updateState(store, (state) => {
           const job = ownJob(state, parts[1], email);
           if (!['scheduled', 'approved'].includes(job.status)) throw wf.clientError(409, 'Feedback opens once your voice is ready to test');
-          if (job.testingClosedAt) throw wf.clientError(409, 'You already sent your feedback for this voice — thank you');
           wf.addFeedback(job, {
             email, rating: body.rating, comment: body.comment, likeness: body.likeness, issues: body.issues, words: body.words, now,
           });
-          // Another test slot still booked: this slot ends, testing stays open.
-          const next = wf.feedbackKeepsTesting(state, email, now);
-          return { done: !next && service.testingDone(state, email), next: Boolean(next), jobId: job.id };
+          return { jobId: job.id };
         });
-        if (result.done) await service.finishTesting(email);
-        // The ended slot's GPU then follows the slot rules (kept across a short gap, else released).
-        else if (result.next) await service.tick({ force: true }).catch((error) => console.warn('[studio] tick after feedback failed', error.message));
         const { state } = await store.read();
         const job = wf.findJob(state, result.jobId);
         await service.notify(job.id, 'feedbackReceived', service.superuserEmails(state), templates.feedbackReceived({ job, env }));
